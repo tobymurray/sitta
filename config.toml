@@ -1,0 +1,24 @@
+[station]
+id = "station_01"
+name = "North Paddock"
+
+[audio]
+chunk_seconds = 3
+
+[[audio.sources]]
+type = "rtsp"
+name = "nofth_feader"
+url = "rtsp://192.168.1.132:8554/north_feeder"
+transport = "tcp"
+# sample_rate = 48000
+# channels = 1
+
+# [[audio.sources]]
+# type = "rtsp"
+# name = "south_dam"
+# url = "rtsp://192.168.1.101:554/stream1"
+
+# [[audio.sources]]
+# type = "local"
+# name = "usb_mic"
+# device = "M-Track Duo"

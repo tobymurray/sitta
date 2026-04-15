@@ -1,6 +1,22 @@
-[package]
-name = "sitta"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = [
+    "sitta-audio",
+    "sitta-inference",
+    "sitta-store",
+    "sitta-api",
+    "sitta-spatial",
+    "sitta-bin",
+]
+resolver = "3"
 
-[dependencies]
+[workspace.dependencies]
+tokio = { version = "1.52", features = ["full"] }
+tokio-util = "0.7.18"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+serde = { version = "1.0.228", features = ["derive"] }
+chrono = { version = "0.4.44", features = ["serde"] }
+uuid = { version = "1.23", features = ["v7"] }
+thiserror = "2.0.18"
+toml = "1.1"
+anyhow = "1.0.102"
