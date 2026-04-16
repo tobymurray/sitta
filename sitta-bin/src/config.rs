@@ -6,6 +6,8 @@ use sitta_audio::source::SourceConfig;
 pub struct Config {
     pub station: StationConfig,
     pub audio: AudioConfig,
+    #[serde(default)]
+    pub inference: InferenceConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -25,6 +27,38 @@ pub struct AudioConfig {
     pub sources: Vec<SourceConfig>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct InferenceConfig {
+    #[serde(default)]
+    pub birdnet: Option<BirdNetConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BirdNetConfig {
+    /// Path to the ONNX model file.
+    pub model_path: String,
+    /// Path to the labels text file.
+    pub labels_path: String,
+    /// Minimum confidence threshold (post-sigmoid). Default: 0.25.
+    #[serde(default = "default_min_confidence")]
+    pub min_confidence: f32,
+    /// Sigmoid sensitivity factor. Default: 1.0.
+    #[serde(default = "default_sigmoid_sensitivity")]
+    pub sigmoid_sensitivity: f32,
+}
+
+impl Default for InferenceConfig {
+    fn default() -> Self {
+        Self { birdnet: None }
+    }
+}
+
 fn default_chunk_seconds() -> u32 {
     3
+}
+fn default_min_confidence() -> f32 {
+    0.25
+}
+fn default_sigmoid_sensitivity() -> f32 {
+    1.0
 }

@@ -16,26 +16,26 @@ Named for the nuthatch genus (*Sitta*).
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                       sitta (binary)                      │
-│                                                           │
-│  ┌──────────┐  ┌──────────────┐  ┌───────────────────┐  │
-│  │  Audio    │  │  Inference    │  │   API / MQTT      │  │
-│  │  Pipeline │─▶│  Engine       │─▶│   Gateway         │  │
-│  │           │  │              │  │                   │  │
-│  │ capture   │  │ birdnet      │  │ REST (axum)      │  │
-│  │ resample  │  │ perch        │  │ WebSocket        │  │
-│  │ buffer    │  │ individual   │  │ MQTT publish     │  │
-│  │ dispatch  │  │ id matching  │  │ HA discovery     │  │
-│  └──────────┘  └──────────────┘  └───────────────────┘  │
-│        │              │                 │                  │
-│        ▼              ▼                 ▼                  │
+│                       sitta (binary)                     │
+│                                                          │
+│  ┌───────────┐   ┌──────────────┐  ┌──────────────────┐  │
+│  │  Audio    │   │  Inference   │  │   API / MQTT     │  │
+│  │  Pipeline │─▶│  Engine      │─▶│   Gateway       │  │
+│  │           │   │              │  │                  │  │
+│  │ capture   │   │ birdnet      │  │ REST (axum)      │  │
+│  │ resample  │   │ perch        │  │ WebSocket        │  │
+│  │ buffer    │   │ individual   │  │ MQTT publish     │  │
+│  │ dispatch  │   │ id matching  │  │ HA discovery     │  │
+│  └───────────┘   └──────────────┘  └──────────────────┘  │
+│        │              │                 │                │
+│        ▼              ▼                 ▼                │
 │  ┌───────────────────────────────────────────────────┐   │
-│  │            sitta-store (SQLite + embeddings)        │   │
+│  │            sitta-store (SQLite + embeddings)      │   │
 │  └───────────────────────────────────────────────────┘   │
-│        │                                                  │
-│        ▼                                                  │
+│        │                                                 │
+│        ▼                                                 │
 │  ┌───────────────────────────────────────────────────┐   │
-│  │          sitta-spatial (future: TDOA engine)        │   │
+│  │          sitta-spatial (future: TDOA engine)      │   │
 │  └───────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -54,7 +54,11 @@ sitta/
 │       ├── chunk.rs        # AudioChunk type
 │       ├── source.rs       # source config types (RTSP, local)
 │       └── rtsp.rs         # ffmpeg-based RTSP capture
-├── sitta-inference/        # model loading, inference, embedding ops (stub)
+├── sitta-inference/        # model loading, inference, embedding ops
+│   └── src/
+│       ├── lib.rs
+│       ├── model.rs        # Classifier trait, Classification/Species types
+│       └── birdnet.rs      # BirdNET ONNX model via tract-onnx
 ├── sitta-store/            # persistence layer (stub)
 ├── sitta-spatial/          # future TDOA triangulation (stub)
 ├── sitta-api/              # HTTP, WebSocket, MQTT (stub)
@@ -99,22 +103,73 @@ Every `AudioChunk` carries a `timestamp_ns: u64` (monotonic, relative to capture
 
 ## Inference Engine
 
+### Classifier Abstraction
+
+The inference layer defines a `Classifier` trait that any model backend can implement:
+
+```rust
+pub trait Classifier: Send + Sync {
+    fn classify(&self, audio: &[f32]) -> Result<Vec<Classification>>;
+    fn name(&self) -> &str;
+    fn sample_rate(&self) -> u32;
+    fn window_samples(&self) -> usize;
+}
+```
+
+Both BirdNET and Google Perch can serve as species classifiers. The architecture does not hardcode "BirdNET = species, Perch = embeddings." Instead:
+
+| Capability | BirdNET | Perch |
+|---|---|---|
+| Species classification | Yes (built-in) | Yes (with classification head) |
+| Embeddings for individual ID | No | Yes |
+| Custom taxonomy / fine-tuning | Limited | Straightforward (train a head on embeddings) |
+
+Multiple classifiers can run simultaneously. Detection events carry model provenance so you know which produced each result. Cross-referencing (BirdNET says "Barn Owl" at 0.85, Perch agrees at 0.90) gives a stronger signal than either alone.
+
+### BirdNET v2.4
+
+Currently implemented. Input is raw 48 kHz mono waveform (3-second windows) -- the model contains its own spectrogram layer. Output is ~6,500 species logits, passed through a configurable sigmoid.
+
+**Model setup:**
+
+1. Download the BirdNET v2.4 SavedModel (Protobuf) from [Zenodo](https://zenodo.org/records/15050749)
+2. Convert to ONNX:
+   ```bash
+   pip install tf2onnx
+   python -m tf2onnx.convert --saved-model ./BirdNET_GLOBAL_6K_V2.4_Model_Protobuf \
+       --output birdnet_v2.4.onnx --opset 15
+   ```
+3. Download the labels file from the [BirdNET-Analyzer repo](https://github.com/kahst/BirdNET-Analyzer/tree/main/birdnet_analyzer/labels/V2.4) (choose your language)
+4. Configure in `config.toml`:
+   ```toml
+   [inference.birdnet]
+   model_path = "/opt/sitta/models/birdnet_v2.4.onnx"
+   labels_path = "/opt/sitta/models/BirdNET_GLOBAL_6K_V2.4_Labels_en_uk.txt"
+   min_confidence = 0.25
+   sigmoid_sensitivity = 1.0
+   ```
+
+### Google Perch (planned)
+
+Perch produces a 1280-dimensional embedding per 5-second window at 32 kHz. It supports both species classification (with a classification head) and individual identification via embedding similarity. Future phases will add:
+
+- Species classification as a second `Classifier` implementation
+- Embedding extraction for individual ID
+
 ### Tract vs. TFLite
 
-| Criterion | Tract | TFLite (via `tflite-rs`) |
+| Criterion | Tract (tract-onnx) | TFLite (via `tflite-rs`) |
 |---|---|---|
 | Pure Rust | Yes | No (FFI to C library) |
 | Cross-compile ARM64 | Trivial | Requires pre-built `.so` |
 | Coral TPU support | No | Yes, via Edge TPU delegate |
-| BirdNET compat | `.onnx` (convert from TFLite) | Native `.tflite` |
-| Perch compat | `.onnx` | Native `.tflite` |
 | ARM64 performance | Good (NEON auto-vectorised) | Good (NEON + XNNPACK) |
 
-**Decision:** Start with Tract (pure Rust, zero FFI). Gate TFLite behind `#[cfg(feature = "tflite")]` for Coral TPU support later.
+**Current:** tract-onnx 0.22.1 (pure Rust, zero FFI). TFLite backend may be added behind a feature flag for Coral TPU support.
 
-### Individual Identification
+### Individual Identification (planned)
 
-Perch produces a 1280-dimensional embedding per audio window. Individual ID works by:
+Perch embeddings enable recognising specific animals, not just species:
 
 1. **Enrolment.** User labels a detection as "Barn Owl #1." The embedding vector is stored in `sitta-store`.
 2. **Matching.** New embeddings are compared via cosine similarity against known individuals. Threshold: configurable, default 0.85.
@@ -238,8 +293,13 @@ url = "rtsp://192.168.1.101:554/stream1"
 # name = "usb_mic"
 # device = "M-Track Duo"
 
+[inference.birdnet]
+model_path = "/opt/sitta/models/birdnet_v2.4.onnx"
+labels_path = "/opt/sitta/models/BirdNET_GLOBAL_6K_V2.4_Labels_en_uk.txt"
+min_confidence = 0.25
+sigmoid_sensitivity = 1.0
+
 # Future sections (not yet implemented):
-# [inference.birdnet]
 # [inference.perch]
 # [api]
 # [mqtt]
@@ -261,12 +321,12 @@ Runtime dependencies: `ffmpeg` must be installed on the host for RTSP capture.
 | `chrono` | UTC timestamps |
 | `uuid` | v7 time-sortable chunk/detection IDs |
 | `thiserror` / `anyhow` | Error handling (library / binary) |
+| `tract-onnx` | Pure Rust ONNX inference (BirdNET, future Perch) |
 
 ### Planned (future phases)
 
 | Crate | Purpose |
 |---|---|
-| `tract-onnx` | Pure Rust ONNX inference, good ARM64 perf |
 | `rubato` | High-quality sinc resampling (48->32 kHz) |
 | `axum` | Tokio-native HTTP/WS server |
 | `rumqttc` | Async MQTT client |
@@ -297,9 +357,11 @@ Capture audio, run BirdNET, emit detections.
 - [x] `config.toml` parsing
 - [x] Structured logging (`tracing`)
 - [x] Broadcast channel fan-out to multiple consumers
+- [x] Classifier trait abstraction (supports BirdNET, future Perch)
+- [x] BirdNET v2.4 inference via tract-onnx
+- [x] Configurable sigmoid sensitivity and confidence threshold
+- [x] Inference runs on blocking threads (no async executor starvation)
 - [ ] Local audio capture via `cpal`
-- [ ] Load BirdNET ONNX model via Tract
-- [ ] 3-second windowed inference loop
 - [ ] SQLite detection log (rusqlite, WAL mode)
 
 **Deliverable:** `cargo run` on an RPi, species detections in the terminal.
