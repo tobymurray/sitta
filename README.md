@@ -351,7 +351,7 @@ Runtime dependencies: `ffmpeg` must be installed on the host for RTSP capture.
 |---|---|
 | `axum` | Tokio-native HTTP/WS server |
 | `rumqttc` | Async MQTT client |
-| `rusqlite` | SQLite with WAL mode, no ORM overhead |
+| `sqlx` | SQLite with WAL mode, compile-time checked SQL |
 | `cpal` | Local sound card capture (ALSA) |
 | `core_affinity` | CPU pinning for deterministic scheduling |
 
@@ -361,7 +361,7 @@ Runtime dependencies: `ffmpeg` must be installed on the host for RTSP capture.
 |---|---|
 | gRPC / protobuf | JSON over REST + MQTT. No code generation step. |
 | Heavy web framework | axum -- lightest Tokio-native option |
-| ORM (Diesel, SeaORM) | Raw SQL via rusqlite. Simple schema, no abstraction tax. |
+| ORM (Diesel, SeaORM) | Raw SQL via sqlx. Compile-time checked queries, no abstraction tax. |
 | Vector database | In-process brute-force cosine search. Hundreds of vectors don't need a server. |
 | Docker on the SBC | Native binary. One binary, one config file, one systemd unit. |
 | Plugin architecture | Workspace crates with clear boundaries. Plugins are YAGNI. |
@@ -388,7 +388,7 @@ Capture audio, run BirdNET, emit detections.
 - [x] Geographic/seasonal range filter via BirdNET meta-model (`birdnet-v24-meta.onnx`); location scores cached per calendar day
 - [x] `force_allow` list: species codes that bypass the geographic filter (for known-present domestic animals)
 - [ ] Local audio capture via `cpal`
-- [ ] SQLite detection log (rusqlite, WAL mode)
+- [ ] SQLite detection log (sqlx, WAL mode) — see `STORE_IMPLEMENTATION_PLAN.md`
 
 **Deliverable:** `cargo run` on an RPi, species detections in the terminal.
 

@@ -419,3 +419,61 @@ missing when meta_model_path is set.
 
 **Real-world result (2026-04-17, Melbourne -37.81, 144.96):** 154 species allowed out
 of 6,522 — dramatically reduces false positives from species that simply don't occur here.
+
+---
+
+## 2026-04-17: SQLite persistence — schema design and library choice
+
+### Decision: SQLite schema for sitta-store
+
+Designed a 10-table SQLite schema (`sitta-store/schema.sql`) informed by
+BirdNET-Pi and BirdNET-Go's migration pain points. Key design calls:
+
+- **INTEGER PKs for dimension tables** (`models`, `labels`), **UUIDv7 BLOB(16)
+  PKs for entity/event tables** (detections, individuals, etc.). Labels table
+  has ~21,000 rows referenced from every detection — 4-byte INTEGER FK vs
+  16-byte BLOB saves meaningful space on SD card storage.
+- **Single `detected_at` INTEGER** (Unix ms) instead of separate Date/Time
+  string columns. BirdNET-Pi's dual-column design complicated every range
+  query; BirdNET-Go v2 fixed this.
+- **Labels are per-model** (`UNIQUE(model_id, label_index)`) because the same
+  scientific name appears at different tensor positions across BirdNET and
+  Perch. Non-species labels (noise, environment) use `scientific_name = NULL`.
+- **Top-1 prediction inline on detections**, secondary predictions in
+  `detection_predictions` with a rank column. `WITHOUT ROWID` on predictions
+  since the composite PK `(detection_id, rank)` is the only access pattern.
+- **Nullable `location_x`/`location_y`** on detections for Phase 5 TDOA —
+  avoids a sparse join table for the ~1% of detections that will have
+  location.
+- **`metadata` JSON blob** for extensible per-detection diagnostics (noise
+  floor, peak freq, inference time) that won't be filtered on.
+- **`ON DELETE CASCADE`** from detections to predictions, embeddings, matches,
+  and reviews. Stations and models use default RESTRICT to prevent accidental
+  mass deletion.
+
+Full implementation plan in `STORE_IMPLEMENTATION_PLAN.md`.
+
+### Decision: SQLx over rusqlite
+
+Initially planned `rusqlite` (raw SQL, minimal abstraction). Switched to
+`sqlx` for **compile-time query checking**.
+
+**Why:** The SQL boundary (column names, types, nullability) is where bugs
+historically hide in projects like this. A renamed column or mismatched type
+silently compiles with string-based SQL and only fails at runtime — possibly
+on a headless Pi in the field. `sqlx::query!` macros check every query
+against the real schema at compile time.
+
+**What we lose:** Nothing material. The raw-SQL philosophy is preserved —
+`sqlx::query!` is still handwritten SQL, not an ORM query builder.
+`sqlx::raw_sql()` handles PRAGMAs and DDL.
+
+**Cross-compilation concern (resolved):** `sqlx::query!` needs a database at
+compile time. Offline mode (`cargo sqlx prepare`) caches query metadata in
+`.sqlx/` (committed to repo). CI and aarch64 cross-builds use
+`SQLX_OFFLINE=true` — no database needed.
+
+**Architectural simplification:** `SqlitePool` is `Clone + Send + Sync` and
+serializes writes internally. The dedicated writer thread + mpsc channel
+pattern from the rusqlite plan is replaced by sharing the pool across async
+tasks directly.
