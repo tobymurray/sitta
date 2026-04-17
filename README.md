@@ -58,7 +58,7 @@ sitta/
 │   └── src/
 │       ├── lib.rs
 │       ├── model.rs        # Classifier trait, Classification/Species types
-│       └── birdnet.rs      # BirdNET ONNX model via tract-onnx
+│       └── birdnet.rs      # BirdNET inference via birdnet-onnx
 ├── sitta-store/            # persistence layer (stub)
 ├── sitta-spatial/          # future TDOA triangulation (stub)
 ├── sitta-api/              # HTTP, WebSocket, MQTT (stub)
@@ -128,25 +128,19 @@ Multiple classifiers can run simultaneously. Detection events carry model proven
 
 ### BirdNET v2.4
 
-Currently implemented. Input is raw 48 kHz mono waveform (3-second windows) -- the model contains its own spectrogram layer. Output is ~6,500 species logits, passed through a configurable sigmoid.
+Currently implemented via `birdnet-onnx` (wraps ONNX Runtime). Input is raw 48 kHz mono waveform (3-second windows). Output is ~6,500 species scores, sigmoid applied internally. Model type is auto-detected — also supports v3.0, Perch v2, and BSG Finland.
 
 **Model setup:**
 
-1. Download the BirdNET v2.4 SavedModel (Protobuf) from [Zenodo](https://zenodo.org/records/15050749)
-2. Convert to ONNX:
-   ```bash
-   pip install tf2onnx
-   python -m tf2onnx.convert --saved-model ./BirdNET_GLOBAL_6K_V2.4_Model_Protobuf \
-       --output birdnet_v2.4.onnx --opset 15
-   ```
-3. Download the labels file from the [BirdNET-Analyzer repo](https://github.com/kahst/BirdNET-Analyzer/tree/main/birdnet_analyzer/labels/V2.4) (choose your language)
-4. Configure in `config.toml`:
+1. Download the BirdNET v2.4 ONNX model from the [birdnet-onnx releases](https://github.com/tphakala/birdnet-onnx/releases) or from Zenodo
+2. Download the labels file from the [BirdNET-Analyzer repo](https://github.com/kahst/BirdNET-Analyzer/tree/main/birdnet_analyzer/labels/V2.4) (choose your language)
+3. Configure in `config.toml`:
    ```toml
    [inference.birdnet]
    model_path = "/opt/sitta/models/birdnet_v2.4.onnx"
    labels_path = "/opt/sitta/models/BirdNET_GLOBAL_6K_V2.4_Labels_en_uk.txt"
    min_confidence = 0.25
-   sigmoid_sensitivity = 1.0
+   top_k = 10
    ```
 
 ### Google Perch (planned)
@@ -156,16 +150,21 @@ Perch produces a 1280-dimensional embedding per 5-second window at 32 kHz. It su
 - Species classification as a second `Classifier` implementation
 - Embedding extraction for individual ID
 
-### Tract vs. TFLite
+### birdnet-onnx backend
 
-| Criterion | Tract (tract-onnx) | TFLite (via `tflite-rs`) |
-|---|---|---|
-| Pure Rust | Yes | No (FFI to C library) |
-| Cross-compile ARM64 | Trivial | Requires pre-built `.so` |
-| Coral TPU support | No | Yes, via Edge TPU delegate |
-| ARM64 performance | Good (NEON auto-vectorised) | Good (NEON + XNNPACK) |
+`birdnet-onnx` (by tphakala, the BirdNET-Go author) wraps ONNX Runtime with a purpose-built API for BirdNET-family models:
 
-**Current:** tract-onnx 0.22.1 (pure Rust, zero FFI). TFLite backend may be added behind a feature flag for Coral TPU support.
+| Feature | birdnet-onnx |
+|---|---|
+| Model support | BirdNET v2.4, v3.0, Perch v2, BSG Finland |
+| ONNX Runtime | Bundled at build time (or runtime `dlopen` via `load-dynamic` feature) |
+| Thread safety | Internal `Arc` — no external Mutex needed |
+| Hardware acceleration | CPU (default), CUDA, TensorRT, CoreML, ArmNN, XNNPACK, and more |
+| Embeddings | Returned for v3.0 and Perch models |
+| Labels | Parsed internally from the labels file |
+| Sigmoid | Applied internally; no manual sensitivity tuning |
+
+The `load-dynamic` feature mirrors how BirdNET-Go loads TFLite — useful for cross-compilation where you want to supply the ONNX Runtime `.so` at runtime rather than bundling it. The `cuda` feature enables GPU inference.
 
 ### Individual Identification (planned)
 
@@ -297,7 +296,7 @@ url = "rtsp://192.168.1.101:554/stream1"
 model_path = "/opt/sitta/models/birdnet_v2.4.onnx"
 labels_path = "/opt/sitta/models/BirdNET_GLOBAL_6K_V2.4_Labels_en_uk.txt"
 min_confidence = 0.25
-sigmoid_sensitivity = 1.0
+top_k = 10
 
 # Future sections (not yet implemented):
 # [inference.perch]
@@ -321,7 +320,7 @@ Runtime dependencies: `ffmpeg` must be installed on the host for RTSP capture.
 | `chrono` | UTC timestamps |
 | `uuid` | v7 time-sortable chunk/detection IDs |
 | `thiserror` / `anyhow` | Error handling (library / binary) |
-| `tract-onnx` | Pure Rust ONNX inference (BirdNET, future Perch) |
+| `birdnet-onnx` | BirdNET/Perch species classification via ONNX Runtime |
 
 ### Planned (future phases)
 
@@ -358,8 +357,8 @@ Capture audio, run BirdNET, emit detections.
 - [x] Structured logging (`tracing`)
 - [x] Broadcast channel fan-out to multiple consumers
 - [x] Classifier trait abstraction (supports BirdNET, future Perch)
-- [x] BirdNET v2.4 inference via tract-onnx
-- [x] Configurable sigmoid sensitivity and confidence threshold
+- [x] BirdNET v2.4 inference via birdnet-onnx (ONNX Runtime)
+- [x] Configurable confidence threshold and top_k
 - [x] Inference runs on blocking threads (no async executor starvation)
 - [ ] Local audio capture via `cpal`
 - [ ] SQLite detection log (rusqlite, WAL mode)
