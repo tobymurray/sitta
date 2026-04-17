@@ -58,7 +58,11 @@ sitta/
 │   └── src/
 │       ├── lib.rs
 │       ├── model.rs        # Classifier trait, Classification/Species types
-│       └── birdnet.rs      # BirdNET inference via birdnet-onnx
+│       ├── birdnet.rs      # BirdNET/Perch inference via birdnet-onnx
+│       └── rangefilter.rs  # geographic/seasonal filter via BirdNET meta-model
+├── sitta-taxonomy/         # eBird taxonomy: scientific name → common name + species code
+│   └── src/
+│       └── lib.rs
 ├── sitta-store/            # persistence layer (stub)
 ├── sitta-spatial/          # future TDOA triangulation (stub)
 ├── sitta-api/              # HTTP, WebSocket, MQTT (stub)
@@ -95,9 +99,9 @@ BirdNET consumer (3s windows)        Perch consumer (5s windows, future)
 - **Multiple sources.** Each source is a TOML array entry. Sources run as independent Tokio tasks. Scale is limited by CPU (each stream costs ~one core for inference at full rate).
 - **Local audio also supported.** A `type = "local"` source variant exists for direct sound card capture (future implementation).
 
-### Multi-Rate Pipeline (future)
+### Multi-Rate Pipeline
 
-BirdNET expects 48 kHz mono, 3-second windows. Google Perch expects 32 kHz mono, 5-second windows. ffmpeg can resample at capture time, or `rubato` with `SincFixedIn` can resample in-process for tighter control. Sinc interpolation is the right quality/cost tradeoff for bioacoustics where harmonics matter.
+BirdNET expects 48 kHz mono, 3-second windows. Google Perch expects 32 kHz mono, 5-second windows. The Perch consumer buffers incoming 48 kHz chunks and resamples in-process via `rubato` (`Fft` resampler, 5s windows, 3s stride / 2s overlap).
 
 Every `AudioChunk` carries a `timestamp_ns: u64` (monotonic, relative to capture start), which is free now and required for TDOA later.
 
@@ -326,7 +330,7 @@ Runtime dependencies: `ffmpeg` must be installed on the host for RTSP capture.
 
 ## Dependencies
 
-### Current (Phase 1)
+### Current
 
 | Crate | Purpose |
 |---|---|
@@ -337,14 +341,14 @@ Runtime dependencies: `ffmpeg` must be installed on the host for RTSP capture.
 | `chrono` | UTC timestamps |
 | `uuid` | v7 time-sortable chunk/detection IDs |
 | `thiserror` / `anyhow` | Error handling (library / binary) |
-| `birdnet-onnx` | BirdNET/Perch species classification via ONNX Runtime |
+| `birdnet-onnx` | BirdNET/Perch species classification + range filter via ONNX Runtime |
 | `rubato` | High-quality FFT-based audio resampling (48→32 kHz for Perch) |
+| `csv` | eBird taxonomy CSV parsing |
 
 ### Planned (future phases)
 
 | Crate | Purpose |
 |---|---|
-| `rubato` | High-quality sinc resampling (48->32 kHz) |
 | `axum` | Tokio-native HTTP/WS server |
 | `rumqttc` | Async MQTT client |
 | `rusqlite` | SQLite with WAL mode, no ORM overhead |
@@ -368,18 +372,21 @@ Runtime dependencies: `ffmpeg` must be installed on the host for RTSP capture.
 
 Capture audio, run BirdNET, emit detections.
 
-- [x] Workspace skeleton (`sitta-audio`, `sitta-inference`, `sitta-store`, `sitta-api`, `sitta-spatial`, `sitta-bin`)
+- [x] Workspace skeleton (`sitta-audio`, `sitta-inference`, `sitta-taxonomy`, `sitta-store`, `sitta-api`, `sitta-spatial`, `sitta-bin`)
 - [x] RTSP capture via ffmpeg subprocess with auto-reconnect
 - [x] Multi-source configuration (`[[audio.sources]]`)
 - [x] `config.toml` parsing
 - [x] Structured logging (`tracing`)
 - [x] Broadcast channel fan-out to multiple consumers
-- [x] Classifier trait abstraction (supports BirdNET, future Perch)
+- [x] Classifier trait abstraction (BirdNET and Perch)
 - [x] BirdNET v2.4 inference via birdnet-onnx (ONNX Runtime)
 - [x] Configurable confidence threshold and top_k
 - [x] Inference runs on blocking threads (no async executor starvation)
 - [x] Google Perch v2 inference (32 kHz, 5s windows, 1536-dim embeddings)
 - [x] In-process 48→32 kHz resampling via rubato (FFT, 3s stride)
+- [x] eBird taxonomy (`sitta-taxonomy`): scientific name → common name + eBird species code
+- [x] Geographic/seasonal range filter via BirdNET meta-model (`birdnet-v24-meta.onnx`); location scores cached per calendar day
+- [x] `force_allow` list: species codes that bypass the geographic filter (for known-present domestic animals)
 - [ ] Local audio capture via `cpal`
 - [ ] SQLite detection log (rusqlite, WAL mode)
 
@@ -400,9 +407,9 @@ Expose detections over the network.
 
 "That's Barn Owl #1 again."
 
-- [ ] Integrate Perch model (second consumer on ring buffer)
-- [ ] rubato resampler for 48->32 kHz
-- [ ] Embedding extraction pipeline
+- [x] Perch v2 consumer (second consumer on ring buffer, 48→32 kHz resampling) *(completed in Phase 1)*
+- [x] Embedding extraction (1536-dim vectors returned per window, logged at DEBUG) *(completed in Phase 1)*
+- [ ] Store embeddings in `sitta-store` (SQLite + binary blob)
 - [ ] `IndividualMatcher` with cosine similarity
 - [ ] Enrolment API endpoint
 - [ ] `individual` field in detection events
