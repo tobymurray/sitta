@@ -13,4 +13,5 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 tokio-util = { workspace = true }
 futures-core = "0.3"
+uuid = { workspace = true }
 sitta-store = { path = "../sitta-store" }

@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT l.scientific_name, l.common_name AS \"common_name!\",\n                      l.taxon_code,\n                      COUNT(*) AS \"detection_count!: i64\",\n                      MAX(d.detected_at) AS \"last_detected_at!: i64\",\n                      AVG(d.confidence) AS \"avg_confidence!: f64\"\n               FROM detections d\n               JOIN labels l ON l.id = d.label_id\n               WHERE d.detected_at >= $1 AND d.detected_at <= $2\n                 AND l.label_type = 'species'\n               GROUP BY l.scientific_name, l.common_name, l.taxon_code\n               ORDER BY COUNT(*) DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "scientific_name",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "common_name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "taxon_code",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "detection_count!: i64",
+        "ordinal": 3,
+        "type_info": "Null"
+      },
+      {
+        "name": "last_detected_at!: i64",
+        "ordinal": 4,
+        "type_info": "Null"
+      },
+      {
+        "name": "avg_confidence!: f64",
+        "ordinal": 5,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "5d6bcdf1d01b1415d756ded6d478b8a1c2e967ebaff611666317ab66a6280ce8"
+}

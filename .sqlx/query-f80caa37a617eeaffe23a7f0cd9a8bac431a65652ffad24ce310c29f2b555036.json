@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT p.rank, p.confidence AS \"confidence!: f64\",\n                      l.scientific_name, l.common_name AS \"common_name!\"\n               FROM detection_predictions p\n               JOIN labels l ON l.id = p.label_id\n               WHERE p.detection_id = $1\n               ORDER BY p.rank",
+  "describe": {
+    "columns": [
+      {
+        "name": "rank",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "confidence!: f64",
+        "ordinal": 1,
+        "type_info": "Float"
+      },
+      {
+        "name": "scientific_name",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "common_name!",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "f80caa37a617eeaffe23a7f0cd9a8bac431a65652ffad24ce310c29f2b555036"
+}

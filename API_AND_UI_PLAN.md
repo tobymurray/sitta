@@ -220,7 +220,7 @@ simpler:
 
 ---
 
-## Step 4 — REST endpoints
+## Step 4 — REST endpoints ✓
 
 ### GET /api/v1/detections
 
@@ -269,7 +269,7 @@ size, detection count. Lightweight — no heavy queries.
 
 ---
 
-## Step 5 — Read queries in sitta-store
+## Step 5 — Read queries in sitta-store ✓
 
 The existing `Database` has write methods. Add read methods for the API:
 

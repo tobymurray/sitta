@@ -1,0 +1,80 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT d.id, d.detected_at, d.confidence AS \"confidence!: f64\",\n                      d.snippet_path, d.metadata,\n                      l.scientific_name, l.common_name AS \"common_name!\",\n                      l.taxon_code,\n                      m.name AS \"model_name!\", m.version AS \"model_version!\",\n                      s.name AS \"source_name?\"\n               FROM detections d\n               JOIN labels l ON l.id = d.label_id\n               JOIN models m ON m.id = d.model_id\n               LEFT JOIN audio_sources s ON s.id = d.source_id\n               WHERE d.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "detected_at",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "confidence!: f64",
+        "ordinal": 2,
+        "type_info": "Float"
+      },
+      {
+        "name": "snippet_path",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "metadata",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "scientific_name",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "common_name!",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "taxon_code",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "model_name!",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "model_version!",
+        "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "source_name?",
+        "ordinal": 10,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "49b2902279f2e1435c17a7d544ef9c2dbaf7c074aa0bf4c3f0d36149884adb1f"
+}

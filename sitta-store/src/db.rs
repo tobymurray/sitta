@@ -6,7 +6,8 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::models::{
-    uuid_bytes, NewAudioSource, NewDetection, NewLabel, NewModel, NewPrediction, NewStation,
+    uuid_bytes, DetectionRow, NewAudioSource, NewDetection, NewLabel, NewModel, NewPrediction,
+    NewStation, PredictionRow, SpeciesSummaryRow,
 };
 
 /// Connection to the Sitta SQLite database.
@@ -242,5 +243,169 @@ impl Database {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    // ── Read queries (for API endpoints) ────────────────────────
+
+    /// Recent detections with joined label/model/source info.
+    /// Optional species filter by scientific name.
+    pub async fn recent_detections(
+        &self,
+        since: i64,
+        until: i64,
+        limit: i64,
+        offset: i64,
+        species: Option<&str>,
+    ) -> Result<Vec<DetectionRow>, crate::StoreError> {
+        let rows = sqlx::query!(
+            r#"SELECT d.id, d.detected_at, d.confidence AS "confidence!: f64",
+                      d.snippet_path, d.metadata,
+                      l.scientific_name, l.common_name AS "common_name!",
+                      l.taxon_code,
+                      m.name AS "model_name!", m.version AS "model_version!",
+                      s.name AS "source_name?"
+               FROM detections d
+               JOIN labels l ON l.id = d.label_id
+               JOIN models m ON m.id = d.model_id
+               LEFT JOIN audio_sources s ON s.id = d.source_id
+               WHERE d.detected_at >= $1 AND d.detected_at <= $2
+                 AND ($5 IS NULL OR l.scientific_name = $5)
+               ORDER BY d.detected_at DESC
+               LIMIT $3 OFFSET $4"#,
+            since,
+            until,
+            limit,
+            offset,
+            species,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| DetectionRow {
+                id: r.id,
+                detected_at: r.detected_at,
+                confidence: r.confidence,
+                snippet_path: r.snippet_path,
+                metadata: r.metadata,
+                scientific_name: r.scientific_name,
+                common_name: r.common_name,
+                taxon_code: r.taxon_code,
+                model_name: r.model_name,
+                model_version: r.model_version,
+                source_name: r.source_name,
+            })
+            .collect())
+    }
+
+    /// Single detection by ID with joined info.
+    pub async fn get_detection(
+        &self,
+        id: &[u8],
+    ) -> Result<Option<DetectionRow>, crate::StoreError> {
+        let row = sqlx::query!(
+            r#"SELECT d.id, d.detected_at, d.confidence AS "confidence!: f64",
+                      d.snippet_path, d.metadata,
+                      l.scientific_name, l.common_name AS "common_name!",
+                      l.taxon_code,
+                      m.name AS "model_name!", m.version AS "model_version!",
+                      s.name AS "source_name?"
+               FROM detections d
+               JOIN labels l ON l.id = d.label_id
+               JOIN models m ON m.id = d.model_id
+               LEFT JOIN audio_sources s ON s.id = d.source_id
+               WHERE d.id = $1"#,
+            id,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| DetectionRow {
+            id: r.id,
+            detected_at: r.detected_at,
+            confidence: r.confidence,
+            snippet_path: r.snippet_path,
+            metadata: r.metadata,
+            scientific_name: r.scientific_name,
+            common_name: r.common_name,
+            taxon_code: r.taxon_code,
+            model_name: r.model_name,
+            model_version: r.model_version,
+            source_name: r.source_name,
+        }))
+    }
+
+    /// Secondary predictions for a detection.
+    pub async fn get_predictions(
+        &self,
+        detection_id: &[u8],
+    ) -> Result<Vec<PredictionRow>, crate::StoreError> {
+        let rows = sqlx::query!(
+            r#"SELECT p.rank, p.confidence AS "confidence!: f64",
+                      l.scientific_name, l.common_name AS "common_name!"
+               FROM detection_predictions p
+               JOIN labels l ON l.id = p.label_id
+               WHERE p.detection_id = $1
+               ORDER BY p.rank"#,
+            detection_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| PredictionRow {
+                rank: r.rank,
+                confidence: r.confidence,
+                scientific_name: r.scientific_name,
+                common_name: r.common_name,
+            })
+            .collect())
+    }
+
+    /// Species summary aggregated over a date range.
+    pub async fn species_summary(
+        &self,
+        since: i64,
+        until: i64,
+    ) -> Result<Vec<SpeciesSummaryRow>, crate::StoreError> {
+        let rows = sqlx::query!(
+            r#"SELECT l.scientific_name, l.common_name AS "common_name!",
+                      l.taxon_code,
+                      COUNT(*) AS "detection_count!: i64",
+                      MAX(d.detected_at) AS "last_detected_at!: i64",
+                      AVG(d.confidence) AS "avg_confidence!: f64"
+               FROM detections d
+               JOIN labels l ON l.id = d.label_id
+               WHERE d.detected_at >= $1 AND d.detected_at <= $2
+                 AND l.label_type = 'species'
+               GROUP BY l.scientific_name, l.common_name, l.taxon_code
+               ORDER BY COUNT(*) DESC"#,
+            since,
+            until,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| SpeciesSummaryRow {
+                scientific_name: r.scientific_name,
+                common_name: r.common_name,
+                taxon_code: r.taxon_code,
+                detection_count: r.detection_count,
+                last_detected_at: r.last_detected_at,
+                avg_confidence: r.avg_confidence,
+            })
+            .collect())
+    }
+
+    /// Total detection count (for status endpoint).
+    pub async fn detection_count(&self) -> Result<i64, crate::StoreError> {
+        let row = sqlx::query!(r#"SELECT COUNT(*) AS "count!" FROM detections"#)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.count)
     }
 }

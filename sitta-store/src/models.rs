@@ -75,3 +75,38 @@ pub struct NewPrediction {
     pub label_id: i64,
     pub confidence: f64,
 }
+
+// ── Read types (returned by query methods) ──────────────────────
+
+/// A detection row with joined label/model/source info.
+pub struct DetectionRow {
+    pub id: Vec<u8>,
+    pub detected_at: i64,
+    pub confidence: f64,
+    pub snippet_path: Option<String>,
+    pub metadata: Option<String>,
+    pub scientific_name: Option<String>,
+    pub common_name: String,
+    pub taxon_code: Option<String>,
+    pub model_name: String,
+    pub model_version: String,
+    pub source_name: Option<String>,
+}
+
+/// A secondary prediction row with label info.
+pub struct PredictionRow {
+    pub rank: i64,
+    pub confidence: f64,
+    pub scientific_name: Option<String>,
+    pub common_name: String,
+}
+
+/// Aggregated species summary for a date range.
+pub struct SpeciesSummaryRow {
+    pub scientific_name: Option<String>,
+    pub common_name: String,
+    pub taxon_code: Option<String>,
+    pub detection_count: i64,
+    pub last_detected_at: i64,
+    pub avg_confidence: f64,
+}
