@@ -41,7 +41,7 @@ Two data paths:
 
 ---
 
-## Step 1 — Detection event broadcast
+## Step 1 — Detection event broadcast ✓
 
 Add a broadcast channel for detection events alongside the existing audio
 broadcast. This is the bridge between inference and the API.

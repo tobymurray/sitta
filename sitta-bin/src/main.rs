@@ -13,6 +13,7 @@ use sitta_audio::source::SourceConfig;
 use sitta_inference::birdnet::BirdNet;
 use sitta_inference::model::{Classification, Classifier};
 use sitta_inference::rangefilter::RangeFilter;
+use sitta_api::event::{Alternative, DetectionEvent, SpeciesInfo};
 use sitta_store::db::Database;
 use sitta_store::models::{
     NewAudioSource, NewDetection, NewLabel, NewModel, NewPrediction, NewStation,
@@ -42,6 +43,8 @@ struct PersistCtx {
     /// source display name → source UUID
     source_ids: Arc<HashMap<String, Uuid>>,
     station_id: Uuid,
+    /// Broadcast channel for live detection events (SSE, MQTT, etc.).
+    detection_tx: broadcast::Sender<DetectionEvent>,
 }
 
 #[tokio::main]
@@ -233,12 +236,15 @@ async fn seed_database(
         "Database seeded"
     );
 
+    let (detection_tx, _) = broadcast::channel::<DetectionEvent>(64);
+
     Ok(PersistCtx {
         db: db.clone(),
         label_cache: Arc::new(label_cache),
         model_ids: Arc::new(model_ids),
         source_ids: Arc::new(source_ids),
         station_id,
+        detection_tx,
     })
 }
 
@@ -420,6 +426,7 @@ fn load_perch(
 async fn persist_detections(
     ctx: &PersistCtx,
     model_id: i64,
+    classifier_name: &str,
     chunk: &AudioChunk,
     detections: &[Classification],
     embeddings: Option<&Vec<f32>>,
@@ -477,11 +484,46 @@ async fn persist_detections(
     }
 
     // Embedding (Perch path).
+    let has_embedding = embeddings.is_some();
     if let Some(emb) = embeddings {
         if let Err(e) = ctx.db.insert_embedding(&detection_id, emb).await {
             tracing::error!(error = %e, "Failed to persist embedding");
         }
     }
+
+    // Broadcast to live subscribers (SSE, MQTT).
+    let (model_name, model_version) = parse_model_name(classifier_name);
+    let alternatives: Vec<Alternative> = detections
+        .iter()
+        .enumerate()
+        .skip(1)
+        .map(|(r, c)| Alternative {
+            rank: r as u32,
+            scientific_name: c.species.scientific_name.clone(),
+            common_name: c.species.common_name.clone(),
+            confidence: c.confidence,
+        })
+        .collect();
+
+    let event = DetectionEvent {
+        id: detection_id.to_string(),
+        detected_at: chunk.captured_at.to_rfc3339(),
+        station_id: ctx.station_id.to_string(),
+        source_name: Some(chunk.source_name.clone()),
+        model: model_name.to_string(),
+        model_version: model_version.to_string(),
+        species: SpeciesInfo {
+            scientific_name: top.species.scientific_name.clone(),
+            common_name: top.species.common_name.clone(),
+            taxon_code: top.species.taxon_code.clone(),
+        },
+        confidence: top.confidence,
+        alternatives,
+        has_embedding,
+    };
+
+    // Ok to drop if no receivers are subscribed yet.
+    let _ = ctx.detection_tx.send(event);
 }
 
 // ── Inference consumers ─────────────────────────────────────────
@@ -579,6 +621,7 @@ fn spawn_perch_consumer(
                                                 persist_detections(
                                                     &persist,
                                                     mid,
+                                                    &model_display,
                                                     &chunk,
                                                     &detections,
                                                     embeddings.as_ref(),
@@ -697,7 +740,7 @@ async fn handle_chunk(
                         );
                     }
                     if let Some(&model_id) = persist.model_ids.get(&model_name) {
-                        persist_detections(persist, model_id, chunk, &detections, None).await;
+                        persist_detections(persist, model_id, &model_name, chunk, &detections, None).await;
                     }
                 }
             }
