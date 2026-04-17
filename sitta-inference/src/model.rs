@@ -14,6 +14,8 @@ pub struct Classification {
 pub struct Species {
     pub scientific_name: String,
     pub common_name: String,
+    /// eBird species code (e.g., "barowl1"), present when a taxonomy was loaded.
+    pub taxon_code: Option<String>,
 }
 
 /// Trait for models that produce species classifications from audio.

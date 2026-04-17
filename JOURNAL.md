@@ -345,3 +345,37 @@ wraps a `&[f32]` for mono audio. Re-exported by rubato — no extra dependency n
 
 **Embeddings:** 1536-dim vectors logged at `DEBUG` level only. Storage deferred to
 Phase 3 (sitta-store not yet implemented).
+
+---
+
+## 2026-04-17: eBird taxonomy integration
+
+### Decision: sitta-taxonomy crate for common-name resolution
+
+Perch v2 labels are bare scientific names in underscore form (`Tyto_alba`, `Turdus_migratorius`).
+The existing `parse_species` split-on-`_` logic gives nonsense results: `"Tyto_alba"` produces
+`scientific="Tyto"`, `common="alba"`. We need the eBird taxonomy to map scientific names to
+English common names and species codes.
+
+**New crate: `sitta-taxonomy`**
+Wraps the eBird taxonomy CSV (download: `https://api.ebird.org/v2/ref/taxonomy/ebird?fmt=csv`).
+Key columns used: `SCI_NAME`, `PRIMARY_COM_NAME`, `SPECIES_CODE`. Lookup key is the scientific
+name normalized to lowercase with underscores replaced by spaces. The same normalization handles
+both Perch labels (`Tyto_alba`) and BirdNET labels (`Tyto alba`) transparently.
+
+**Label parsing logic (updated):**
+1. Try the whole label normalized as a scientific name against the taxonomy (handles Perch)
+2. If found: use taxonomy's canonical name + common name + species code
+3. If not found: split on first `_` for BirdNET format `"Scientific Name_Common Name"`,
+   then still try a taxonomy lookup on just the scientific part to get the species code
+
+**`Species` struct change:** Added `taxon_code: Option<String>` (eBird species code,
+e.g., `"barowl1"`). Present when taxonomy is loaded, `None` otherwise. Used in detection
+log output and will feed the future MQTT schema's `taxon_id` field.
+
+**Config:** Optional `[taxonomy]` section with `ebird_path`. If absent, all taxonomy
+enrichment is skipped — existing behavior preserved. Both BirdNET and Perch classifiers
+accept the same `Option<Arc<EbirdTaxonomy>>`.
+
+**Taxonomy loading:** Load once at startup, wrap in `Arc`, clone the `Arc` cheaply to each
+classifier. The `HashMap` is immutable after construction so no locking is needed.

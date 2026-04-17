@@ -7,7 +7,7 @@ chunk_seconds = 3
 
 [[audio.sources]]
 type = "rtsp"
-name = "nofth_feader"
+name = "nofth_feeder"
 url = "rtsp://192.168.1.132:8554/north_feeder"
 transport = "tcp"
 # sample_rate = 48000
@@ -23,6 +23,13 @@ transport = "tcp"
 # name = "usb_mic"
 # device = "M-Track Duo"
 
+# eBird taxonomy for resolving common names and species codes.
+# Required for Perch (labels are bare scientific names like "Tyto_alba").
+# Also enriches BirdNET detections with eBird species codes.
+# Download: curl -o ebird-taxonomy.csv "https://api.ebird.org/v2/ref/taxonomy/ebird?fmt=csv"
+# [taxonomy]
+# ebird_path = "/home/toby/.local/share/birda/taxonomy/ebird-taxonomy.csv"
+
 # Uncomment to enable BirdNET inference.
 # Install models with: birda models install birdnet-v24
 [inference.birdnet]
@@ -35,8 +42,12 @@ top_k = 10
 # Runs as a second consumer alongside BirdNET. Incoming 48 kHz audio is
 # resampled to 32 kHz in-process via rubato (Fft, 5s windows, 3s stride).
 # Install model with: birda models install perch-v2
-# [inference.perch]
-# model_path = "/home/toby/.local/share/birda/models/perch-v2.onnx"
-# labels_path = "/home/toby/.local/share/birda/models/perch-v2.csv"
-# min_confidence = 0.25
-# top_k = 10
+[inference.perch]
+model_path = "/home/toby/.local/share/birda/models/perch-v2.onnx"
+labels_path = "/home/toby/.local/share/birda/models/perch-v2.csv"
+min_confidence = 0.25
+top_k = 10
+
+# Download from https://www.birds.cornell.edu/clementschecklist/introduction/updateindex/october-2025/2025-citation-checklist-downloads/
+[taxonomy]
+ebird_path = "/home/toby/.local/share/birda/taxonomy/eBird-Clements_v2025-integrated-checklist-October-2025.csv"

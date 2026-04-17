@@ -2,6 +2,7 @@
 members = [
     "sitta-audio",
     "sitta-inference",
+    "sitta-taxonomy",
     "sitta-store",
     "sitta-api",
     "sitta-spatial",

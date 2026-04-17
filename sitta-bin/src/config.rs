@@ -8,6 +8,8 @@ pub struct Config {
     pub audio: AudioConfig,
     #[serde(default)]
     pub inference: InferenceConfig,
+    #[serde(default)]
+    pub taxonomy: Option<TaxonomyConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -61,6 +63,14 @@ pub struct PerchConfig {
     /// Number of top predictions to return. Default: 10.
     #[serde(default = "default_top_k")]
     pub top_k: usize,
+}
+
+/// eBird taxonomy configuration for common-name and species-code resolution.
+#[derive(Debug, Deserialize)]
+pub struct TaxonomyConfig {
+    /// Path to the eBird taxonomy CSV file.
+    /// Download: curl -o ebird-taxonomy.csv "https://api.ebird.org/v2/ref/taxonomy/ebird?fmt=csv"
+    pub ebird_path: String,
 }
 
 impl Default for InferenceConfig {

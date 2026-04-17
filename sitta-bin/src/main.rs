@@ -10,6 +10,7 @@ use sitta_audio::chunk::AudioChunk;
 use sitta_audio::rtsp::RtspSource;
 use sitta_audio::source::SourceConfig;
 use sitta_inference::model::Classifier;
+use sitta_taxonomy::EbirdTaxonomy;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
@@ -41,15 +42,18 @@ async fn main() -> Result<()> {
         "Starting Sitta"
     );
 
+    // Load eBird taxonomy (optional).
+    let taxonomy = load_taxonomy(&config)?;
+
     // Load classifiers.
-    let classifiers = load_classifiers(&config)?;
+    let classifiers = load_classifiers(&config, taxonomy.clone())?;
     if classifiers.is_empty() {
         tracing::warn!("No inference models configured -- running in audio-only mode");
     }
     let classifiers: Arc<[Arc<dyn Classifier>]> = classifiers.into();
 
     // Load Perch model (optional).
-    let perch_model = load_perch(&config)?;
+    let perch_model = load_perch(&config, taxonomy)?;
 
     let (tx, _rx) = broadcast::channel::<Arc<AudioChunk>>(32);
     let shutdown = CancellationToken::new();
@@ -115,15 +119,28 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn load_perch(config: &Config) -> Result<Option<Arc<dyn Classifier>>> {
+fn load_taxonomy(config: &Config) -> Result<Option<Arc<EbirdTaxonomy>>> {
+    let Some(tax_config) = &config.taxonomy else {
+        return Ok(None);
+    };
+    let taxonomy = EbirdTaxonomy::load(Path::new(&tax_config.ebird_path))
+        .with_context(|| format!("failed to load eBird taxonomy: {}", tax_config.ebird_path))?;
+    Ok(Some(Arc::new(taxonomy)))
+}
+
+fn load_perch(
+    config: &Config,
+    taxonomy: Option<Arc<EbirdTaxonomy>>,
+) -> Result<Option<Arc<dyn Classifier>>> {
     let Some(perch_config) = &config.inference.perch else {
         return Ok(None);
     };
-    let model = sitta_inference::birdnet::BirdNet::load(
+    let model = sitta_inference::birdnet::BirdNet::load_with_taxonomy(
         Path::new(&perch_config.model_path),
         Path::new(&perch_config.labels_path),
         perch_config.min_confidence,
         perch_config.top_k,
+        taxonomy,
     )
     .context("failed to load Perch model")?;
     Ok(Some(Arc::new(model)))
@@ -205,6 +222,7 @@ fn spawn_perch_consumer(
                                                     model = "Perch v2",
                                                     species = %d.species.common_name,
                                                     scientific_name = %d.species.scientific_name,
+                                                    taxon_code = d.species.taxon_code.as_deref().unwrap_or(""),
                                                     confidence = format_args!("{:.3}", d.confidence),
                                                     "Detection"
                                                 );
@@ -253,15 +271,19 @@ fn spawn_perch_consumer(
     });
 }
 
-fn load_classifiers(config: &Config) -> Result<Vec<Arc<dyn Classifier>>> {
+fn load_classifiers(
+    config: &Config,
+    taxonomy: Option<Arc<EbirdTaxonomy>>,
+) -> Result<Vec<Arc<dyn Classifier>>> {
     let mut classifiers: Vec<Arc<dyn Classifier>> = Vec::new();
 
     if let Some(birdnet_config) = &config.inference.birdnet {
-        let model = sitta_inference::birdnet::BirdNet::load(
+        let model = sitta_inference::birdnet::BirdNet::load_with_taxonomy(
             Path::new(&birdnet_config.model_path),
             Path::new(&birdnet_config.labels_path),
             birdnet_config.min_confidence,
             birdnet_config.top_k,
+            taxonomy,
         )
         .context("failed to load BirdNET model")?;
         classifiers.push(Arc::new(model));
@@ -320,6 +342,7 @@ async fn handle_chunk(chunk: &AudioChunk, classifiers: &[Arc<dyn Classifier>]) {
                             model = classifier.name(),
                             species = %d.species.common_name,
                             scientific_name = %d.species.scientific_name,
+                            taxon_code = d.species.taxon_code.as_deref().unwrap_or(""),
                             confidence = format_args!("{:.3}", d.confidence),
                             "Detection"
                         );

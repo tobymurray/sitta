@@ -1,6 +1,8 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use birdnet_onnx::{Classifier as OnnxClassifier, InferenceOptions, ModelType};
+use sitta_taxonomy::EbirdTaxonomy;
 
 use crate::InferenceError;
 use crate::model::{Classification, Classifier, Species};
@@ -11,18 +13,30 @@ use crate::model::{Classification, Classifier, Species};
 /// Thread-safe via internal `Arc` in birdnet-onnx — no Mutex needed.
 pub struct BirdNet {
     inner: OnnxClassifier,
+    taxonomy: Option<Arc<EbirdTaxonomy>>,
 }
 
 impl BirdNet {
     /// Load a BirdNET-family model from an ONNX file and labels file.
-    ///
-    /// Model type (v2.4, v3.0, Perch, BSG) is auto-detected from the model file.
-    /// The labels file has one entry per line in `ScientificName_CommonName` format.
     pub fn load(
         model_path: &Path,
         labels_path: &Path,
         min_confidence: f32,
         top_k: usize,
+    ) -> Result<Self, InferenceError> {
+        Self::load_with_taxonomy(model_path, labels_path, min_confidence, top_k, None)
+    }
+
+    /// Load a model and attach an eBird taxonomy for common-name resolution.
+    ///
+    /// Required for Perch v2, whose labels are bare scientific names (`Tyto_alba`).
+    /// Also enriches BirdNET detections with eBird species codes.
+    pub fn load_with_taxonomy(
+        model_path: &Path,
+        labels_path: &Path,
+        min_confidence: f32,
+        top_k: usize,
+        taxonomy: Option<Arc<EbirdTaxonomy>>,
     ) -> Result<Self, InferenceError> {
         let inner = OnnxClassifier::builder()
             .model_path(model_path.to_string_lossy().into_owned())
@@ -42,19 +56,47 @@ impl BirdNet {
             num_species = config.num_species,
             min_confidence,
             top_k,
+            taxonomy = taxonomy.is_some(),
             "Loaded BirdNET model via birdnet-onnx"
         );
 
-        Ok(Self { inner })
+        Ok(Self { inner, taxonomy })
     }
 
-    fn parse_species(species_str: &str) -> Species {
-        let (scientific, common) = species_str
+    /// Parse a label string from the model's labels file into a `Species`.
+    ///
+    /// Two label formats are handled:
+    /// - Perch: `"Tyto_alba"` — underscore-joined scientific name, no common name.
+    ///   The taxonomy is required to resolve the common name.
+    /// - BirdNET: `"Tyto alba_Barn Owl"` — scientific name, underscore, common name.
+    ///   The taxonomy optionally enriches with a species code.
+    fn parse_species(&self, label: &str) -> Species {
+        let taxonomy = self.taxonomy.as_deref();
+
+        // Try the whole label as a (possibly underscore-joined) scientific name.
+        // This handles Perch labels like "Tyto_alba".
+        if let Some(entry) = taxonomy.and_then(|t| t.lookup(label)) {
+            return Species {
+                scientific_name: entry.scientific_name.clone(),
+                common_name: entry.common_name.clone(),
+                taxon_code: Some(entry.species_code.clone()),
+            };
+        }
+
+        // Fall back to BirdNET label format: "Scientific Name_Common Name".
+        let (scientific, common) = label
             .split_once('_')
-            .unwrap_or((species_str, "Unknown"));
+            .unwrap_or((label, "Unknown"));
+
+        // Enrich with taxonomy species code if available.
+        let taxon_code = taxonomy
+            .and_then(|t| t.lookup(scientific))
+            .map(|e| e.species_code.clone());
+
         Species {
             scientific_name: scientific.to_string(),
             common_name: common.to_string(),
+            taxon_code,
         }
     }
 }
@@ -79,7 +121,7 @@ impl Classifier for BirdNet {
             .iter()
             .map(|p| Classification {
                 label_index: p.index,
-                species: Self::parse_species(&p.species),
+                species: self.parse_species(&p.species),
                 confidence: p.confidence,
             })
             .collect();
@@ -109,7 +151,7 @@ impl Classifier for BirdNet {
             .iter()
             .map(|p| Classification {
                 label_index: p.index,
-                species: Self::parse_species(&p.species),
+                species: self.parse_species(&p.species),
                 confidence: p.confidence,
             })
             .collect();
