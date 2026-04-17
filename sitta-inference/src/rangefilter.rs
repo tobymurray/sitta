@@ -10,8 +10,10 @@ use crate::model::Classification;
 
 struct Cached {
     date: NaiveDate,
-    // Arc so callers can hold a ref without re-locking the mutex each inference.
-    allowed: Arc<HashSet<usize>>,
+    // Lowercase scientific names expected at this location today.
+    // Keyed by scientific name so the same filter works across models (BirdNET and Perch
+    // have different label-index spaces but share scientific names via the taxonomy).
+    allowed: Arc<HashSet<String>>,
 }
 
 /// Location + date filter backed by the BirdNET species-occurrence meta-model.
@@ -19,6 +21,10 @@ struct Cached {
 /// Wraps `birdnet_onnx::RangeFilter`. Location scores are computed once per
 /// calendar day and cached; subsequent calls within the same day use the cached
 /// set without touching the ONNX session.
+///
+/// The allowed set is keyed by **lowercase scientific name**, so the same
+/// `RangeFilter` instance can be shared between BirdNET and Perch consumers
+/// even though they have different label-index spaces.
 ///
 /// Species in `force_allow` bypass geographic scoring entirely — they always
 /// pass regardless of the meta-model's location score for that species.
@@ -35,8 +41,9 @@ pub struct RangeFilter {
 impl RangeFilter {
     /// Load the BirdNET meta-model from `meta_model_path`.
     ///
-    /// `labels` must be the raw label slice from the paired `BirdNet` classifier —
-    /// the meta-model output dimension must match the label count.
+    /// `labels` must be the raw label slice from a BirdNET v2.4 classifier.
+    /// The resulting filter can be applied to any classifier (BirdNET or Perch)
+    /// as long as `Classification::species::scientific_name` is populated.
     pub fn load(
         meta_model_path: &Path,
         labels: &[String],
@@ -73,12 +80,15 @@ impl RangeFilter {
     /// Filter `classifications` to species expected at this station's location today.
     ///
     /// A classification passes if either:
-    /// - its `label_index` is in the meta-model's allowed set for today's date, or
+    /// - its scientific name matches a species in today's allowed set, or
     /// - its `taxon_code` is in the `force_allow` list.
     ///
+    /// Matching is by **scientific name** so the filter is model-agnostic — it works
+    /// for both BirdNET (6,522 species) and Perch (14,795 species) without separate
+    /// filter instances or index remapping.
+    ///
     /// Location scores are cached per calendar date. On the first call of each day
-    /// the meta-model runs (CPU-bound, ~1 ms); subsequent calls are O(n) HashSet
-    /// lookups against the cached allowed-index set.
+    /// the meta-model runs (~1 ms); subsequent calls are O(n) HashSet lookups.
     pub fn filter(
         &self,
         mut classifications: Vec<Classification>,
@@ -87,10 +97,12 @@ impl RangeFilter {
         let allowed = self.allowed_for_today(today)?;
 
         classifications.retain(|c| {
-            if allowed.contains(&c.label_index) {
+            // Primary check: scientific name in today's location-allowed set.
+            let sci = c.species.scientific_name.to_lowercase();
+            if allowed.contains(&sci) {
                 return true;
             }
-            // Check force_allow by taxon code (requires taxonomy to be loaded).
+            // Secondary check: force_allow by taxon code (requires taxonomy).
             if let Some(code) = c.species.taxon_code.as_deref() {
                 if self.force_allow.contains(code) {
                     tracing::debug!(
@@ -111,7 +123,7 @@ impl RangeFilter {
     fn allowed_for_today(
         &self,
         today: NaiveDate,
-    ) -> Result<Arc<HashSet<usize>>, InferenceError> {
+    ) -> Result<Arc<HashSet<String>>, InferenceError> {
         // Fast path: cache hit — clone the Arc (pointer copy).
         {
             let guard = self.cache.lock().expect("range filter cache poisoned");
@@ -122,7 +134,7 @@ impl RangeFilter {
             }
         }
 
-        // Cache miss: run meta-model inference, then update cache.
+        // Cache miss: run meta-model inference, build scientific-name set, update cache.
         let month = today.month();
         let day = today.day();
         let scores = self
@@ -130,8 +142,20 @@ impl RangeFilter {
             .predict(self.lat, self.lon, month, day)
             .map_err(|e| InferenceError::Inference(e.to_string()))?;
 
-        let allowed: Arc<HashSet<usize>> =
-            Arc::new(scores.iter().map(|s| s.index).collect());
+        // BirdNET label format: "Scientific Name_Common Name".
+        // Extract the scientific name (everything before the first '_') and normalise.
+        let allowed: Arc<HashSet<String>> = Arc::new(
+            scores
+                .iter()
+                .map(|s| {
+                    s.species
+                        .split_once('_')
+                        .map(|(sci, _)| sci)
+                        .unwrap_or(&s.species)
+                        .to_lowercase()
+                })
+                .collect(),
+        );
 
         tracing::info!(
             date = %today,

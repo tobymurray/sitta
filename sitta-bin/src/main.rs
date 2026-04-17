@@ -88,9 +88,9 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Spawn Perch consumer if configured.
+    // Spawn Perch consumer if configured (shares the same range filter as BirdNET).
     if let Some(perch) = perch_model {
-        spawn_perch_consumer(perch, tx.subscribe(), shutdown.clone());
+        spawn_perch_consumer(perch, range_filter.clone(), tx.subscribe(), shutdown.clone());
     }
 
     // Spawn BirdNET inference consumer.
@@ -220,6 +220,7 @@ fn load_perch(
 /// and runs Perch inference on 5-second windows with 3-second stride (2s overlap).
 fn spawn_perch_consumer(
     model: Arc<dyn Classifier>,
+    range_filter: Option<Arc<RangeFilter>>,
     mut rx: broadcast::Receiver<Arc<AudioChunk>>,
     shutdown: CancellationToken,
 ) {
@@ -267,11 +268,19 @@ fn spawn_perch_consumer(
 
                                 let audio = output_buf;
                                 let model_arc = model.clone();
+                                let filter = range_filter.clone();
                                 let source_name = chunk.source_name.clone();
                                 let chunk_id = chunk.id;
 
                                 let result = tokio::task::spawn_blocking(move || {
-                                    model_arc.classify_with_embeddings(&audio)
+                                    let (detections, embeddings) =
+                                        model_arc.classify_with_embeddings(&audio)?;
+                                    let detections = if let Some(f) = filter.as_deref() {
+                                        f.filter(detections)?
+                                    } else {
+                                        detections
+                                    };
+                                    Ok::<_, sitta_inference::InferenceError>((detections, embeddings))
                                 })
                                 .await;
 
