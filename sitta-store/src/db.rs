@@ -222,20 +222,22 @@ impl Database {
         Ok(())
     }
 
-    /// Insert an embedding for a detection.
+    /// Insert an embedding for a detection. The f32 slice is stored as
+    /// little-endian bytes in the BLOB column.
     pub async fn insert_embedding(
         &self,
         detection_id: &Uuid,
-        embedding: &[u8],
-        embedding_dim: i64,
+        embedding: &[f32],
     ) -> Result<(), crate::StoreError> {
         let det_id = uuid_bytes(detection_id);
+        let bytes: &[u8] = bytemuck::cast_slice(embedding);
+        let dim = embedding.len() as i64;
         sqlx::query!(
             "INSERT INTO embeddings (detection_id, embedding, embedding_dim)
              VALUES ($1, $2, $3)",
             det_id,
-            embedding,
-            embedding_dim,
+            bytes,
+            dim,
         )
         .execute(&self.pool)
         .await?;

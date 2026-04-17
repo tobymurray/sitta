@@ -7,6 +7,8 @@ pub struct Config {
     pub station: StationConfig,
     pub audio: AudioConfig,
     #[serde(default)]
+    pub store: StoreConfig,
+    #[serde(default)]
     pub inference: InferenceConfig,
     #[serde(default)]
     pub taxonomy: Option<TaxonomyConfig>,
@@ -90,6 +92,22 @@ pub struct TaxonomyConfig {
     pub ebird_path: String,
 }
 
+/// Persistence layer configuration.
+#[derive(Debug, Deserialize)]
+pub struct StoreConfig {
+    /// Path to the SQLite database file.
+    #[serde(default = "default_store_path")]
+    pub path: String,
+}
+
+impl Default for StoreConfig {
+    fn default() -> Self {
+        Self {
+            path: default_store_path(),
+        }
+    }
+}
+
 impl Default for InferenceConfig {
     fn default() -> Self {
         Self {
@@ -110,4 +128,7 @@ fn default_top_k() -> usize {
 }
 fn default_meta_threshold() -> f32 {
     0.01
+}
+fn default_store_path() -> String {
+    "./sitta.db".into()
 }

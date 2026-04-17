@@ -180,4 +180,16 @@ impl Classifier for BirdNet {
     fn window_samples(&self) -> usize {
         self.inner.config().sample_count
     }
+
+    fn raw_labels(&self) -> &[String] {
+        self.inner.labels()
+    }
+
+    fn embedding_dim(&self) -> Option<usize> {
+        match self.inner.config().model_type {
+            ModelType::PerchV2 => Some(1536),
+            ModelType::BirdNetV30 => Some(1024),
+            _ => None,
+        }
+    }
 }

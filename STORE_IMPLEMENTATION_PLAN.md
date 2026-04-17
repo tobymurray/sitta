@@ -178,7 +178,7 @@ the schema design document serve as the starting point. All will use
 
 ---
 
-## Step 5 — Wire into the main pipeline
+## Step 5 — Wire into the main pipeline ✓
 
 Modify `sitta-bin/src/main.rs` to open the database at startup and pass
 the pool to inference consumers.
@@ -226,7 +226,7 @@ In `handle_chunk` and `spawn_perch_consumer`, after a successful inference:
 
 ---
 
-## Step 6 — Expose model labels for seeding
+## Step 6 — Expose model labels for seeding ✓
 
 The `Classifier` trait currently exposes `name()`, `sample_rate()`, and
 `window_samples()`. The database seeding step needs the full label set.
@@ -247,7 +247,7 @@ This is the only change outside `sitta-store` and `sitta-bin`.
 
 ---
 
-## Step 7 — Config: database path
+## Step 7 — Config: database path ✓
 
 Add a `[store]` section to `config.toml`:
 

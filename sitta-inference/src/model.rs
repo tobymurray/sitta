@@ -49,4 +49,17 @@ pub trait Classifier: Send + Sync {
     ) -> Result<(Vec<Classification>, Option<Vec<f32>>), crate::InferenceError> {
         Ok((self.classify(audio)?, None))
     }
+
+    /// Raw label strings from the model's label file, indexed by position.
+    ///
+    /// Used at startup to seed the labels table. Default returns empty
+    /// for models that don't expose their label set.
+    fn raw_labels(&self) -> &[String] {
+        &[]
+    }
+
+    /// Embedding vector dimensionality, if the model produces embeddings.
+    fn embedding_dim(&self) -> Option<usize> {
+        None
+    }
 }

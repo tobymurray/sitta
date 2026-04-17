@@ -1,5 +1,6 @@
 mod config;
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -10,14 +11,38 @@ use sitta_audio::chunk::AudioChunk;
 use sitta_audio::rtsp::RtspSource;
 use sitta_audio::source::SourceConfig;
 use sitta_inference::birdnet::BirdNet;
-use sitta_inference::model::Classifier;
+use sitta_inference::model::{Classification, Classifier};
 use sitta_inference::rangefilter::RangeFilter;
+use sitta_store::db::Database;
+use sitta_store::models::{
+    NewAudioSource, NewDetection, NewLabel, NewModel, NewPrediction, NewStation,
+};
 use sitta_taxonomy::EbirdTaxonomy;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
+use uuid::Uuid;
 
 use crate::config::Config;
+
+/// Stable namespace for deriving deterministic UUIDs from config strings.
+const SITTA_NS: Uuid = Uuid::from_bytes([
+    0x91, 0x7a, 0x5c, 0x3e, 0x8b, 0x2d, 0x4f, 0x01,
+    0xa6, 0x78, 0x3d, 0x9e, 0x5b, 0x7c, 0x1a, 0x42,
+]);
+
+/// Shared context for persisting detections from any consumer.
+#[derive(Clone)]
+struct PersistCtx {
+    db: Database,
+    /// (model_db_id, label_index) → label_db_id
+    label_cache: Arc<HashMap<(i64, i64), i64>>,
+    /// classifier display name → model_db_id
+    model_ids: Arc<HashMap<String, i64>>,
+    /// source display name → source UUID
+    source_ids: Arc<HashMap<String, Uuid>>,
+    station_id: Uuid,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -63,12 +88,28 @@ async fn main() -> Result<()> {
     let range_filter: Option<Arc<RangeFilter>> = range_filter.map(Arc::new);
 
     // Load Perch model (optional, no range filter — different label space).
-    let perch_model = load_perch(&config, taxonomy)?;
+    let perch_model = load_perch(&config, taxonomy.clone())?;
 
+    // ── Database setup ──────────────────────────────────────────
+    let db = Database::open(Path::new(&config.store.path))
+        .await
+        .context("failed to open database")?;
+    tracing::info!(path = %config.store.path, "Database opened");
+
+    let persist_ctx = seed_database(
+        &db,
+        &config,
+        &classifiers,
+        perch_model.as_ref(),
+        taxonomy.as_deref(),
+    )
+    .await
+    .context("failed to seed database")?;
+
+    // ── Audio capture ───────────────────────────────────────────
     let (tx, _rx) = broadcast::channel::<Arc<AudioChunk>>(32);
     let shutdown = CancellationToken::new();
 
-    // Spawn a capture task for each audio source.
     for source_config in &config.audio.sources {
         match source_config {
             SourceConfig::Rtsp(rtsp_config) => {
@@ -88,9 +129,15 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Spawn Perch consumer if configured (shares the same range filter as BirdNET).
+    // Spawn Perch consumer if configured.
     if let Some(perch) = perch_model {
-        spawn_perch_consumer(perch, range_filter.clone(), tx.subscribe(), shutdown.clone());
+        spawn_perch_consumer(
+            perch,
+            range_filter.clone(),
+            tx.subscribe(),
+            shutdown.clone(),
+            persist_ctx.clone(),
+        );
     }
 
     // Spawn BirdNET inference consumer.
@@ -98,13 +145,14 @@ async fn main() -> Result<()> {
     let consumer_shutdown = shutdown.clone();
     let consumer_classifiers = classifiers.clone();
     let consumer_filter = range_filter.clone();
+    let consumer_persist = persist_ctx.clone();
     tokio::spawn(async move {
         loop {
             tokio::select! {
                 result = rx.recv() => {
                     match result {
                         Ok(chunk) => {
-                            handle_chunk(&chunk, &consumer_classifiers, consumer_filter.clone()).await;
+                            handle_chunk(&chunk, &consumer_classifiers, consumer_filter.clone(), &consumer_persist).await;
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
                             tracing::warn!(dropped = n, "Inference consumer lagged");
@@ -124,11 +172,166 @@ async fn main() -> Result<()> {
     tracing::info!("Shutting down...");
     shutdown.cancel();
 
-    // Brief grace period for tasks to clean up.
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    db.close().await;
 
     Ok(())
 }
+
+// ── Database seeding ────────────────────────────────────────────
+
+async fn seed_database(
+    db: &Database,
+    config: &Config,
+    classifiers: &[Arc<dyn Classifier>],
+    perch: Option<&Arc<dyn Classifier>>,
+    taxonomy: Option<&EbirdTaxonomy>,
+) -> Result<PersistCtx> {
+    let station_id = Uuid::new_v5(&SITTA_NS, config.station.id.as_bytes());
+    db.upsert_station(&NewStation {
+        id: &station_id,
+        name: &config.station.name,
+        latitude: config.station.latitude.map(f64::from),
+        longitude: config.station.longitude.map(f64::from),
+    })
+    .await?;
+
+    let mut source_ids: HashMap<String, Uuid> = HashMap::new();
+    for source in &config.audio.sources {
+        let name = source.name();
+        let source_id = Uuid::new_v5(&station_id, name.as_bytes());
+        let (source_type, uri, sample_rate, channels) = match source {
+            SourceConfig::Rtsp(c) => ("rtsp", Some(c.url.as_str()), c.sample_rate, c.channels),
+            SourceConfig::Local(c) => {
+                ("local", Some(c.device.as_str()), c.sample_rate, c.channels)
+            }
+        };
+        db.upsert_audio_source(&NewAudioSource {
+            id: &source_id,
+            station_id: &station_id,
+            name,
+            source_type,
+            uri,
+            sample_rate: i64::from(sample_rate),
+            channels: i64::from(channels),
+        })
+        .await?;
+        source_ids.insert(name.to_string(), source_id);
+    }
+
+    let mut model_ids: HashMap<String, i64> = HashMap::new();
+    for classifier in classifiers.iter().chain(perch.into_iter()) {
+        let model_id = seed_model(db, classifier.as_ref(), taxonomy).await?;
+        model_ids.insert(classifier.name().to_string(), model_id);
+    }
+
+    let label_cache = db.load_label_id_cache().await?;
+    tracing::info!(
+        models = model_ids.len(),
+        labels = label_cache.len(),
+        sources = source_ids.len(),
+        "Database seeded"
+    );
+
+    Ok(PersistCtx {
+        db: db.clone(),
+        label_cache: Arc::new(label_cache),
+        model_ids: Arc::new(model_ids),
+        source_ids: Arc::new(source_ids),
+        station_id,
+    })
+}
+
+async fn seed_model(
+    db: &Database,
+    classifier: &dyn Classifier,
+    taxonomy: Option<&EbirdTaxonomy>,
+) -> Result<i64> {
+    let (model_name, model_version) = parse_model_name(classifier.name());
+    let emb_dim = classifier.embedding_dim();
+    let model_id = db
+        .upsert_model(&NewModel {
+            name: model_name,
+            version: model_version,
+            sample_rate: classifier.sample_rate() as i64,
+            window_samples: classifier.window_samples() as i64,
+            has_embeddings: emb_dim.is_some(),
+            embedding_dim: emb_dim.map(|d| d as i64),
+        })
+        .await?;
+
+    let raw_labels = classifier.raw_labels();
+    if raw_labels.is_empty() {
+        return Ok(model_id);
+    }
+
+    let label_entries: Vec<_> = raw_labels
+        .iter()
+        .enumerate()
+        .map(|(i, label)| {
+            let (scientific_name, common_name, taxon_code) =
+                parse_label_for_seeding(label, taxonomy);
+            (i, scientific_name, common_name, taxon_code)
+        })
+        .collect();
+
+    let new_labels: Vec<NewLabel<'_>> = label_entries
+        .iter()
+        .map(|(i, sci, common, taxon)| NewLabel {
+            model_id,
+            label_index: *i as i64,
+            scientific_name: sci.as_deref(),
+            common_name: common,
+            label_type: if sci.is_some() {
+                "species"
+            } else {
+                "environment"
+            },
+            taxon_code: taxon.as_deref(),
+        })
+        .collect();
+
+    db.seed_labels(&new_labels).await?;
+    tracing::info!(
+        model = classifier.name(),
+        labels = new_labels.len(),
+        "Seeded model labels"
+    );
+
+    Ok(model_id)
+}
+
+fn parse_model_name(name: &str) -> (&str, &str) {
+    match name {
+        "BirdNET v2.4" => ("birdnet", "2.4"),
+        "BirdNET v3.0" => ("birdnet", "3.0"),
+        "Perch v2" => ("perch", "2"),
+        "BSG Finland" => ("bsg_finland", "4.4"),
+        _ => ("unknown", "0"),
+    }
+}
+
+fn parse_label_for_seeding(
+    label: &str,
+    taxonomy: Option<&EbirdTaxonomy>,
+) -> (Option<String>, String, Option<String>) {
+    if let Some(entry) = taxonomy.and_then(|t| t.lookup(label)) {
+        return (
+            Some(entry.scientific_name.clone()),
+            entry.common_name.clone(),
+            Some(entry.species_code.clone()),
+        );
+    }
+    if let Some((sci, common)) = label.split_once('_') {
+        let taxon_code = taxonomy
+            .and_then(|t| t.lookup(sci))
+            .map(|e| e.species_code.clone());
+        return (Some(sci.to_string()), common.to_string(), taxon_code);
+    }
+    (None, label.to_string(), None)
+}
+
+// ── Model loading ───────────────────────────────────────────────
 
 fn load_taxonomy(config: &Config) -> Result<Option<Arc<EbirdTaxonomy>>> {
     let Some(tax_config) = &config.taxonomy else {
@@ -139,10 +342,6 @@ fn load_taxonomy(config: &Config) -> Result<Option<Arc<EbirdTaxonomy>>> {
     Ok(Some(Arc::new(taxonomy)))
 }
 
-/// Load the BirdNET classifier and, if configured, the associated range filter.
-///
-/// Both are built from the same `BirdNet` instance before it is erased to
-/// `Arc<dyn Classifier>`, because the range filter needs the raw label slice.
 fn load_birdnet(
     config: &Config,
     taxonomy: Option<Arc<EbirdTaxonomy>>,
@@ -216,18 +415,90 @@ fn load_perch(
     Ok(Some(Arc::new(model)))
 }
 
-/// Spawn a background task that buffers 48 kHz chunks, resamples to 32 kHz,
-/// and runs Perch inference on 5-second windows with 3-second stride (2s overlap).
+// ── Detection persistence ───────────────────────────────────────
+
+async fn persist_detections(
+    ctx: &PersistCtx,
+    model_id: i64,
+    chunk: &AudioChunk,
+    detections: &[Classification],
+    embeddings: Option<&Vec<f32>>,
+) {
+    let top = match detections.first() {
+        Some(d) => d,
+        None => return,
+    };
+    let Some(&label_id) = ctx.label_cache.get(&(model_id, top.label_index as i64)) else {
+        tracing::warn!(model_id, label_index = top.label_index, "Label not in cache");
+        return;
+    };
+
+    let detection_id = Uuid::now_v7();
+    let detected_at = chunk.captured_at.timestamp_millis();
+    let source_id = ctx.source_ids.get(&chunk.source_name);
+
+    if let Err(e) = ctx
+        .db
+        .insert_detection(&NewDetection {
+            id: &detection_id,
+            station_id: &ctx.station_id,
+            source_id,
+            model_id,
+            label_id,
+            detected_at,
+            confidence: f64::from(top.confidence),
+            snippet_path: None,
+            snippet_duration_ms: None,
+            snippet_sample_rate: None,
+            metadata: None,
+        })
+        .await
+    {
+        tracing::error!(error = %e, "Failed to persist detection");
+        return;
+    }
+
+    // Secondary predictions (rank 1+).
+    let predictions: Vec<NewPrediction> = detections
+        .iter()
+        .enumerate()
+        .skip(1)
+        .filter_map(|(r, p)| {
+            let label_id = *ctx.label_cache.get(&(model_id, p.label_index as i64))?;
+            Some(NewPrediction {
+                rank: r as i64,
+                label_id,
+                confidence: f64::from(p.confidence),
+            })
+        })
+        .collect();
+    if let Err(e) = ctx.db.insert_predictions(&detection_id, &predictions).await {
+        tracing::error!(error = %e, "Failed to persist predictions");
+    }
+
+    // Embedding (Perch path).
+    if let Some(emb) = embeddings {
+        if let Err(e) = ctx.db.insert_embedding(&detection_id, emb).await {
+            tracing::error!(error = %e, "Failed to persist embedding");
+        }
+    }
+}
+
+// ── Inference consumers ─────────────────────────────────────────
+
 fn spawn_perch_consumer(
     model: Arc<dyn Classifier>,
     range_filter: Option<Arc<RangeFilter>>,
     mut rx: broadcast::Receiver<Arc<AudioChunk>>,
     shutdown: CancellationToken,
+    persist: PersistCtx,
 ) {
-    /// Input samples for one 5s Perch window at 48 kHz.
     const WINDOW_SAMPLES_IN: usize = 240_000;
-    /// Samples drained after each inference window (3s @ 48 kHz = one broadcast chunk).
     const STRIDE_SAMPLES: usize = 144_000;
+
+    // Extract model metadata before moving `model` into the async block.
+    let model_display = model.name().to_string();
+    let model_id = persist.model_ids.get(model.name()).copied();
 
     tokio::spawn(async move {
         let mut resampler = Fft::<f32>::new(48_000, 32_000, 1024, 2, 1, FixedSync::Both)
@@ -245,7 +516,6 @@ fn spawn_perch_consumer(
                             while buf.len() >= WINDOW_SAMPLES_IN {
                                 let window: Vec<f32> = buf[..WINDOW_SAMPLES_IN].to_vec();
 
-                                // Resample 240k samples @ 48 kHz → ~160k samples @ 32 kHz.
                                 resampler.reset();
                                 let input_frames = WINDOW_SAMPLES_IN;
                                 let input_adapter = InterleavedSlice::new(&window, 1, input_frames)
@@ -289,7 +559,7 @@ fn spawn_perch_consumer(
                                         if detections.is_empty() {
                                             tracing::debug!(
                                                 source = %source_name,
-                                                model = "Perch v2",
+                                                model = %model_display,
                                                 "No Perch detections above threshold"
                                             );
                                         } else {
@@ -297,13 +567,23 @@ fn spawn_perch_consumer(
                                                 tracing::info!(
                                                     source = %source_name,
                                                     chunk_id = %chunk_id,
-                                                    model = "Perch v2",
+                                                    model = %model_display,
                                                     species = %d.species.common_name,
                                                     scientific_name = %d.species.scientific_name,
                                                     taxon_code = d.species.taxon_code.as_deref().unwrap_or(""),
                                                     confidence = format_args!("{:.3}", d.confidence),
                                                     "Detection"
                                                 );
+                                            }
+                                            if let Some(mid) = model_id {
+                                                persist_detections(
+                                                    &persist,
+                                                    mid,
+                                                    &chunk,
+                                                    &detections,
+                                                    embeddings.as_ref(),
+                                                )
+                                                .await;
                                             }
                                         }
                                         if let Some(emb) = &embeddings {
@@ -353,6 +633,7 @@ async fn handle_chunk(
     chunk: &AudioChunk,
     classifiers: &[Arc<dyn Classifier>],
     range_filter: Option<Arc<RangeFilter>>,
+    persist: &PersistCtx,
 ) {
     if classifiers.is_empty() {
         tracing::info!(
@@ -414,6 +695,9 @@ async fn handle_chunk(
                             confidence = format_args!("{:.3}", d.confidence),
                             "Detection"
                         );
+                    }
+                    if let Some(&model_id) = persist.model_ids.get(&model_name) {
+                        persist_detections(persist, model_id, chunk, &detections, None).await;
                     }
                 }
             }

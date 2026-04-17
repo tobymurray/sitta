@@ -18,4 +18,6 @@ tokio-util = { workspace = true }
 sitta-audio = { path = "../sitta-audio" }
 sitta-inference = { path = "../sitta-inference" }
 sitta-taxonomy = { path = "../sitta-taxonomy" }
+sitta-store = { path = "../sitta-store" }
 rubato = { workspace = true }
+uuid = { workspace = true }
