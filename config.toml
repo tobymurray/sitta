@@ -25,8 +25,18 @@ transport = "tcp"
 
 # Uncomment to enable BirdNET inference.
 # Install models with: birda models install birdnet-v24
-# [inference.birdnet]
-# model_path = "/home/toby/.local/share/birda/models/birdnet-v24.onnx"
-# labels_path = "/home/toby/.local/share/birda/models/birdnet-v24-en.txt"
+[inference.birdnet]
+model_path = "/home/toby/.local/share/birda/models/birdnet-v24.onnx"
+labels_path = "/home/toby/.local/share/birda/models/birdnet-v24-en.txt"
+min_confidence = 0.25
+top_k = 10
+
+# Uncomment to enable Perch inference (32 kHz, 5s windows, 1536-dim embeddings).
+# Runs as a second consumer alongside BirdNET. Incoming 48 kHz audio is
+# resampled to 32 kHz in-process via rubato (Fft, 5s windows, 3s stride).
+# Install model with: birda models install perch-v2
+# [inference.perch]
+# model_path = "/home/toby/.local/share/birda/models/perch-v2.onnx"
+# labels_path = "/home/toby/.local/share/birda/models/perch-v2.csv"
 # min_confidence = 0.25
 # top_k = 10

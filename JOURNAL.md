@@ -304,3 +304,44 @@ CLI model manager by tphakala (the birdnet-onnx author):
 birda models install birdnet-v24
 ```
 This handles download of both the ONNX model and labels file.
+
+---
+
+## 2026-04-17: Perch v2 integration
+
+### Decision: Perch as a second independent consumer, in-process resampling
+
+Perch v2 expects 32 kHz / 5s windows (160,000 samples). The RTSP pipeline produces
+48 kHz / 3s chunks (144,000 samples). Rather than changing the audio capture pipeline,
+Perch gets its own consumer task that buffers incoming 48 kHz chunks and resamples
+in-process.
+
+**Resampling approach:** `rubato` v2.0 `Fft` resampler (48000→32000 Hz, `FixedSync::Both`,
+1024-sample chunk hint). `FixedSync::Both` is the right mode for offline/batch use:
+it adjusts the internal chunk size to fit the exact ratio (3:2), avoiding fractional-sample
+accumulation. The `process_all_into_buffer()` method handles the full 240k-sample window
+in one call, including output delay trimming.
+
+**Buffer/stride design:**
+- Buffer accumulates raw 48 kHz samples from the broadcast channel
+- When ≥240,000 samples: resample → 160,000 @ 32 kHz → Perch inference
+- Drain 144,000 samples (3s / one chunk) → 2s overlap between consecutive windows
+- On channel lag: clear buffer (avoids processing stale audio)
+
+**rubato 2.0 vs 0.x:** The 2.0 API uses `AudioAdapter` traits for I/O instead of
+`Vec<Vec<f32>>`. `InterleavedSlice` from `rubato::audioadapter_buffers::direct`
+wraps a `&[f32]` for mono audio. Re-exported by rubato — no extra dependency needed.
+`SincFixedIn` no longer exists; it's now `Fft::new(in_rate, out_rate, ...)`.
+
+**Perch model characteristics (verified):**
+- Auto-detected as `PerchV2` by birdnet-onnx (160k input, 4 outputs)
+- Always returns `Some(Vec<f32>)` embeddings — 1536 dimensions
+- Softmax activation (not sigmoid like BirdNET)
+- 65ms per inference on x86_64 (release mode)
+- Labels file is CSV format (not .txt) — birdnet-onnx auto-detects
+
+**Model acquisition:** `birda models install perch-v2` downloads to
+`~/.local/share/birda/models/perch-v2.onnx` + `perch-v2.csv`.
+
+**Embeddings:** 1536-dim vectors logged at `DEBUG` level only. Storage deferred to
+Phase 3 (sitta-store not yet implemented).

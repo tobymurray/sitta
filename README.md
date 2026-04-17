@@ -156,12 +156,16 @@ min_confidence = 0.25
 top_k = 10
 ```
 
-### Google Perch (planned)
+### Google Perch v2
 
-Perch produces a 1280-dimensional embedding per 5-second window at 32 kHz. It supports both species classification (with a classification head) and individual identification via embedding similarity. Future phases will add:
+Implemented as a second `Classifier` backed by the same `birdnet-onnx` crate. Runs as an independent consumer alongside BirdNET.
 
-- Species classification as a second `Classifier` implementation
-- Embedding extraction for individual ID
+- **Input:** 32 kHz mono, 5-second windows (160,000 samples)
+- **Output:** species classifications (softmax) + 1536-dimensional embedding vector per window
+- **Resampling:** incoming 48 kHz audio is resampled in-process via `rubato` (`Fft` resampler, 48000→32000 Hz, 5s windows, 3s stride / 2s overlap)
+- **Install:** `birda models install perch-v2`
+
+The 1536-dim embeddings are logged at `DEBUG` level. They will be stored in `sitta-store` in Phase 3 to enable individual animal identification via cosine similarity.
 
 ### birdnet-onnx backend
 
@@ -334,6 +338,7 @@ Runtime dependencies: `ffmpeg` must be installed on the host for RTSP capture.
 | `uuid` | v7 time-sortable chunk/detection IDs |
 | `thiserror` / `anyhow` | Error handling (library / binary) |
 | `birdnet-onnx` | BirdNET/Perch species classification via ONNX Runtime |
+| `rubato` | High-quality FFT-based audio resampling (48→32 kHz for Perch) |
 
 ### Planned (future phases)
 
@@ -373,6 +378,8 @@ Capture audio, run BirdNET, emit detections.
 - [x] BirdNET v2.4 inference via birdnet-onnx (ONNX Runtime)
 - [x] Configurable confidence threshold and top_k
 - [x] Inference runs on blocking threads (no async executor starvation)
+- [x] Google Perch v2 inference (32 kHz, 5s windows, 1536-dim embeddings)
+- [x] In-process 48→32 kHz resampling via rubato (FFT, 3s stride)
 - [ ] Local audio capture via `cpal`
 - [ ] SQLite detection log (rusqlite, WAL mode)
 

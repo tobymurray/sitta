@@ -20,3 +20,4 @@ uuid = { version = "1.23", features = ["v7"] }
 thiserror = "2.0.18"
 toml = "1.1"
 anyhow = "1.0.102"
+rubato = "2.0"

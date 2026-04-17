@@ -31,6 +31,8 @@ pub struct AudioConfig {
 pub struct InferenceConfig {
     #[serde(default)]
     pub birdnet: Option<BirdNetConfig>,
+    #[serde(default)]
+    pub perch: Option<PerchConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -47,9 +49,26 @@ pub struct BirdNetConfig {
     pub top_k: usize,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PerchConfig {
+    /// Path to the Perch ONNX model file.
+    pub model_path: String,
+    /// Path to the labels CSV file.
+    pub labels_path: String,
+    /// Minimum confidence threshold. Default: 0.25.
+    #[serde(default = "default_min_confidence")]
+    pub min_confidence: f32,
+    /// Number of top predictions to return. Default: 10.
+    #[serde(default = "default_top_k")]
+    pub top_k: usize,
+}
+
 impl Default for InferenceConfig {
     fn default() -> Self {
-        Self { birdnet: None }
+        Self {
+            birdnet: None,
+            perch: None,
+        }
     }
 }
 

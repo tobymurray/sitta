@@ -17,3 +17,4 @@ anyhow = { workspace = true }
 tokio-util = { workspace = true }
 sitta-audio = { path = "../sitta-audio" }
 sitta-inference = { path = "../sitta-inference" }
+rubato = { workspace = true }
