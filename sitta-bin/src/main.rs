@@ -14,6 +14,7 @@ use sitta_inference::birdnet::BirdNet;
 use sitta_inference::model::{Classification, Classifier};
 use sitta_inference::rangefilter::RangeFilter;
 use sitta_api::event::{Alternative, DetectionEvent, SpeciesInfo};
+use sitta_api::server::{self, ApiState};
 use sitta_store::db::Database;
 use sitta_store::models::{
     NewAudioSource, NewDetection, NewLabel, NewModel, NewPrediction, NewStation,
@@ -109,9 +110,23 @@ async fn main() -> Result<()> {
     .await
     .context("failed to seed database")?;
 
+    // ── API server ───────────────────────────────────────────────
+    let shutdown = CancellationToken::new();
+
+    let api_addr: std::net::SocketAddr = config
+        .api
+        .bind
+        .parse()
+        .with_context(|| format!("invalid api.bind address: {}", config.api.bind))?;
+    let api_state = ApiState {
+        db: db.clone(),
+        detection_tx: persist_ctx.detection_tx.clone(),
+        station_name: config.station.name.clone(),
+    };
+    tokio::spawn(server::serve(api_addr, api_state, shutdown.clone()));
+
     // ── Audio capture ───────────────────────────────────────────
     let (tx, _rx) = broadcast::channel::<Arc<AudioChunk>>(32);
-    let shutdown = CancellationToken::new();
 
     for source_config in &config.audio.sources {
         match source_config {

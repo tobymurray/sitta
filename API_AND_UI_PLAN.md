@@ -98,7 +98,7 @@ dropped events — they can catch up from the REST history endpoint.
 
 ---
 
-## Step 2 — sitta-api crate: axum server
+## Step 2 — sitta-api crate: axum server ✓
 
 ### Dependencies
 
@@ -158,7 +158,7 @@ pipeline.
 
 ---
 
-## Step 3 — SSE live feed
+## Step 3 — SSE live feed ✓
 
 The core feature. A browser connects to `/api/v1/stream/events` and receives
 detection events as they happen.

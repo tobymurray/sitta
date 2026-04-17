@@ -9,6 +9,8 @@ pub struct Config {
     #[serde(default)]
     pub store: StoreConfig,
     #[serde(default)]
+    pub api: ApiConfig,
+    #[serde(default)]
     pub inference: InferenceConfig,
     #[serde(default)]
     pub taxonomy: Option<TaxonomyConfig>,
@@ -108,6 +110,22 @@ impl Default for StoreConfig {
     }
 }
 
+/// HTTP API configuration.
+#[derive(Debug, Deserialize)]
+pub struct ApiConfig {
+    /// Socket address to bind (e.g., "0.0.0.0:8080").
+    #[serde(default = "default_api_bind")]
+    pub bind: String,
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self {
+            bind: default_api_bind(),
+        }
+    }
+}
+
 impl Default for InferenceConfig {
     fn default() -> Self {
         Self {
@@ -131,4 +149,7 @@ fn default_meta_threshold() -> f32 {
 }
 fn default_store_path() -> String {
     "./sitta.db".into()
+}
+fn default_api_bind() -> String {
+    "0.0.0.0:8080".into()
 }
