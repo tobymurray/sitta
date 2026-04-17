@@ -23,10 +23,10 @@ transport = "tcp"
 # name = "usb_mic"
 # device = "M-Track Duo"
 
-# Uncomment and set paths to enable BirdNET inference.
-# See README.md for model conversion instructions.
+# Uncomment to enable BirdNET inference.
+# Install models with: birda models install birdnet-v24
 # [inference.birdnet]
-# model_path = "/opt/sitta/models/birdnet_v2.4.onnx"
-# labels_path = "/opt/sitta/models/BirdNET_GLOBAL_6K_V2.4_Labels_en_uk.txt"
+# model_path = "/home/toby/.local/share/birda/models/birdnet-v24.onnx"
+# labels_path = "/home/toby/.local/share/birda/models/birdnet-v24-en.txt"
 # min_confidence = 0.25
 # top_k = 10
