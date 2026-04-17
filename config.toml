@@ -1,6 +1,9 @@
 [station]
 id = "station_01"
 name = "North Paddock"
+# Station coordinates — required for the BirdNET geographic/seasonal range filter.
+# latitude = -37.8136
+# longitude = 144.9631
 
 [audio]
 chunk_seconds = 3
@@ -37,6 +40,11 @@ model_path = "/home/toby/.local/share/birda/models/birdnet-v24.onnx"
 labels_path = "/home/toby/.local/share/birda/models/birdnet-v24-en.txt"
 min_confidence = 0.25
 top_k = 10
+# Geographic/seasonal range filter using the BirdNET meta-model.
+# Requires [station] latitude and longitude above.
+# Drops species with occurrence probability below meta_threshold for today's date.
+# meta_model_path = "/home/toby/.local/share/birda/models/birdnet-v24-meta.onnx"
+# meta_threshold = 0.01
 
 # Uncomment to enable Perch inference (32 kHz, 5s windows, 1536-dim embeddings).
 # Runs as a second consumer alongside BirdNET. Incoming 48 kHz audio is

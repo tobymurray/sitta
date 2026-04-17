@@ -18,6 +18,10 @@ pub struct StationConfig {
     pub id: String,
     /// Human-readable station name (e.g., "North Paddock").
     pub name: String,
+    /// Station latitude in decimal degrees (-90 to 90). Required for the range filter.
+    pub latitude: Option<f32>,
+    /// Station longitude in decimal degrees (-180 to 180). Required for the range filter.
+    pub longitude: Option<f32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -49,6 +53,13 @@ pub struct BirdNetConfig {
     /// Number of top predictions to return. Default: 10.
     #[serde(default = "default_top_k")]
     pub top_k: usize,
+    /// Optional BirdNET meta-model for geographic/seasonal filtering.
+    /// Path to birdnet-v24-meta.onnx (install with: birda models install birdnet-v24).
+    /// Requires [station] latitude and longitude to be set.
+    pub meta_model_path: Option<String>,
+    /// Minimum species occurrence score from the meta-model (0.0–1.0). Default: 0.01.
+    #[serde(default = "default_meta_threshold")]
+    pub meta_threshold: f32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,4 +101,7 @@ fn default_min_confidence() -> f32 {
 }
 fn default_top_k() -> usize {
     10
+}
+fn default_meta_threshold() -> f32 {
+    0.01
 }

@@ -9,6 +9,7 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 birdnet-onnx = { version = "2.0.0-rc.13", default-features = false }
 sitta-taxonomy = { path = "../sitta-taxonomy" }
+chrono = { workspace = true }
 
 [features]
 default = []

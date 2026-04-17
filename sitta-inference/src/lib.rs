@@ -6,6 +6,7 @@
 
 pub mod birdnet;
 pub mod model;
+pub mod rangefilter;
 
 #[derive(Debug, thiserror::Error)]
 pub enum InferenceError {

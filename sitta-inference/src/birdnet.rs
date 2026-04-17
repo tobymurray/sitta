@@ -63,6 +63,11 @@ impl BirdNet {
         Ok(Self { inner, taxonomy })
     }
 
+    /// Raw label strings as loaded by birdnet-onnx, needed to build a `RangeFilter`.
+    pub fn labels(&self) -> &[String] {
+        self.inner.labels()
+    }
+
     /// Parse a label string from the model's labels file into a `Species`.
     ///
     /// Two label formats are handled:

@@ -379,3 +379,43 @@ accept the same `Option<Arc<EbirdTaxonomy>>`.
 
 **Taxonomy loading:** Load once at startup, wrap in `Arc`, clone the `Arc` cheaply to each
 classifier. The `HashMap` is immutable after construction so no locking is needed.
+
+---
+
+## 2026-04-17: Geographic/seasonal range filter
+
+### Decision: BirdNET meta-model via birdnet-onnx RangeFilter
+
+`birda models install birdnet-v24` already downloads `birdnet-v24-meta.onnx` alongside
+the main model. `birdnet-onnx` already has a `RangeFilter` type wrapping it. No new
+dependencies needed.
+
+**How it works:** `RangeFilter::predict(lat, lon, month, day)` runs a tiny ONNX session
+with input `[lat, lon, week]` (48-week BirdNET calendar) and outputs a probability score
+for each of the 6522 species. Species below the threshold are filtered from detections.
+
+**Architecture:** `RangeFilter` lives in `sitta-inference::rangefilter` and wraps
+`birdnet_onnx::RangeFilter`. It holds a date-keyed `Mutex<Option<Cached>>` where
+the cached value is an `Arc<HashSet<usize>>` of allowed label indices. On the first
+call each calendar day the meta-model runs (CPU-bound, fast); subsequent calls for the
+same day are O(n) HashSet lookups — no ONNX session touch.
+
+**Why label indices, not species strings:** `Classification.label_index` (from
+`birdnet_onnx::Prediction.index`) maps directly to `LocationScore.index`. Filtering
+by index avoids string comparisons and is unaffected by label format differences.
+
+**Where it's applied:** Inside `handle_chunk`'s `spawn_blocking` closure, immediately
+after `Classifier::classify()` returns. The filter `Arc` is cloned cheaply for each
+inference task. Perch does NOT get the range filter — its 14,795-species label space is
+different from BirdNET's 6,522.
+
+**Key constraint:** `BirdNet` must not be erased to `Arc<dyn Classifier>` until AFTER
+the `RangeFilter` is built, because the filter needs `model.labels()` (the raw label
+slice from the ONNX session). `load_birdnet()` returns both together before type erasure.
+
+**Config:** `[station] latitude`/`longitude` + `[inference.birdnet] meta_model_path` /
+`meta_threshold` (default 0.01). Warning logged and filter disabled if lat/lon are
+missing when meta_model_path is set.
+
+**Real-world result (2026-04-17, Melbourne -37.81, 144.96):** 154 species allowed out
+of 6,522 — dramatically reduces false positives from species that simply don't occur here.

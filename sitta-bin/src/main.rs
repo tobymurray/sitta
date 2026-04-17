@@ -9,7 +9,9 @@ use rubato::{Fft, FixedSync, Resampler};
 use sitta_audio::chunk::AudioChunk;
 use sitta_audio::rtsp::RtspSource;
 use sitta_audio::source::SourceConfig;
+use sitta_inference::birdnet::BirdNet;
 use sitta_inference::model::Classifier;
+use sitta_inference::rangefilter::RangeFilter;
 use sitta_taxonomy::EbirdTaxonomy;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
@@ -37,6 +39,8 @@ async fn main() -> Result<()> {
     tracing::info!(
         station_id = %config.station.id,
         station_name = %config.station.name,
+        lat = config.station.latitude,
+        lon = config.station.longitude,
         sources = config.audio.sources.len(),
         chunk_seconds = config.audio.chunk_seconds,
         "Starting Sitta"
@@ -45,14 +49,20 @@ async fn main() -> Result<()> {
     // Load eBird taxonomy (optional).
     let taxonomy = load_taxonomy(&config)?;
 
-    // Load classifiers.
-    let classifiers = load_classifiers(&config, taxonomy.clone())?;
+    // Load BirdNET classifier and optional range filter together (needs concrete type for labels).
+    let (birdnet_classifier, range_filter) = load_birdnet(&config, taxonomy.clone())?;
+
+    let mut classifiers: Vec<Arc<dyn Classifier>> = Vec::new();
+    if let Some(c) = birdnet_classifier {
+        classifiers.push(c);
+    }
     if classifiers.is_empty() {
         tracing::warn!("No inference models configured -- running in audio-only mode");
     }
     let classifiers: Arc<[Arc<dyn Classifier>]> = classifiers.into();
+    let range_filter: Option<Arc<RangeFilter>> = range_filter.map(Arc::new);
 
-    // Load Perch model (optional).
+    // Load Perch model (optional, no range filter — different label space).
     let perch_model = load_perch(&config, taxonomy)?;
 
     let (tx, _rx) = broadcast::channel::<Arc<AudioChunk>>(32);
@@ -83,17 +93,18 @@ async fn main() -> Result<()> {
         spawn_perch_consumer(perch, tx.subscribe(), shutdown.clone());
     }
 
-    // Spawn inference consumer (or audio-level logger if no models loaded).
+    // Spawn BirdNET inference consumer.
     let mut rx = tx.subscribe();
     let consumer_shutdown = shutdown.clone();
     let consumer_classifiers = classifiers.clone();
+    let consumer_filter = range_filter.clone();
     tokio::spawn(async move {
         loop {
             tokio::select! {
                 result = rx.recv() => {
                     match result {
                         Ok(chunk) => {
-                            handle_chunk(&chunk, &consumer_classifiers).await;
+                            handle_chunk(&chunk, &consumer_classifiers, consumer_filter.clone()).await;
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
                             tracing::warn!(dropped = n, "Inference consumer lagged");
@@ -128,6 +139,56 @@ fn load_taxonomy(config: &Config) -> Result<Option<Arc<EbirdTaxonomy>>> {
     Ok(Some(Arc::new(taxonomy)))
 }
 
+/// Load the BirdNET classifier and, if configured, the associated range filter.
+///
+/// Both are built from the same `BirdNet` instance before it is erased to
+/// `Arc<dyn Classifier>`, because the range filter needs the raw label slice.
+fn load_birdnet(
+    config: &Config,
+    taxonomy: Option<Arc<EbirdTaxonomy>>,
+) -> Result<(Option<Arc<dyn Classifier>>, Option<RangeFilter>)> {
+    let Some(birdnet_config) = &config.inference.birdnet else {
+        return Ok((None, None));
+    };
+
+    let model = BirdNet::load_with_taxonomy(
+        Path::new(&birdnet_config.model_path),
+        Path::new(&birdnet_config.labels_path),
+        birdnet_config.min_confidence,
+        birdnet_config.top_k,
+        taxonomy,
+    )
+    .context("failed to load BirdNET model")?;
+
+    let range_filter = match (
+        &birdnet_config.meta_model_path,
+        config.station.latitude,
+        config.station.longitude,
+    ) {
+        (Some(meta_path), Some(lat), Some(lon)) => {
+            let filter = RangeFilter::load(
+                Path::new(meta_path),
+                model.labels(),
+                lat,
+                lon,
+                birdnet_config.meta_threshold,
+            )
+            .context("failed to load BirdNET range filter")?;
+            Some(filter)
+        }
+        (Some(_), _, _) => {
+            tracing::warn!(
+                "meta_model_path is set but [station] latitude/longitude are missing — \
+                 range filter disabled"
+            );
+            None
+        }
+        _ => None,
+    };
+
+    Ok((Some(Arc::new(model)), range_filter))
+}
+
 fn load_perch(
     config: &Config,
     taxonomy: Option<Arc<EbirdTaxonomy>>,
@@ -135,7 +196,7 @@ fn load_perch(
     let Some(perch_config) = &config.inference.perch else {
         return Ok(None);
     };
-    let model = sitta_inference::birdnet::BirdNet::load_with_taxonomy(
+    let model = BirdNet::load_with_taxonomy(
         Path::new(&perch_config.model_path),
         Path::new(&perch_config.labels_path),
         perch_config.min_confidence,
@@ -197,7 +258,6 @@ fn spawn_perch_consumer(
 
                                 let audio = output_buf;
                                 let model_arc = model.clone();
-                                let model_name = model.name().to_string();
                                 let source_name = chunk.source_name.clone();
                                 let chunk_id = chunk.id;
 
@@ -211,7 +271,7 @@ fn spawn_perch_consumer(
                                         if detections.is_empty() {
                                             tracing::debug!(
                                                 source = %source_name,
-                                                model = %model_name,
+                                                model = "Perch v2",
                                                 "No Perch detections above threshold"
                                             );
                                         } else {
@@ -271,30 +331,12 @@ fn spawn_perch_consumer(
     });
 }
 
-fn load_classifiers(
-    config: &Config,
-    taxonomy: Option<Arc<EbirdTaxonomy>>,
-) -> Result<Vec<Arc<dyn Classifier>>> {
-    let mut classifiers: Vec<Arc<dyn Classifier>> = Vec::new();
-
-    if let Some(birdnet_config) = &config.inference.birdnet {
-        let model = sitta_inference::birdnet::BirdNet::load_with_taxonomy(
-            Path::new(&birdnet_config.model_path),
-            Path::new(&birdnet_config.labels_path),
-            birdnet_config.min_confidence,
-            birdnet_config.top_k,
-            taxonomy,
-        )
-        .context("failed to load BirdNET model")?;
-        classifiers.push(Arc::new(model));
-    }
-
-    Ok(classifiers)
-}
-
-async fn handle_chunk(chunk: &AudioChunk, classifiers: &[Arc<dyn Classifier>]) {
+async fn handle_chunk(
+    chunk: &AudioChunk,
+    classifiers: &[Arc<dyn Classifier>],
+    range_filter: Option<Arc<RangeFilter>>,
+) {
     if classifiers.is_empty() {
-        // No models -- log audio levels as before.
         tracing::info!(
             source = %chunk.source_name,
             chunk_id = %chunk.id,
@@ -306,7 +348,6 @@ async fn handle_chunk(chunk: &AudioChunk, classifiers: &[Arc<dyn Classifier>]) {
     }
 
     for classifier in classifiers {
-        // Validate chunk matches model requirements.
         if chunk.samples.len() != classifier.window_samples() {
             tracing::debug!(
                 source = %chunk.source_name,
@@ -318,20 +359,29 @@ async fn handle_chunk(chunk: &AudioChunk, classifiers: &[Arc<dyn Classifier>]) {
             continue;
         }
 
-        // Run inference on a blocking thread (CPU-bound work).
         let samples = chunk.samples.clone();
         let model = classifier.clone();
+        let filter = range_filter.clone();
         let source_name = chunk.source_name.clone();
         let chunk_id = chunk.id;
+        let model_name = classifier.name().to_string();
 
-        let result = tokio::task::spawn_blocking(move || model.classify(&samples)).await;
+        let result = tokio::task::spawn_blocking(move || {
+            let detections = model.classify(&samples)?;
+            if let Some(f) = filter.as_deref() {
+                f.filter(detections)
+            } else {
+                Ok(detections)
+            }
+        })
+        .await;
 
         match result {
             Ok(Ok(detections)) => {
                 if detections.is_empty() {
                     tracing::debug!(
                         source = %source_name,
-                        model = classifier.name(),
+                        model = %model_name,
                         "No detections above threshold"
                     );
                 } else {
@@ -339,7 +389,7 @@ async fn handle_chunk(chunk: &AudioChunk, classifiers: &[Arc<dyn Classifier>]) {
                         tracing::info!(
                             source = %source_name,
                             chunk_id = %chunk_id,
-                            model = classifier.name(),
+                            model = %model_name,
                             species = %d.species.common_name,
                             scientific_name = %d.species.scientific_name,
                             taxon_code = d.species.taxon_code.as_deref().unwrap_or(""),
@@ -352,14 +402,14 @@ async fn handle_chunk(chunk: &AudioChunk, classifiers: &[Arc<dyn Classifier>]) {
             Ok(Err(e)) => {
                 tracing::error!(
                     source = %source_name,
-                    model = classifier.name(),
+                    model = %model_name,
                     error = %e,
                     "Inference failed"
                 );
             }
             Err(e) => {
                 tracing::error!(
-                    model = classifier.name(),
+                    model = %model_name,
                     error = %e,
                     "Inference task panicked"
                 );
