@@ -60,6 +60,12 @@ pub struct BirdNetConfig {
     /// Minimum species occurrence score from the meta-model (0.0–1.0). Default: 0.01.
     #[serde(default = "default_meta_threshold")]
     pub meta_threshold: f32,
+    /// eBird species codes that always pass the geographic filter regardless of
+    /// the meta-model score. Use for domestic or feral animals known to be present.
+    /// Requires [taxonomy] to be configured (species codes come from taxon_code).
+    /// Example: ["guifow"] for Helmeted Guineafowl, ["domchi"] for Domestic Chicken.
+    #[serde(default)]
+    pub force_allow: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

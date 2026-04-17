@@ -166,12 +166,21 @@ fn load_birdnet(
         config.station.longitude,
     ) {
         (Some(meta_path), Some(lat), Some(lon)) => {
+            let force_allow = birdnet_config.force_allow.iter().cloned().collect();
+            if !birdnet_config.force_allow.is_empty() && config.taxonomy.is_none() {
+                tracing::warn!(
+                    codes = ?birdnet_config.force_allow,
+                    "force_allow requires [taxonomy] to resolve species codes — \
+                     force_allow entries will have no effect without it"
+                );
+            }
             let filter = RangeFilter::load(
                 Path::new(meta_path),
                 model.labels(),
                 lat,
                 lon,
                 birdnet_config.meta_threshold,
+                force_allow,
             )
             .context("failed to load BirdNET range filter")?;
             Some(filter)
