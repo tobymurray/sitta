@@ -1,7 +1,6 @@
 [station]
 id = "station_01"
-name = "North Paddock"
-# Station coordinates — required for the BirdNET geographic/seasonal range filter.
+name = "North Feeder"
 latitude = 44.5868
 longitude = -76.0283
 
@@ -43,22 +42,25 @@ top_k = 10
 # Geographic/seasonal range filter using the BirdNET meta-model.
 # Requires [station] latitude and longitude above.
 # Drops species with occurrence probability below meta_threshold for today's date.
-# meta_model_path = "/home/toby/.local/share/birda/models/birdnet-v24-meta.onnx"
-# meta_threshold = 0.01
-#
+meta_model_path = "/home/toby/.local/share/birda/models/birdnet-v24-meta.onnx"
+meta_threshold = 0.01
+
+
 # force_allow: eBird species codes that always pass the geographic filter,
 # regardless of location score. Use for domestic or feral animals you know are
 # present at the station. Requires [taxonomy] to resolve species codes.
 #
-# Common codes:
-#   guifow  Helmeted Guineafowl
-#   domchi  Domestic Chicken (feral type)
-#   peacoc  Indian Peafowl
-#   tukeys  Wild Turkey / domestic turkey
-#   domgoo  Domestic Goose (feral type)
-#   mallar  Mallard (domestic/feral type)
+# Common codes (from eBird/Clements taxonomy):
+#   helgui   Helmeted Guineafowl (wild)
+#   helgui1  Helmeted Guineafowl (Domestic type)
+#   redjun1  Red Junglefowl / Domestic Chicken (Domestic type)
+#   indpea1  Indian Peafowl (Domestic type)
+#   wiltur1  Wild Turkey (Domestic type)
+#   domgoo1  Domestic goose sp. (Domestic type)
+#   mallar2  Mallard (Domestic type)
+#   musduc3  Muscovy Duck (Domestic type)
 #
-# force_allow = ["guifow"]
+force_allow = ["helgui1", "redjun1"]
 
 # Uncomment to enable Perch inference (32 kHz, 5s windows, 1536-dim embeddings).
 # Runs as a second consumer alongside BirdNET. Incoming 48 kHz audio is

@@ -63,7 +63,7 @@ pub struct BirdNetConfig {
     /// eBird species codes that always pass the geographic filter regardless of
     /// the meta-model score. Use for domestic or feral animals known to be present.
     /// Requires [taxonomy] to be configured (species codes come from taxon_code).
-    /// Example: ["guifow"] for Helmeted Guineafowl, ["domchi"] for Domestic Chicken.
+    /// Example: ["helgui1"] for Helmeted Guineafowl (Domestic type), ["redjun1"] for Domestic Chicken.
     #[serde(default)]
     pub force_allow: Vec<String>,
 }
