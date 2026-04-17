@@ -37,7 +37,7 @@ Named for the nuthatch genus (*Sitta*).
 │   ┌───────────────────────────────────────────────────┐    │
 │   │          sitta-spatial (future: TDOA engine)      │    │
 │   └───────────────────────────────────────────────────┘    │
-└───────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────────┘
 ```
 
 Data flows left-to-right through Tokio channels (`broadcast` for fan-out, `mpsc` for backpressure-aware point-to-point). No thread-per-stream -- the audio pipeline yields chunks into an async stream that the inference engine consumes.
@@ -126,22 +126,35 @@ Both BirdNET and Google Perch can serve as species classifiers. The architecture
 
 Multiple classifiers can run simultaneously. Detection events carry model provenance so you know which produced each result. Cross-referencing (BirdNET says "Barn Owl" at 0.85, Perch agrees at 0.90) gives a stronger signal than either alone.
 
-### BirdNET v2.4
+### BirdNET-family models
 
-Currently implemented via `birdnet-onnx` (wraps ONNX Runtime). Input is raw 48 kHz mono waveform (3-second windows). Output is ~6,500 species scores, sigmoid applied internally. Model type is auto-detected — also supports v3.0, Perch v2, and BSG Finland.
+Implemented via `birdnet-onnx` (wraps ONNX Runtime). Model type is auto-detected from tensor shape — supports BirdNET v2.4, v3.0, Perch v2, and BSG Finland. Sigmoid is applied internally.
 
-**Model setup:**
+**Getting a model:**
 
-1. Download the BirdNET v2.4 ONNX model from the [birdnet-onnx releases](https://github.com/tphakala/birdnet-onnx/releases) or from Zenodo
-2. Download the labels file from the [BirdNET-Analyzer repo](https://github.com/kahst/BirdNET-Analyzer/tree/main/birdnet_analyzer/labels/V2.4) (choose your language)
-3. Configure in `config.toml`:
-   ```toml
-   [inference.birdnet]
-   model_path = "/opt/sitta/models/birdnet_v2.4.onnx"
-   labels_path = "/opt/sitta/models/BirdNET_GLOBAL_6K_V2.4_Labels_en_uk.txt"
-   min_confidence = 0.25
-   top_k = 10
-   ```
+The quickest way is [`birda`](https://github.com/tphakala/birda), a CLI model manager by the birdnet-onnx author:
+```bash
+birda models install birdnet-v24
+```
+This downloads `birdnet.onnx` (converted by Justin Chu, hosted on HuggingFace at `justinchuby/BirdNET-onnx`) and the matching labels file.
+
+Manual download options:
+
+| Model | ONNX source | Labels |
+|---|---|---|
+| BirdNET v2.4 | [HuggingFace: justinchuby/BirdNET-onnx](https://huggingface.co/justinchuby/BirdNET-onnx) — use `birdnet.onnx` | [BirdNET-Analyzer labels](https://github.com/birdnet-team/BirdNET-Analyzer/tree/main/birdnet_analyzer/labels/V2.4) |
+| BSG Finland v4.4 | [HuggingFace: tphakala/BSG](https://huggingface.co/tphakala/BSG) — `BSG_birds_Finland_v4_4_fused_fp32.onnx` | included in the HuggingFace repo |
+
+Note: Zenodo only distributes BirdNET v2.4 in TFLite/Keras/Protobuf formats — no native ONNX. The `justinchuby/BirdNET-onnx` conversion via NVIDIA Nsight DL Designer is what makes it work (tf2onnx alone fails on the RFFT spectrogram ops, as documented in JOURNAL.md).
+
+Once you have a model and labels file, configure in `config.toml`:
+```toml
+[inference.birdnet]
+model_path = "/opt/sitta/models/birdnet.onnx"
+labels_path = "/opt/sitta/models/BirdNET_GLOBAL_6K_V2.4_Labels_en_uk.txt"
+min_confidence = 0.25
+top_k = 10
+```
 
 ### Google Perch (planned)
 

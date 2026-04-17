@@ -289,3 +289,18 @@ existing consumers.
 **Builder path quirk:** `ClassifierBuilder::model_path` and `labels_path` take
 `impl Into<String>`, not `&Path`, so paths are converted via
 `path.to_string_lossy().into_owned()`. Straightforward but worth noting.
+
+### Where does the BirdNET ONNX model come from?
+
+Zenodo only distributes BirdNET v2.4 as TFLite/Keras/Protobuf — no ONNX. And
+tf2onnx fails on the RFFT spectrogram ops (Approach 1 in this journal). The
+solution is `justinchuby/BirdNET-onnx` on HuggingFace — Justin Chu converted
+the model using NVIDIA Nsight DL Designer (not tf2onnx), which successfully
+handles the spectrogram ops. The recommended file is `birdnet.onnx`.
+
+The easiest way to get it is [`birda`](https://github.com/tphakala/birda), a
+CLI model manager by tphakala (the birdnet-onnx author):
+```bash
+birda models install birdnet-v24
+```
+This handles download of both the ONNX model and labels file.
