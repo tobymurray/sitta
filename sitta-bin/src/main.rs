@@ -113,7 +113,7 @@ fn load_classifiers(config: &Config) -> Result<Vec<Arc<dyn Classifier>>> {
             Path::new(&birdnet_config.model_path),
             Path::new(&birdnet_config.labels_path),
             birdnet_config.min_confidence,
-            birdnet_config.sigmoid_sensitivity,
+            birdnet_config.top_k,
         )
         .context("failed to load BirdNET model")?;
         classifiers.push(Arc::new(model));

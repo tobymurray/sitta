@@ -15,29 +15,29 @@ Named for the nuthatch genus (*Sitta*).
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                       sitta (binary)                     │
-│                                                          │
-│  ┌───────────┐   ┌──────────────┐  ┌──────────────────┐  │
-│  │  Audio    │   │  Inference   │  │   API / MQTT     │  │
-│  │  Pipeline │─▶│  Engine      │─▶│   Gateway       │  │
-│  │           │   │              │  │                  │  │
-│  │ capture   │   │ birdnet      │  │ REST (axum)      │  │
-│  │ resample  │   │ perch        │  │ WebSocket        │  │
-│  │ buffer    │   │ individual   │  │ MQTT publish     │  │
-│  │ dispatch  │   │ id matching  │  │ HA discovery     │  │
-│  └───────────┘   └──────────────┘  └──────────────────┘  │
-│        │              │                 │                │
-│        ▼              ▼                 ▼                │
-│  ┌───────────────────────────────────────────────────┐   │
-│  │            sitta-store (SQLite + embeddings)      │   │
-│  └───────────────────────────────────────────────────┘   │
-│        │                                                 │
-│        ▼                                                 │
-│  ┌───────────────────────────────────────────────────┐   │
-│  │          sitta-spatial (future: TDOA engine)      │   │
-│  └───────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                        sitta (binary)                      │
+│                                                            │
+│   ┌───────────┐   ┌──────────────┐   ┌──────────────────┐  │
+│   │  Audio    │   │  Inference   │   │   API / MQTT     │  │
+│   │  Pipeline │─▶│  Engine      │─▶│   Gateway        │  │
+│   │           │   │              │   │                  │  │
+│   │ capture   │   │ birdnet      │   │ REST (axum)      │  │
+│   │ resample  │   │ perch        │   │ WebSocket        │  │
+│   │ buffer    │   │ individual   │   │ MQTT publish     │  │
+│   │ dispatch  │   │ id matching  │   │ HA discovery     │  │
+│   └───────────┘   └──────────────┘   └──────────────────┘  │
+│         │                │                    │            │
+│         ▼                ▼                    ▼            │
+│   ┌───────────────────────────────────────────────────┐    │
+│   │            sitta-store (SQLite + embeddings)      │    │
+│   └───────────────────────────────────────────────────┘    │
+│                              │                             │
+│                              ▼                             │
+│   ┌───────────────────────────────────────────────────┐    │
+│   │          sitta-spatial (future: TDOA engine)      │    │
+│   └───────────────────────────────────────────────────┘    │
+└───────────────────────────────────────────────────────────┘
 ```
 
 Data flows left-to-right through Tokio channels (`broadcast` for fan-out, `mpsc` for backpressure-aware point-to-point). No thread-per-stream -- the audio pipeline yields chunks into an async stream that the inference engine consumes.

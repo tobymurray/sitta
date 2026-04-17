@@ -93,17 +93,47 @@ backbone -> output head. The spectrogram layer is what blocks ONNX conversion.
 
 ### Approach 4: Split model -- Rust spectrogram + ONNX backbone (IN PROGRESS)
 **Plan:** Compute the mel spectrogram in Rust (using `rustfft` + mel filterbank),
-then export only the CNN backbone (post-spectrogram layers) to ONNX, which should
-convert cleanly since it's standard conv/dense ops.
+then export only the CNN backbone (post-spectrogram layers) to ONNX via tf2onnx
+with `--inputs` to skip the preprocessing graph. Load in Rust with `tract-onnx`.
 
-**Status:** Was tracing the TF graph to find the spectrogram intermediate tensor
-shape and the entry point of the CNN backbone. Need to identify the exact
-spectrogram parameters (FFT size, hop length, mel bands, frequency range) to
-replicate them in Rust.
+**Strategy:** Use tf2onnx but tell it to ignore the preprocessing layers. Freeze
+the SavedModel graph (variables → constants), find the tensor name at the
+concatenation point (where the two mel spectrograms merge), and use `--inputs`
+to start the ONNX graph there. The Rust side computes mel spectrograms natively
+with `rustfft`, producing the same tensor the backbone expects.
 
-**Alternative under consideration:** The `ort` crate (ONNX Runtime Rust bindings)
-may support more ops than tract-onnx and could potentially handle the full model
-if we can get an ONNX export by another path.
+**Why this wins:** Pure Rust binary, no C++ TFLite dependency, no shared libraries.
+
+**Graph analysis results (2026-04-16):**
+
+The model has TWO parallel mel spectrogram branches that get concatenated:
+
+| Parameter      | MEL_SPEC1 | MEL_SPEC2 |
+|----------------|-----------|-----------|
+| frame_length   | 2048      | 1024      |
+| frame_step     | 278       | 280       |
+| fft_length     | 2048      | 1024      |
+| mel_bands      | 96        | 96        |
+| window         | Hann      | Hann      |
+| mag_scaling    | 1.211     | 1.447     |
+
+Each branch pipeline:
+1. Input normalization: `(x - min) / (max - min)` → `(x - 0.5) * 2.0`
+2. STFT with Hann window
+3. Complex → magnitude squared (`Pow(x, 2.0)`)
+4. Mel filterbank via Tensordot (→ 96 bands)
+5. Power compression: `Pow(mel, 1/(1+exp(mag_scaling)))` (≈0.23 and ≈0.19)
+6. ReverseV2, Transpose `[0,2,1]`, ExpandDims(-1)
+7. Concatenate along axis 3 → `[batch, H, 96, 2]`
+
+Then: `BNORM_SPEC_NOQUANT` → `CONV_0(4×8, 2→24)` → EfficientNet-style
+backbone (blocks 1-4 with SE attention) → `CLASS_DENSE_LAYER(1024→6522)`
+
+The backbone from `concatenate/concat` onwards is pure Conv2D, BatchNorm,
+DepthwiseConv2D, MatMul, Relu, Sigmoid, Mean, Add -- all ONNX-convertible.
+
+**Next step:** Freeze the graph, identify the exact tensor name at the
+concatenation point, export backbone to ONNX, validate against full model.
 
 ### Insight: Python environment matters
 Initial `pip install tensorflow` failed because the desktop machine had Python 3.14
@@ -128,12 +158,17 @@ HTML redirect page instead of the model file. Fixed by using the Zenodo API endp
 - Live-tested against real RTSP stream
 
 ### What's blocked
-- BirdNET inference: no working model loading path yet
-- Three approaches failed (ONNX conversion, tflite crate, shared lib)
-- Split-model approach is the most promising next step
+- BirdNET inference: need to export CNN backbone to ONNX (split-model approach)
+- Three direct approaches failed (full ONNX conversion, tflite crate, shared lib)
+- Split-model approach in progress -- graph fully analyzed, parameters extracted
 
 ### Deviations from plan
 - Originally planned tract-onnx with a full ONNX model. The BirdNET spectrogram
-  layer blocks this path. May need to split the model or find an alternative runtime.
+  layer (RFFT ops) blocks this path. Pivoted to split-model: Rust mel spectrogram
+  + ONNX backbone.
 - TFLite was the natural fallback (it's BirdNET's native format) but the Rust
-  ecosystem for TFLite on modern toolchains is lacking.
+  ecosystem for TFLite on modern toolchains (GCC 15) is broken.
+- The dual-spectrogram architecture was a surprise -- BirdNET uses two mel
+  spectrograms at different resolutions (2048/1024 FFT) concatenated as a
+  2-channel image. This is more complex to replicate in Rust than a single
+  spectrogram, but the parameters are now fully known.

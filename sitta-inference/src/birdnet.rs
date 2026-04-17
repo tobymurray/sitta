@@ -1,151 +1,136 @@
 use std::path::Path;
 
-use tract_onnx::prelude::*;
-use tract_onnx::tract_hir::tract_ndarray;
+use birdnet_onnx::{Classifier as OnnxClassifier, InferenceOptions, ModelType};
 
-use crate::model::{Classification, Classifier, Species};
 use crate::InferenceError;
+use crate::model::{Classification, Classifier, Species};
 
-const SAMPLE_RATE: u32 = 48_000;
-const WINDOW_SECONDS: u32 = 3;
-const WINDOW_SAMPLES: usize = (SAMPLE_RATE * WINDOW_SECONDS) as usize; // 144,000
-
-type Model = SimplePlan<TypedFact, Box<dyn TypedOp>, Graph<TypedFact, Box<dyn TypedOp>>>;
-
-/// BirdNET v2.4 species classifier.
+/// BirdNET species classifier via birdnet-onnx (ONNX Runtime).
 ///
-/// Loads an ONNX-converted BirdNET model and a labels file. Audio input is
-/// raw waveform at 48 kHz -- the model contains its own spectrogram layer.
+/// Supports BirdNET v2.4, v3.0, Perch v2, and BSG Finland models.
+/// Thread-safe via internal `Arc` in birdnet-onnx — no Mutex needed.
 pub struct BirdNet {
-    model: Model,
-    labels: Vec<Species>,
-    min_confidence: f32,
-    sigmoid_sensitivity: f32,
+    inner: OnnxClassifier,
 }
 
 impl BirdNet {
-    /// Load BirdNET from an ONNX model file and a labels file.
+    /// Load a BirdNET-family model from an ONNX file and labels file.
     ///
+    /// Model type (v2.4, v3.0, Perch, BSG) is auto-detected from the model file.
     /// The labels file has one entry per line in `ScientificName_CommonName` format.
-    /// The ONNX model can be produced from the BirdNET Keras/SavedModel via `tf2onnx`.
     pub fn load(
         model_path: &Path,
         labels_path: &Path,
         min_confidence: f32,
-        sigmoid_sensitivity: f32,
+        top_k: usize,
     ) -> Result<Self, InferenceError> {
+        let inner = OnnxClassifier::builder()
+            .model_path(model_path.to_string_lossy().into_owned())
+            .labels_path(labels_path.to_string_lossy().into_owned())
+            .top_k(top_k)
+            .min_confidence(min_confidence)
+            .build()
+            .map_err(|e| InferenceError::ModelLoad(e.to_string()))?;
+
+        let config = inner.config();
         tracing::info!(
             model = %model_path.display(),
             labels = %labels_path.display(),
+            model_type = ?config.model_type,
+            sample_rate = config.sample_rate,
+            sample_count = config.sample_count,
+            num_species = config.num_species,
             min_confidence,
-            sigmoid_sensitivity,
-            "Loading BirdNET model"
+            top_k,
+            "Loaded BirdNET model via birdnet-onnx"
         );
 
-        let labels = Self::load_labels(labels_path)?;
-        tracing::info!(species_count = labels.len(), "Loaded BirdNET labels");
-
-        let model = tract_onnx::onnx()
-            .model_for_path(model_path)
-            .map_err(|e| InferenceError::ModelLoad(e.to_string()))?
-            .with_input_fact(0, f32::fact([1, WINDOW_SAMPLES as i64]).into())
-            .map_err(|e| InferenceError::ModelLoad(e.to_string()))?
-            .into_optimized()
-            .map_err(|e| InferenceError::ModelLoad(e.to_string()))?
-            .into_runnable()
-            .map_err(|e| InferenceError::ModelLoad(e.to_string()))?;
-
-        tracing::info!("BirdNET model loaded and optimised");
-
-        Ok(Self {
-            model,
-            labels,
-            min_confidence,
-            sigmoid_sensitivity,
-        })
+        Ok(Self { inner })
     }
 
-    fn load_labels(path: &Path) -> Result<Vec<Species>, InferenceError> {
-        let content =
-            std::fs::read_to_string(path).map_err(|e| InferenceError::LabelsLoad(e.to_string()))?;
-
-        let labels: Vec<Species> = content
-            .lines()
-            .filter(|line| !line.is_empty())
-            .map(|line| {
-                let (scientific, common) = line.split_once('_').unwrap_or((line, "Unknown"));
-                Species {
-                    scientific_name: scientific.to_string(),
-                    common_name: common.to_string(),
-                }
-            })
-            .collect();
-
-        if labels.is_empty() {
-            return Err(InferenceError::LabelsLoad("labels file is empty".into()));
+    fn parse_species(species_str: &str) -> Species {
+        let (scientific, common) = species_str
+            .split_once('_')
+            .unwrap_or((species_str, "Unknown"));
+        Species {
+            scientific_name: scientific.to_string(),
+            common_name: common.to_string(),
         }
-
-        Ok(labels)
-    }
-
-    fn sigmoid(&self, x: f32) -> f32 {
-        1.0 / (1.0 + (-self.sigmoid_sensitivity * x).exp())
     }
 }
 
 impl Classifier for BirdNet {
     fn classify(&self, audio: &[f32]) -> Result<Vec<Classification>, InferenceError> {
-        if audio.len() != WINDOW_SAMPLES {
+        let expected = self.inner.config().sample_count;
+        if audio.len() != expected {
             return Err(InferenceError::InvalidInput(format!(
-                "expected {} samples, got {}",
-                WINDOW_SAMPLES,
+                "expected {expected} samples, got {}",
                 audio.len()
             )));
         }
 
-        let input =
-            tract_ndarray::Array2::from_shape_vec((1, WINDOW_SAMPLES), audio.to_vec())
-                .map_err(|e| InferenceError::Inference(e.to_string()))?;
-
         let result = self
-            .model
-            .run(tvec!(input.into_tvalue()))
+            .inner
+            .predict(audio, &InferenceOptions::default())
             .map_err(|e| InferenceError::Inference(e.to_string()))?;
 
-        let output = result[0]
-            .to_array_view::<f32>()
-            .map_err(|e| InferenceError::Inference(e.to_string()))?;
-
-        let mut classifications: Vec<Classification> = output
+        let classifications = result
+            .predictions
             .iter()
-            .enumerate()
-            .filter_map(|(i, &logit)| {
-                let confidence = self.sigmoid(logit);
-                if confidence >= self.min_confidence && i < self.labels.len() {
-                    Some(Classification {
-                        label_index: i,
-                        species: self.labels[i].clone(),
-                        confidence,
-                    })
-                } else {
-                    None
-                }
+            .map(|p| Classification {
+                label_index: p.index,
+                species: Self::parse_species(&p.species),
+                confidence: p.confidence,
             })
             .collect();
 
-        classifications.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
         Ok(classifications)
     }
 
+    fn classify_with_embeddings(
+        &self,
+        audio: &[f32],
+    ) -> Result<(Vec<Classification>, Option<Vec<f32>>), InferenceError> {
+        let expected = self.inner.config().sample_count;
+        if audio.len() != expected {
+            return Err(InferenceError::InvalidInput(format!(
+                "expected {expected} samples, got {}",
+                audio.len()
+            )));
+        }
+
+        let result = self
+            .inner
+            .predict(audio, &InferenceOptions::default())
+            .map_err(|e| InferenceError::Inference(e.to_string()))?;
+
+        let classifications = result
+            .predictions
+            .iter()
+            .map(|p| Classification {
+                label_index: p.index,
+                species: Self::parse_species(&p.species),
+                confidence: p.confidence,
+            })
+            .collect();
+
+        Ok((classifications, result.embeddings))
+    }
+
     fn name(&self) -> &str {
-        "BirdNET v2.4"
+        match self.inner.config().model_type {
+            ModelType::BirdNetV24 => "BirdNET v2.4",
+            ModelType::BirdNetV30 => "BirdNET v3.0",
+            ModelType::PerchV2 => "Perch v2",
+            ModelType::BsgFinland => "BSG Finland",
+        }
     }
 
     fn sample_rate(&self) -> u32 {
-        SAMPLE_RATE
+        self.inner.config().sample_rate
     }
 
     fn window_samples(&self) -> usize {
-        WINDOW_SAMPLES
+        self.inner.config().sample_count
     }
 }

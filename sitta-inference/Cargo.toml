@@ -7,4 +7,9 @@ edition = "2024"
 tokio = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
-tract-onnx = "0.22.1"
+birdnet-onnx = { version = "2.0.0-rc.13", default-features = false }
+
+[features]
+default = []
+load-dynamic = ["birdnet-onnx/load-dynamic"]
+cuda = ["birdnet-onnx/cuda"]

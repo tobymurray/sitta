@@ -36,4 +36,15 @@ pub trait Classifier: Send + Sync {
 
     /// Required number of samples per inference window.
     fn window_samples(&self) -> usize;
+
+    /// Run classification and optionally return embedding vectors.
+    ///
+    /// Models that support embeddings (e.g., BirdNET v3.0, Perch v2)
+    /// return `Some(Vec<f32>)`. Models without embedding support return `None`.
+    fn classify_with_embeddings(
+        &self,
+        audio: &[f32],
+    ) -> Result<(Vec<Classification>, Option<Vec<f32>>), crate::InferenceError> {
+        Ok((self.classify(audio)?, None))
+    }
 }
