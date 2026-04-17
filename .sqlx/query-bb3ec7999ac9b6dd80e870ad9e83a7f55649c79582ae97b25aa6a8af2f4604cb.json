@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR REPLACE INTO stations (id, name, latitude, longitude) VALUES ($1, $2, $3, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "bb3ec7999ac9b6dd80e870ad9e83a7f55649c79582ae97b25aa6a8af2f4604cb"
+}

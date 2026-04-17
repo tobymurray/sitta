@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO labels (model_id, label_index, scientific_name, common_name, label_type, taxon_code)\n                 VALUES ($1, $2, $3, $4, $5, $6)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "4b374d3734fbfe536624ca792d64d7516d749116c5a43d07c8988cce9bdf5928"
+}

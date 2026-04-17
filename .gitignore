@@ -1,2 +1,4 @@
 /target
 /models/
+dev.db*
+.env

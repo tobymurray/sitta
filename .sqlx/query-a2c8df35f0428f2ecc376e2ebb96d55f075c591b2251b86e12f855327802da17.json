@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO embeddings (detection_id, embedding, embedding_dim)\n             VALUES ($1, $2, $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "a2c8df35f0428f2ecc376e2ebb96d55f075c591b2251b86e12f855327802da17"
+}

@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!\", model_id, label_index FROM labels",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "model_id",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "label_index",
+        "ordinal": 2,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "242465c9f170b6dfbed11ac37a24e8a8fbc03475b357c59cbda3af8fb4118a0a"
+}

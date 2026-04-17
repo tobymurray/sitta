@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO models (name, version, sample_rate, window_samples, has_embeddings, embedding_dim)\n             VALUES ($1, $2, $3, $4, $5, $6)\n             ON CONFLICT(name, version) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "6bac8cc96d35371f953f3eb8cd218e4d27eb962e927a5eeb55db2f19f731daac"
+}

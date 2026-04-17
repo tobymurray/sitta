@@ -477,3 +477,11 @@ compile time. Offline mode (`cargo sqlx prepare`) caches query metadata in
 serializes writes internally. The dedicated writer thread + mpsc channel
 pattern from the rusqlite plan is replaced by sharing the pool across async
 tasks directly.
+
+### Insight: SQLx infers INTEGER PRIMARY KEY as nullable
+
+SQLx's `query!` macro infers `INTEGER PRIMARY KEY` columns as `Option<i64>`
+because SQLite technically allows NULL rowids in some edge cases. Fix with the
+`!` override in SELECT: `SELECT id AS "id!" FROM models`. This tells sqlx the
+value is guaranteed non-null. Affects the `models` and `labels` tables (both
+use INTEGER PK).

@@ -37,7 +37,7 @@ Install the CLI tool: `cargo install sqlx-cli --features sqlite`.
 
 ---
 
-## Step 2 — Migration and database bootstrap
+## Step 2 — Migration and database bootstrap ✓
 
 Use SQLx's built-in migration system instead of manual DDL + `PRAGMA
 user_version`. This gives us versioned, ordered migrations with a
@@ -104,7 +104,7 @@ Create `sitta-store/src/db.rs` with a `Database` struct that wraps a
 
 ---
 
-## Step 3 — Row types and conversions
+## Step 3 — Row types and conversions ✓
 
 Create `sitta-store/src/models.rs` with plain structs that map to database
 rows, using `sqlx::FromRow` for query results.
@@ -141,7 +141,7 @@ wire format so `sqlx::FromRow` derive works without custom impls.
 
 ---
 
-## Step 4 — Insert and query functions
+## Step 4 — Insert and query functions ✓
 
 Add methods to `Database`. Each method uses `sqlx::query!` for compile-time
 checked SQL. Group by concern:
@@ -268,7 +268,7 @@ Default to `"./sitta.db"` if the section is omitted.
 
 ---
 
-## Step 8 — Compile-time query workflow
+## Step 8 — Compile-time query workflow ✓
 
 SQLx's `query!` macros check SQL against a real database at compile time.
 For this to work in CI and cross-compilation, use offline mode:
