@@ -312,7 +312,7 @@ No database needed at build time.
 
 ---
 
-## Step 9 — Smoke test
+## Step 9 — Smoke test ✓
 
 Write integration tests in `sitta-store/tests/` using SQLx's test support:
 

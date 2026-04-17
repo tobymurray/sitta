@@ -388,7 +388,7 @@ Capture audio, run BirdNET, emit detections.
 - [x] Geographic/seasonal range filter via BirdNET meta-model (`birdnet-v24-meta.onnx`); location scores cached per calendar day
 - [x] `force_allow` list: species codes that bypass the geographic filter (for known-present domestic animals)
 - [ ] Local audio capture via `cpal`
-- [ ] SQLite detection log (sqlx, WAL mode) — see `STORE_IMPLEMENTATION_PLAN.md`
+- [x] SQLite detection log (sqlx, WAL mode) — see `STORE_IMPLEMENTATION_PLAN.md`
 
 **Deliverable:** `cargo run` on an RPi, species detections in the terminal.
 

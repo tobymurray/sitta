@@ -478,6 +478,27 @@ serializes writes internally. The dedicated writer thread + mpsc channel
 pattern from the rusqlite plan is replaced by sharing the pool across async
 tasks directly.
 
+### Decision: Deterministic UUIDv5 for config-derived entities
+
+Stations and audio sources need stable database IDs across restarts so that
+INSERT OR REPLACE doesn't orphan foreign keys. Solution: `Uuid::new_v5` with
+a fixed Sitta namespace UUID + the config-provided string (station ID, source
+name). Same config always produces the same UUID.
+
+UUIDv7 is still used for detection IDs where time-sortability matters and
+each event is unique.
+
+### Decision: PersistCtx pattern for consumer integration
+
+Both BirdNET and Perch consumers need the same set of database handles and
+caches. A `PersistCtx` struct bundles: `Database` (cheap `Arc` clone),
+`label_cache` (model_id + label_index → label_db_id), `model_ids` (display
+name → model_db_id), `source_ids` (source name → UUID), and `station_id`.
+Cloned into each consumer closure.
+
+Database errors are logged but don't halt the pipeline — a transient write
+failure shouldn't stop inference on a headless edge device.
+
 ### Insight: SQLx infers INTEGER PRIMARY KEY as nullable
 
 SQLx's `query!` macro infers `INTEGER PRIMARY KEY` columns as `Option<i64>`
