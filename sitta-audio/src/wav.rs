@@ -110,7 +110,6 @@ pub fn duration_ms_from_path(path: &Path) -> io::Result<i64> {
     let mut header = [0u8; 44];
     file.read_exact(&mut header)?;
 
-    let sample_rate = u32::from_le_bytes([header[24], header[25], header[26], header[27]]);
     let byte_rate = u32::from_le_bytes([header[28], header[29], header[30], header[31]]);
     if byte_rate == 0 {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "byte rate is zero"));

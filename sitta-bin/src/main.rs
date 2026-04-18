@@ -6,7 +6,6 @@ mod seed;
 mod snippets;
 
 use std::path::Path;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -191,32 +190,31 @@ async fn main() -> Result<()> {
         );
     }
 
-    let mut rx = tx.subscribe();
-    let consumer_shutdown = shutdown.clone();
-    let consumer_classifiers = classifiers.clone();
-    let consumer_filter = range_filter.clone();
-    let consumer_persist = persist_ctx.clone();
-    let consumer_metrics = metrics.clone();
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                result = rx.recv() => {
-                    match result {
-                        Ok(chunk) => {
-                            consumer_metrics.birdnet_chunks_processed.fetch_add(1, Ordering::Relaxed);
-                            consumers::handle_chunk(&chunk, &consumer_classifiers, consumer_filter.clone(), &consumer_persist).await;
-                        }
-                        Err(broadcast::error::RecvError::Lagged(n)) => {
-                            consumer_metrics.birdnet_chunks_dropped.fetch_add(n, Ordering::Relaxed);
-                            tracing::warn!(dropped = n, total_dropped = consumer_metrics.birdnet_chunks_dropped.load(Ordering::Relaxed), "BirdNET consumer lagged");
-                        }
-                        Err(broadcast::error::RecvError::Closed) => break,
-                    }
-                }
-                () = consumer_shutdown.cancelled() => break,
-            }
-        }
-    });
+    // BirdNET consumer with configurable sliding window.
+    let birdnet_stride = config
+        .inference
+        .birdnet
+        .as_ref()
+        .map(|b| b.stride_seconds)
+        .unwrap_or(config.audio.chunk_seconds as f32);
+    let window_samples = (config.audio.chunk_seconds * 48_000) as usize;
+    let stride_samples = (birdnet_stride * 48_000.0) as usize;
+    tracing::info!(
+        window_s = config.audio.chunk_seconds,
+        stride_s = birdnet_stride,
+        overlap_s = config.audio.chunk_seconds as f32 - birdnet_stride,
+        "BirdNET consumer: window={window_samples} stride={stride_samples} samples"
+    );
+    consumers::spawn_birdnet_consumer(
+        classifiers.clone(),
+        range_filter.clone(),
+        tx.subscribe(),
+        shutdown.clone(),
+        persist_ctx.clone(),
+        metrics.clone(),
+        window_samples,
+        stride_samples,
+    );
 
     // ── Shutdown ────────────────────────────────────────────────
     tokio::signal::ctrl_c()
