@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT l.common_name AS \"common_name!\",\n                      l.scientific_name,\n                      l.taxon_code,\n                      CAST((d.detected_at - $1) / 3600000 AS INTEGER) AS \"hour_bucket!: i64\",\n                      COUNT(*) AS \"count!: i64\"\n               FROM detections d\n               JOIN labels l ON l.id = d.label_id\n               WHERE d.detected_at >= $1 AND d.detected_at < $2\n                 AND d.confidence >= $3\n                 AND l.label_type = 'species'\n               GROUP BY l.scientific_name, l.common_name, l.taxon_code,\n                        CAST((d.detected_at - $1) / 3600000 AS INTEGER)\n               ORDER BY COUNT(*) DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "common_name!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "scientific_name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "taxon_code",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "hour_bucket!: i64",
+        "ordinal": 3,
+        "type_info": "Null"
+      },
+      {
+        "name": "count!: i64",
+        "ordinal": 4,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "b768c2354428ebe35a85834afa45b017c26fb915672566f7e98a57ceb9cd77b4"
+}
