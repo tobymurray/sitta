@@ -353,7 +353,7 @@ pub fn dashboard_content(station_name: &str) -> String {
 
   // Audio playback for detection clips.
   let clipAudio = null;
-  function playClip(id, btn) {{
+  window.playClip = function(id, btn) {{
     if (clipAudio) {{ clipAudio.pause(); clipAudio = null; document.querySelectorAll('.clip-btn-playing').forEach(b => {{ b.classList.remove('clip-btn-playing'); b.innerHTML = playSvg; }}); }}
     clipAudio = new Audio('/api/v1/detections/' + id + '/audio');
     clipAudio.play();
@@ -365,7 +365,7 @@ pub fn dashboard_content(station_name: &str) -> String {
   const stopSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><rect x="4" y="4" width="12" height="12" rx="1.5"/></svg>';
 
   // Review detection.
-  function reviewDetection(id, status, card) {{
+  window.reviewDetection = function(id, status, card) {{
     fetch('/api/v1/detections/' + id + '/review', {{
       method: 'PUT',
       headers: {{ 'Content-Type': 'application/json' }},
