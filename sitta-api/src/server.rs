@@ -84,6 +84,7 @@ pub fn router(state: ApiState) -> Router {
         // Dashboard pages
         .route("/", get(dashboard_page))
         .route("/species", get(species_page))
+        .route("/species/{name}", get(species_detail_page))
         .route("/status", get(status_page))
         .route("/individuals", get(individuals_page))
         .route("/settings", get(settings_page))
@@ -788,6 +789,15 @@ async fn species_page(
     let s = state.settings.load();
     let content = dashboard::species_content();
     dashboard::page("Species", "species", &content, &s.timezone)
+}
+
+async fn species_detail_page(
+    State(state): State<ApiState>,
+    Path(name): Path<String>,
+) -> axum::response::Html<String> {
+    let s = state.settings.load();
+    let content = dashboard::species_detail_content(&name);
+    dashboard::page(&format!("{name} — Species"), "species", &content, &s.timezone)
 }
 
 async fn status_page(

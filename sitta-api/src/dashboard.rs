@@ -478,7 +478,7 @@ pub fn species_content() -> String {
         const confClass = pct >= 80 ? 'text-emerald-600 dark:text-emerald-400' : pct >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400';
         const _tz = document.body.dataset.tz || 'UTC';
         const time = new Date(s.last_detected_at).toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', hour12: false, timeZone: _tz});
-        html += `<tr class="${bg} border-b border-gray-100 dark:border-plumage-800/50 last:border-0">
+        html += `<tr class="${bg} border-b border-gray-100 dark:border-plumage-800/50 last:border-0 cursor-pointer hover:bg-nuthatch-50/50 dark:hover:bg-nuthatch-900/10 transition-colors" onclick="location.href='/species/'+encodeURIComponent('${s.scientific_name}')">
           <td class="px-4 py-3">
             <p class="font-medium text-sm">${s.common_name}</p>
             <p class="text-xs text-gray-400 dark:text-plumage-500 italic">${s.scientific_name}</p>
@@ -502,6 +502,73 @@ pub fn species_content() -> String {
 })();
 </script>"##
         .to_string()
+}
+
+pub fn species_detail_content(scientific_name: &str) -> String {
+    format!(
+        r##"<div class="mb-6">
+  <div class="flex items-center gap-2 mb-1">
+    <a href="/species" class="text-nuthatch-600 dark:text-nuthatch-400 hover:underline text-sm">&larr; All species</a>
+  </div>
+  <h1 id="species-title" class="text-2xl font-bold tracking-tight">{scientific_name}</h1>
+  <p class="text-sm text-gray-500 dark:text-plumage-400 italic mt-0.5">{scientific_name}</p>
+</div>
+
+<div id="species-detections" class="space-y-3">
+  <div class="text-center py-12 text-gray-400 dark:text-plumage-500 text-sm">Loading detections...</div>
+</div>
+
+<script>
+(function() {{
+  const sciName = {sci_json};
+  const _tz = document.body.dataset.tz || 'UTC';
+  const _tf = {{ hour: '2-digit', minute: '2-digit', hour12: false, timeZone: _tz }};
+
+  fetch('/api/v1/detections?species=' + encodeURIComponent(sciName) + '&limit=100')
+    .then(r => r.json())
+    .then(data => {{
+      const el = document.getElementById('species-detections');
+      if (data.length === 0) {{
+        el.innerHTML = '<div class="text-center py-12 text-gray-400 dark:text-plumage-500 text-sm">No detections found for this species</div>';
+        return;
+      }}
+      // Update title with common name from first detection
+      if (data[0].species.common_name) {{
+        document.getElementById('species-title').textContent = data[0].species.common_name;
+      }}
+      el.innerHTML = data.map(d => {{
+        const pct = Math.round(d.confidence * 100);
+        const confClass = pct >= 80 ? 'text-emerald-700 bg-emerald-50 ring-emerald-600/20 dark:text-emerald-400 dark:bg-emerald-900/30 dark:ring-emerald-400/20'
+          : pct >= 50 ? 'text-amber-700 bg-amber-50 ring-amber-600/20 dark:text-amber-400 dark:bg-amber-900/30 dark:ring-amber-400/20'
+          : 'text-red-700 bg-red-50 ring-red-600/20 dark:text-red-400 dark:bg-red-900/30 dark:ring-red-400/20';
+        const time = new Date(d.detected_at).toLocaleString('en-GB', {{
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: _tz
+        }});
+        return `<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 px-4 py-3 flex items-center justify-between">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${{confClass}}">${{pct}}%</span>
+              <span class="text-sm text-gray-500 dark:text-plumage-400">${{time}}</span>
+            </div>
+            <div class="flex items-center gap-3 mt-1 text-xs text-gray-400 dark:text-plumage-500">
+              <span>${{d.model}} ${{d.model_version}}</span>
+              ${{d.source_name ? '<span class="before:content-[\\u00b7] before:mr-2">' + d.source_name + '</span>' : ''}}
+              ${{d.has_embedding ? '<span class="before:content-[\\u00b7] before:mr-2 text-plumage-500 dark:text-plumage-400">embedding</span>' : ''}}
+            </div>
+          </div>
+          <span class="text-xs text-gray-400 dark:text-plumage-600 font-mono">${{d.id.slice(0, 8)}}</span>
+        </div>`;
+      }}).join('');
+    }})
+    .catch(() => {{
+      document.getElementById('species-detections').innerHTML =
+        '<div class="text-center py-8 text-red-400 text-sm">Failed to load detections</div>';
+    }});
+}})();
+</script>"##,
+        scientific_name = scientific_name,
+        sci_json = serde_json::to_string(scientific_name).unwrap_or_else(|_| "\"\"".to_string()),
+    )
 }
 
 pub fn status_content(station_name: &str) -> String {
