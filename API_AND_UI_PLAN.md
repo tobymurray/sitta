@@ -303,7 +303,7 @@ All queries use `sqlx::query!` for compile-time checking.
 
 ---
 
-## Step 6 — Embedded dashboard (htmx)
+## Step 6 — Embedded dashboard ✓
 
 A single-page dashboard served from the binary. No npm, no bundler, no
 framework. htmx + a CSS classless framework (Pico CSS or Simple.css).
@@ -358,7 +358,7 @@ Or embed htmx.min.js (~14 KB) in the binary for fully offline operation.
 
 ---
 
-## Step 7 — Wire into main.rs
+## Step 7 — Wire into main.rs ✓ (done in step 2)
 
 Bring it together in `sitta-bin/src/main.rs`:
 

@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
+use crate::dashboard;
 use crate::event::{Alternative, DetectionEvent, SpeciesInfo};
 use sitta_store::db::Database;
 use sitta_store::models::uuid_from_blob;
@@ -31,11 +32,16 @@ pub struct ApiState {
 /// Build the axum router with all routes.
 pub fn router(state: ApiState) -> Router {
     Router::new()
+        // API endpoints
         .route("/api/v1/stream/events", get(sse_handler))
         .route("/api/v1/detections", get(list_detections))
         .route("/api/v1/detections/{id}", get(get_detection))
         .route("/api/v1/species", get(list_species))
         .route("/api/v1/status", get(status_handler))
+        // Dashboard pages
+        .route("/", get(dashboard_page))
+        .route("/species", get(species_page))
+        .route("/status", get(status_page))
         .with_state(state)
 }
 
@@ -295,4 +301,27 @@ struct StatusResponse {
 
 fn millis_to_rfc3339(ms: i64) -> Option<String> {
     DateTime::from_timestamp_millis(ms).map(|dt: DateTime<Utc>| dt.to_rfc3339())
+}
+
+// ── Dashboard pages ─────────────────────────────────────────────
+
+async fn dashboard_page(
+    State(state): State<ApiState>,
+) -> axum::response::Html<String> {
+    let content = dashboard::dashboard_content(&state.station_name);
+    dashboard::page("Dashboard", "dashboard", &content)
+}
+
+async fn species_page(
+    State(_state): State<ApiState>,
+) -> axum::response::Html<String> {
+    let content = dashboard::species_content();
+    dashboard::page("Species", "species", &content)
+}
+
+async fn status_page(
+    State(state): State<ApiState>,
+) -> axum::response::Html<String> {
+    let content = dashboard::status_content(&state.station_name);
+    dashboard::page("Status", "status", &content)
 }
