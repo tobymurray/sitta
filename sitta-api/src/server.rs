@@ -14,7 +14,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::Json;
-use axum::routing::get;
+use axum::routing::{delete, get};
 use axum::Router;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -50,8 +50,8 @@ pub struct ApiState {
     pub matcher: Option<Arc<sitta_store::matcher::IndividualMatcher>>,
     /// Audio broadcast channel for PCM rebroadcast to remote consumers.
     pub audio_tx: broadcast::Sender<Arc<sitta_audio::chunk::AudioChunk>>,
-    /// Configured audio source names (for validating stream requests).
-    pub audio_source_names: Arc<Vec<String>>,
+    /// Dynamic source manager for add/remove at runtime.
+    pub source_manager: sitta_audio::manager::SourceManager,
 }
 
 /// Pipeline metrics tracked via atomic counters.
@@ -76,6 +76,8 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/v1/settings", get(get_settings).put(update_settings))
         .route("/api/v1/individuals", get(list_individuals).post(enroll_individual))
         .route("/api/v1/individuals/{id}", get(get_individual))
+        .route("/api/v1/sources", get(list_sources).post(add_source))
+        .route("/api/v1/sources/{name}", delete(remove_source))
         .route("/api/v1/audio/sources", get(list_audio_sources))
         .route("/api/v1/audio/stream/{source_name}", get(audio_stream_handler))
         // Dashboard pages
@@ -523,10 +525,78 @@ struct IndividualSummary {
 
 // ── Audio rebroadcast ───────────────────────────────────────────
 
+// ── Source management ────────────────────────────────────────────
+
+async fn list_sources(
+    State(state): State<ApiState>,
+) -> Json<Vec<SourceSummary>> {
+    let configs = state.source_manager.list().await;
+    let summaries = configs
+        .into_iter()
+        .map(|c| {
+            let (source_type, url) = match &c {
+                sitta_audio::source::SourceConfig::Rtsp(r) => ("rtsp", Some(r.url.clone())),
+                sitta_audio::source::SourceConfig::Local(l) => ("local", Some(l.device.clone())),
+                sitta_audio::source::SourceConfig::Remote(r) => ("remote", Some(r.url.clone())),
+            };
+            SourceSummary {
+                name: c.name().to_string(),
+                source_type: source_type.to_string(),
+                url,
+            }
+        })
+        .collect();
+    Json(summaries)
+}
+
+async fn add_source(
+    State(state): State<ApiState>,
+    Json(config): Json<sitta_audio::source::SourceConfig>,
+) -> Result<Json<SourceSummary>, (StatusCode, String)> {
+    let name = config.name().to_string();
+    let (source_type, url) = match &config {
+        sitta_audio::source::SourceConfig::Rtsp(r) => ("rtsp", Some(r.url.clone())),
+        sitta_audio::source::SourceConfig::Local(l) => ("local", Some(l.device.clone())),
+        sitta_audio::source::SourceConfig::Remote(r) => ("remote", Some(r.url.clone())),
+    };
+
+    state
+        .source_manager
+        .add(config)
+        .await
+        .map_err(|e| (StatusCode::CONFLICT, e))?;
+
+    Ok(Json(SourceSummary {
+        name,
+        source_type: source_type.to_string(),
+        url,
+    }))
+}
+
+async fn remove_source(
+    State(state): State<ApiState>,
+    Path(name): Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    state
+        .source_manager
+        .remove(&name)
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize)]
+struct SourceSummary {
+    name: String,
+    source_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+}
+
 async fn list_audio_sources(
     State(state): State<ApiState>,
 ) -> Json<Vec<String>> {
-    Json((*state.audio_source_names).clone())
+    Json(state.source_manager.names().await)
 }
 
 async fn audio_stream_handler(
@@ -536,7 +606,7 @@ async fn audio_stream_handler(
     use axum::body::Body;
     use axum::http::Response;
 
-    if !state.audio_source_names.contains(&source_name) {
+    if !state.source_manager.contains(&source_name).await {
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(Body::from(format!("unknown source: {source_name}")))

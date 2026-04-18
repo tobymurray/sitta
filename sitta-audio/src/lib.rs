@@ -3,6 +3,7 @@
 //! Supports RTSP streams (via ffmpeg subprocess) and local audio devices.
 
 pub mod chunk;
+pub mod manager;
 pub mod remote;
 pub mod rtsp;
 pub mod source;

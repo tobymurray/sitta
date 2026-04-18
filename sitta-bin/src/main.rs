@@ -13,8 +13,7 @@ use arc_swap::ArcSwap;
 use sitta_api::server::{self, ApiState, PipelineMetrics};
 use sitta_api::settings::{InitialConfig, RuntimeSettings};
 use sitta_audio::chunk::AudioChunk;
-use sitta_audio::rtsp::RtspSource;
-use sitta_audio::source::SourceConfig;
+use sitta_audio::manager::SourceManager;
 use sitta_inference::rangefilter::RangeFilter;
 use sitta_store::db::Database;
 use tokio::sync::broadcast;
@@ -138,10 +137,10 @@ async fn main() -> Result<()> {
         .parse()
         .with_context(|| format!("invalid api.bind address: {}", config.api.bind))?;
 
-    // Audio broadcast channel — created before API state so it can be shared
-    // with both inference consumers and the audio rebroadcast endpoint.
+    // Audio broadcast channel and source manager.
     let (tx, _rx) = broadcast::channel::<Arc<AudioChunk>>(32);
-    let audio_source_names: Vec<String> = config.audio.sources.iter().map(|s| s.name().to_string()).collect();
+    let source_manager = SourceManager::new(tx.clone(), shutdown.clone(), config.audio.chunk_seconds);
+    source_manager.add_initial(&config.audio.sources).await;
 
     let api_state = ApiState {
         db: db.clone(),
@@ -153,40 +152,9 @@ async fn main() -> Result<()> {
         metrics: metrics.clone(),
         matcher: persist_ctx.matcher.clone(),
         audio_tx: tx.clone(),
-        audio_source_names: Arc::new(audio_source_names),
+        source_manager: source_manager.clone(),
     };
     tokio::spawn(server::serve(api_addr, api_state, shutdown.clone()));
-
-    // ── Audio capture ───────────────────────────────────────────
-
-    for source_config in &config.audio.sources {
-        match source_config {
-            SourceConfig::Rtsp(rtsp_config) => {
-                let source =
-                    RtspSource::new(rtsp_config.clone(), tx.clone(), config.audio.chunk_seconds);
-                let token = shutdown.clone();
-                tokio::spawn(async move {
-                    source.run(token).await;
-                });
-            }
-            SourceConfig::Local(local_config) => {
-                tracing::warn!(
-                    source = %local_config.name,
-                    "Local audio capture not yet implemented, skipping"
-                );
-            }
-            SourceConfig::Remote(remote_config) => {
-                let source = sitta_audio::remote::RemoteSource::new(
-                    remote_config.clone(),
-                    tx.clone(),
-                );
-                let token = shutdown.clone();
-                tokio::spawn(async move {
-                    source.run(token).await;
-                });
-            }
-        }
-    }
 
     // ── Inference consumers ─────────────────────────────────────
     if let Some(perch) = perch_model {

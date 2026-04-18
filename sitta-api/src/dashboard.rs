@@ -28,9 +28,14 @@ tailwind.config = {{
       fontFamily: {{ sans: ['Inter', 'system-ui', 'sans-serif'] }},
       colors: {{
         nuthatch: {{
-          50: '#faf7f2', 100: '#f3ede3', 200: '#e6d9c5', 300: '#d4bfa0',
-          400: '#c2a17a', 500: '#b5895e', 600: '#a87653', 700: '#8c5e45',
-          800: '#724d3c', 900: '#5e4133', 950: '#32211a',
+          50: '#fdf5ef', 100: '#fae8d6', 200: '#f4ceac', 300: '#ecad78',
+          400: '#e38a47', 500: '#d97226', 600: '#c45c1c', 700: '#a34619',
+          800: '#84391b', 900: '#6c3019', 950: '#3a160b',
+        }},
+        plumage: {{
+          50: '#f2f6f9', 100: '#e2eaf0', 200: '#c9d8e3', 300: '#a3bccf',
+          400: '#7799b4', 500: '#5b7d9b', 600: '#496683', 700: '#3d536b',
+          800: '#36475a', 900: '#2f3d4d', 950: '#1c2733',
         }},
       }},
     }},
@@ -48,16 +53,16 @@ tailwind.config = {{
   }})();
 </script>
 </head>
-<body class="h-full bg-stone-50 dark:bg-slate-950 font-sans text-stone-900 dark:text-stone-100" data-tz="{timezone}">
+<body class="h-full bg-stone-50 dark:bg-plumage-950 font-sans text-stone-900 dark:text-stone-100" data-tz="{timezone}">
 <div class="flex h-full">
 
   <!-- Sidebar -->
-  <nav class="hidden lg:flex lg:flex-col lg:w-60 bg-white dark:bg-slate-900 border-r border-stone-200 dark:border-slate-800">
-    <div class="flex items-center gap-2.5 px-5 py-5 border-b border-stone-200 dark:border-slate-800">
-      <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-slate-500 to-nuthatch-600 flex items-center justify-center">
+  <nav class="hidden lg:flex lg:flex-col lg:w-60 bg-white dark:bg-plumage-900 border-r border-stone-200 dark:border-plumage-800">
+    <div class="flex items-center gap-2.5 px-5 py-5 border-b border-stone-200 dark:border-plumage-800">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-plumage-500 to-nuthatch-500 flex items-center justify-center">
         <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3c-1.5 0-3 .5-4 2-1.5 2-1 5 1 7l3 3 3-3c2-2 2.5-5 1-7-1-1.5-2.5-2-4-2z"/></svg>
       </div>
-      <span class="text-lg font-bold tracking-tight">Sitta</span>
+      <span class="text-lg font-bold tracking-tight bg-gradient-to-r from-plumage-300 to-nuthatch-400 bg-clip-text text-transparent dark:from-plumage-300 dark:to-nuthatch-400">Sitta</span>
     </div>
     <div class="flex-1 py-4 px-3 space-y-1">
       {nav_dashboard}
@@ -66,13 +71,13 @@ tailwind.config = {{
       {nav_individuals}
       {nav_settings}
     </div>
-    <div class="px-5 py-3 border-t border-stone-200 dark:border-slate-800">
-      <button onclick="toggleTheme()" class="flex items-center gap-2 text-xs text-stone-400 dark:text-slate-500 hover:text-stone-600 dark:hover:text-slate-300 transition-colors">
+    <div class="px-5 py-3 border-t border-stone-200 dark:border-plumage-800">
+      <button onclick="toggleTheme()" class="flex items-center gap-2 text-xs text-stone-400 dark:text-plumage-500 hover:text-stone-600 dark:hover:text-plumage-300 transition-colors">
         <svg class="w-4 h-4 hidden dark:block" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z"/></svg>
         <svg class="w-4 h-4 block dark:hidden" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z"/></svg>
         <span class="dark:hidden">Dark mode</span><span class="hidden dark:inline">Light mode</span>
       </button>
-      <p class="text-xs text-stone-400 dark:text-slate-600 mt-2">Sitta v0.1.0</p>
+      <p class="text-xs text-stone-400 dark:text-plumage-600 mt-2">Sitta v0.1.0</p>
     </div>
   </nav>
 
@@ -80,11 +85,11 @@ tailwind.config = {{
   <div class="flex-1 flex flex-col min-w-0">
 
     <!-- Mobile header -->
-    <header class="lg:hidden flex items-center gap-3 px-4 py-3 bg-white dark:bg-slate-900 border-b border-stone-200 dark:border-slate-800">
-      <div class="w-7 h-7 rounded-md bg-gradient-to-br from-slate-500 to-nuthatch-600 flex items-center justify-center">
+    <header class="lg:hidden flex items-center gap-3 px-4 py-3 bg-white dark:bg-plumage-900 border-b border-stone-200 dark:border-plumage-800">
+      <div class="w-7 h-7 rounded-md bg-gradient-to-br from-plumage-500 to-nuthatch-500 flex items-center justify-center">
         <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3c-1.5 0-3 .5-4 2-1.5 2-1 5 1 7l3 3 3-3c2-2 2.5-5 1-7-1-1.5-2.5-2-4-2z"/></svg>
       </div>
-      <span class="font-bold">Sitta</span>
+      <span class="font-bold bg-gradient-to-r from-plumage-300 to-nuthatch-400 bg-clip-text text-transparent">Sitta</span>
       <nav class="ml-auto flex gap-1">
         <a href="/" class="px-2.5 py-1.5 text-sm rounded-md {mob_dashboard}">Live</a>
         <a href="/species" class="px-2.5 py-1.5 text-sm rounded-md {mob_species}">Species</a>
@@ -124,23 +129,31 @@ function toggleTheme() {{
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>"#),
         nav_settings = nav_item("Settings", "/settings", "settings", active,
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>"#),
-        mob_dashboard = if active == "dashboard" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-slate-400" },
-        mob_species = if active == "species" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-slate-400" },
-        mob_status = if active == "status" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-slate-400" },
-        mob_individuals = if active == "individuals" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-slate-400" },
-        mob_settings = if active == "settings" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-slate-400" },
+        mob_dashboard = if active == "dashboard" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
+        mob_species = if active == "species" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
+        mob_status = if active == "status" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
+        mob_individuals = if active == "individuals" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
+        mob_settings = if active == "settings" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
     ))
 }
 
 fn nav_item(label: &str, href: &str, key: &str, active: &str, icon_path: &str) -> String {
-    let (bg, text) = if key == active {
-        ("bg-nuthatch-50 dark:bg-nuthatch-900/20", "text-nuthatch-800 dark:text-nuthatch-400 font-medium")
+    let (bg, text, icon_cls) = if key == active {
+        (
+            "bg-nuthatch-50 dark:bg-nuthatch-900/20 border-l-2 border-nuthatch-500",
+            "text-nuthatch-800 dark:text-nuthatch-400 font-medium",
+            "text-nuthatch-600 dark:text-nuthatch-400",
+        )
     } else {
-        ("hover:bg-stone-100 dark:hover:bg-slate-800", "text-stone-700 dark:text-slate-300")
+        (
+            "hover:bg-stone-100 dark:hover:bg-plumage-800/50 border-l-2 border-transparent",
+            "text-stone-700 dark:text-plumage-200",
+            "text-stone-400 dark:text-plumage-400",
+        )
     };
     format!(
         r#"<a href="{href}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {bg} {text} transition-colors">
-        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">{icon_path}</svg>
+        <svg class="w-5 h-5 flex-shrink-0 {icon_cls}" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">{icon_path}</svg>
         {label}
       </a>"#,
     )
@@ -153,9 +166,9 @@ pub fn dashboard_content(station_name: &str) -> String {
         r##"<div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-bold tracking-tight">{station_name}</h1>
-    <p class="text-sm text-gray-500 dark:text-slate-400 mt-0.5">Live detection feed</p>
+    <p class="text-sm text-gray-500 dark:text-plumage-400 mt-0.5">Live detection feed</p>
   </div>
-  <div id="connection-status" class="flex items-center gap-2 text-sm text-gray-400 dark:text-slate-500">
+  <div id="connection-status" class="flex items-center gap-2 text-sm text-gray-400 dark:text-plumage-500">
     <span class="relative flex h-2.5 w-2.5"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span></span>
     Connecting...
   </div>
@@ -163,20 +176,20 @@ pub fn dashboard_content(station_name: &str) -> String {
 
 <!-- Stats row -->
 <div id="stats" class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 px-4 py-3">
-    <p class="text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">Today</p>
-    <p id="stat-today" class="text-2xl font-bold mt-1">--</p>
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 px-4 py-3 border-t-2 border-t-nuthatch-500">
+    <p class="text-xs font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider">Today</p>
+    <p id="stat-today" class="text-2xl font-bold mt-1 text-nuthatch-700 dark:text-nuthatch-400">--</p>
   </div>
-  <div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 px-4 py-3">
-    <p class="text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">Species</p>
-    <p id="stat-species" class="text-2xl font-bold mt-1">--</p>
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 px-4 py-3 border-t-2 border-t-plumage-500">
+    <p class="text-xs font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider">Species</p>
+    <p id="stat-species" class="text-2xl font-bold mt-1 text-plumage-700 dark:text-plumage-300">--</p>
   </div>
-  <div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 px-4 py-3">
-    <p class="text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">Top Species</p>
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 px-4 py-3 border-t-2 border-t-nuthatch-400">
+    <p class="text-xs font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider">Top Species</p>
     <p id="stat-top" class="text-lg font-semibold mt-1 truncate">--</p>
   </div>
-  <div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 px-4 py-3">
-    <p class="text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">Avg Confidence</p>
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 px-4 py-3 border-t-2 border-t-plumage-400">
+    <p class="text-xs font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider">Avg Confidence</p>
     <p id="stat-conf" class="text-2xl font-bold mt-1">--</p>
   </div>
 </div>
@@ -184,11 +197,11 @@ pub fn dashboard_content(station_name: &str) -> String {
 <!-- Live detection feed -->
 <div class="flex items-center justify-between mb-4">
   <h2 class="text-lg font-semibold">Recent Detections</h2>
-  <span id="detection-count" class="text-sm text-gray-400 dark:text-slate-500"></span>
+  <span id="detection-count" class="text-sm text-gray-400 dark:text-plumage-500"></span>
 </div>
 <div id="live-feed" class="space-y-3">
-  <div id="empty-state" class="text-center py-16 text-gray-400 dark:text-slate-500">
-    <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24"><path d="M12 3c-1.5 0-3 .5-4 2-1.5 2-1 5 1 7l3 3 3-3c2-2 2.5-5 1-7-1-1.5-2.5-2-4-2z"/></svg>
+  <div id="empty-state" class="text-center py-16 text-gray-400 dark:text-plumage-500">
+    <svg class="w-12 h-12 mx-auto mb-3 text-nuthatch-400/50 dark:text-nuthatch-600/50" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24"><path d="M12 3c-1.5 0-3 .5-4 2-1.5 2-1 5 1 7l3 3 3-3c2-2 2.5-5 1-7-1-1.5-2.5-2-4-2z"/></svg>
     <p class="text-sm">Waiting for detections...</p>
     <p class="text-xs mt-1">Detections will appear here as they are identified</p>
   </div>
@@ -228,7 +241,7 @@ pub fn dashboard_content(station_name: &str) -> String {
     const [badge, bar] = confColor(d.confidence);
     const pct = Math.round(d.confidence * 100);
     const card = document.createElement('div');
-    card.className = 'slide-in bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4 transition-all';
+    card.className = 'slide-in bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4 transition-all';
     card.innerHTML = `
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 flex-1">
@@ -236,14 +249,14 @@ pub fn dashboard_content(station_name: &str) -> String {
             <h3 class="font-semibold text-base truncate">${{d.species.common_name}}</h3>
             <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${{badge}}">${{pct}}%</span>
           </div>
-          <p class="text-sm text-gray-500 dark:text-slate-400 italic mt-0.5">${{d.species.scientific_name}}</p>
-          <div class="flex items-center gap-3 mt-2 text-xs text-gray-400 dark:text-slate-500">
+          <p class="text-sm text-gray-500 dark:text-plumage-400 italic mt-0.5">${{d.species.scientific_name}}</p>
+          <div class="flex items-center gap-3 mt-2 text-xs text-gray-400 dark:text-plumage-500">
             <span>${{d.model}} ${{d.model_version}}</span>
             ${{d.source_name ? '<span class="before:content-[\\\"\\u00b7\\\"] before:mr-3">' + d.source_name + '</span>' : ''}}
             <span class="before:content-[\\\"\\u00b7\\\"] before:mr-3">${{timeAgo(d.detected_at)}}</span>
           </div>
         </div>
-        <div class="flex-shrink-0 w-16 h-16 rounded-lg bg-gray-100 dark:bg-slate-800 flex items-center justify-center">
+        <div class="flex-shrink-0 w-16 h-16 rounded-lg bg-gray-100 dark:bg-plumage-800 flex items-center justify-center">
           <div class="relative w-12 h-12">
             <svg class="w-12 h-12 -rotate-90" viewBox="0 0 36 36">
               <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
@@ -257,10 +270,10 @@ pub fn dashboard_content(station_name: &str) -> String {
         </div>
       </div>
       ${{d.alternatives && d.alternatives.length > 0 ? `
-        <div class="mt-3 pt-3 border-t border-gray-100 dark:border-slate-800">
-          <p class="text-xs text-gray-400 dark:text-slate-500 mb-1.5">Alternatives</p>
+        <div class="mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800">
+          <p class="text-xs text-gray-400 dark:text-plumage-500 mb-1.5">Alternatives</p>
           <div class="flex flex-wrap gap-2">
-            ${{d.alternatives.slice(0, 3).map(a => `<span class="text-xs bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded">${{a.common_name}} <span class="text-gray-400">${{Math.round(a.confidence * 100)}}%</span></span>`).join('')}}
+            ${{d.alternatives.slice(0, 3).map(a => `<span class="text-xs bg-gray-100 dark:bg-plumage-800 px-2 py-0.5 rounded">${{a.common_name}} <span class="text-gray-400 dark:text-plumage-500">${{Math.round(a.confidence * 100)}}%</span></span>`).join('')}}
           </div>
         </div>` : ''}}`;
     return card;
@@ -321,11 +334,11 @@ pub fn dashboard_content(station_name: &str) -> String {
 pub fn species_content() -> String {
     r##"<div class="mb-6">
   <h1 class="text-2xl font-bold tracking-tight">Species</h1>
-  <p class="text-sm text-gray-500 dark:text-slate-400 mt-0.5">Detected in the last 24 hours</p>
+  <p class="text-sm text-gray-500 dark:text-plumage-400 mt-0.5">Detected in the last 24 hours</p>
 </div>
 
-<div id="species-table" class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 overflow-hidden">
-  <div class="p-8 text-center text-gray-400 dark:text-slate-500 text-sm">Loading...</div>
+<div id="species-table" class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 overflow-hidden">
+  <div class="p-8 text-center text-gray-400 dark:text-plumage-500 text-sm">Loading...</div>
 </div>
 
 <script>
@@ -335,26 +348,26 @@ pub fn species_content() -> String {
     .then(data => {
       const el = document.getElementById('species-table');
       if (data.length === 0) {
-        el.innerHTML = '<div class="p-8 text-center text-gray-400 dark:text-slate-500 text-sm">No species detected in the last 24 hours</div>';
+        el.innerHTML = '<div class="p-8 text-center text-gray-400 dark:text-plumage-500 text-sm">No species detected in the last 24 hours</div>';
         return;
       }
       let html = `<table class="w-full"><thead>
-        <tr class="border-b border-gray-200 dark:border-slate-800 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
+        <tr class="border-b border-gray-200 dark:border-plumage-800 text-left text-xs font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider">
           <th class="px-4 py-3">Species</th>
           <th class="px-4 py-3 text-right">Detections</th>
           <th class="px-4 py-3 text-right hidden sm:table-cell">Avg Confidence</th>
           <th class="px-4 py-3 text-right hidden md:table-cell">Last Seen</th>
         </tr></thead><tbody>`;
       data.forEach((s, i) => {
-        const bg = i % 2 === 0 ? '' : 'bg-gray-50 dark:bg-slate-800/50';
+        const bg = i % 2 === 0 ? '' : 'bg-gray-50 dark:bg-plumage-800/50';
         const pct = Math.round(s.avg_confidence * 100);
         const confClass = pct >= 80 ? 'text-emerald-600 dark:text-emerald-400' : pct >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400';
         const _tz = document.body.dataset.tz || 'UTC';
         const time = new Date(s.last_detected_at).toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', hour12: false, timeZone: _tz});
-        html += `<tr class="${bg} border-b border-gray-100 dark:border-slate-800/50 last:border-0">
+        html += `<tr class="${bg} border-b border-gray-100 dark:border-plumage-800/50 last:border-0">
           <td class="px-4 py-3">
             <p class="font-medium text-sm">${s.common_name}</p>
-            <p class="text-xs text-gray-400 dark:text-slate-500 italic">${s.scientific_name}</p>
+            <p class="text-xs text-gray-400 dark:text-plumage-500 italic">${s.scientific_name}</p>
           </td>
           <td class="px-4 py-3 text-right">
             <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full bg-nuthatch-50 dark:bg-nuthatch-900/20 text-nuthatch-700 dark:text-nuthatch-400 text-sm font-semibold px-2 py-0.5">${s.detection_count}</span>
@@ -362,7 +375,7 @@ pub fn species_content() -> String {
           <td class="px-4 py-3 text-right hidden sm:table-cell">
             <span class="text-sm font-medium ${confClass}">${pct}%</span>
           </td>
-          <td class="px-4 py-3 text-right text-sm text-gray-500 dark:text-slate-400 hidden md:table-cell">${time}</td>
+          <td class="px-4 py-3 text-right text-sm text-gray-500 dark:text-plumage-400 hidden md:table-cell">${time}</td>
         </tr>`;
       });
       html += '</tbody></table>';
@@ -381,33 +394,33 @@ pub fn status_content(station_name: &str) -> String {
     format!(
         r##"<div class="mb-6">
   <h1 class="text-2xl font-bold tracking-tight">System Status</h1>
-  <p class="text-sm text-gray-500 dark:text-slate-400 mt-0.5">{station_name}</p>
+  <p class="text-sm text-gray-500 dark:text-plumage-400 mt-0.5">{station_name}</p>
 </div>
 
 <div id="status-cards" class="grid gap-4 sm:grid-cols-2">
-  <div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
-    <h3 class="text-sm font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-3">Station</h3>
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <h3 class="text-sm font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider mb-3">Station</h3>
     <dl class="space-y-2 text-sm">
-      <div class="flex justify-between"><dt class="text-gray-500 dark:text-slate-400">Name</dt><dd class="font-medium">{station_name}</dd></div>
-      <div class="flex justify-between"><dt class="text-gray-500 dark:text-slate-400">Status</dt><dd id="s-status" class="font-medium">--</dd></div>
-      <div class="flex justify-between"><dt class="text-gray-500 dark:text-slate-400">Total Detections</dt><dd id="s-count" class="font-medium">--</dd></div>
+      <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Name</dt><dd class="font-medium">{station_name}</dd></div>
+      <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Status</dt><dd id="s-status" class="font-medium">--</dd></div>
+      <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Total Detections</dt><dd id="s-count" class="font-medium">--</dd></div>
     </dl>
   </div>
-  <div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
-    <h3 class="text-sm font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-3">Pipeline</h3>
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <h3 class="text-sm font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider mb-3">Pipeline</h3>
     <dl class="space-y-2 text-sm">
-      <div class="flex justify-between"><dt class="text-gray-500 dark:text-slate-400">BirdNET processed</dt><dd id="s-bn-proc" class="font-medium">--</dd></div>
-      <div class="flex justify-between"><dt class="text-gray-500 dark:text-slate-400">BirdNET dropped</dt><dd id="s-bn-drop" class="font-medium">--</dd></div>
-      <div class="flex justify-between"><dt class="text-gray-500 dark:text-slate-400">Perch processed</dt><dd id="s-perch-proc" class="font-medium">--</dd></div>
-      <div class="flex justify-between"><dt class="text-gray-500 dark:text-slate-400">Perch dropped</dt><dd id="s-perch-drop" class="font-medium">--</dd></div>
+      <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">BirdNET processed</dt><dd id="s-bn-proc" class="font-medium">--</dd></div>
+      <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">BirdNET dropped</dt><dd id="s-bn-drop" class="font-medium">--</dd></div>
+      <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Perch processed</dt><dd id="s-perch-proc" class="font-medium">--</dd></div>
+      <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Perch dropped</dt><dd id="s-perch-drop" class="font-medium">--</dd></div>
     </dl>
   </div>
-  <div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
-    <h3 class="text-sm font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-3">API</h3>
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <h3 class="text-sm font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider mb-3">API</h3>
     <dl class="space-y-2 text-sm">
-      <div class="flex justify-between"><dt class="text-gray-500 dark:text-slate-400">Detections</dt><dd><code class="text-xs bg-gray-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">/api/v1/detections</code></dd></div>
-      <div class="flex justify-between"><dt class="text-gray-500 dark:text-slate-400">Species</dt><dd><code class="text-xs bg-gray-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">/api/v1/species</code></dd></div>
-      <div class="flex justify-between"><dt class="text-gray-500 dark:text-slate-400">Live Stream</dt><dd><code class="text-xs bg-gray-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">/api/v1/stream/events</code></dd></div>
+      <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Detections</dt><dd><code class="text-xs bg-gray-100 dark:bg-plumage-800 px-1.5 py-0.5 rounded">/api/v1/detections</code></dd></div>
+      <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Species</dt><dd><code class="text-xs bg-gray-100 dark:bg-plumage-800 px-1.5 py-0.5 rounded">/api/v1/species</code></dd></div>
+      <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Live Stream</dt><dd><code class="text-xs bg-gray-100 dark:bg-plumage-800 px-1.5 py-0.5 rounded">/api/v1/stream/events</code></dd></div>
     </dl>
   </div>
 </div>
@@ -443,42 +456,42 @@ pub fn individuals_content() -> String {
     r##"<div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-bold tracking-tight">Individuals</h1>
-    <p class="text-sm text-gray-500 dark:text-slate-400 mt-0.5">Distinct animals discovered automatically from Perch embeddings</p>
+    <p class="text-sm text-gray-500 dark:text-plumage-400 mt-0.5">Distinct animals discovered automatically from Perch embeddings</p>
   </div>
 </div>
 
 <!-- Overview: species groups -->
 <div id="individuals-list">
-  <div class="text-center py-12 text-gray-400 dark:text-slate-500 text-sm">Loading...</div>
+  <div class="text-center py-12 text-gray-400 dark:text-plumage-500 text-sm">Loading...</div>
 </div>
 
 <!-- Enrollment modal -->
 <div id="enroll-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-  <div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 shadow-xl w-full max-w-md mx-4 p-6">
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 shadow-xl w-full max-w-md mx-4 p-6">
     <h2 class="text-lg font-semibold mb-4">Enroll Individual</h2>
-    <p class="text-sm text-gray-500 dark:text-slate-400 mb-4">Select a recent Perch detection to use as the reference embedding.</p>
+    <p class="text-sm text-gray-500 dark:text-plumage-400 mb-4">Select a recent Perch detection to use as the reference embedding.</p>
 
     <div id="enroll-detections" class="space-y-2 max-h-48 overflow-y-auto mb-4">
-      <div class="text-sm text-gray-400 dark:text-slate-500">Loading recent detections...</div>
+      <div class="text-sm text-gray-400 dark:text-plumage-500">Loading recent detections...</div>
     </div>
 
     <div id="enroll-form" class="hidden space-y-3">
       <input type="hidden" id="enroll-detection-id">
       <div>
-        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Label</label>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Label</label>
         <input id="enroll-label" type="text" placeholder="e.g. Barn Owl #1"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 outline-none">
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Notes (optional)</label>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Notes (optional)</label>
         <input id="enroll-notes" type="text" placeholder="e.g. First seen near north paddock"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 outline-none">
       </div>
     </div>
 
     <div class="flex justify-end gap-2 mt-4">
       <button onclick="document.getElementById('enroll-modal').classList.add('hidden')"
-        class="px-3 py-1.5 rounded-lg text-sm text-stone-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors">Cancel</button>
+        class="px-3 py-1.5 rounded-lg text-sm text-stone-500 dark:text-plumage-400 hover:bg-gray-100 dark:hover:bg-plumage-800 transition-colors">Cancel</button>
       <button id="enroll-btn" disabled
         class="px-3 py-1.5 rounded-lg bg-nuthatch-600 text-white text-sm font-medium hover:bg-nuthatch-700 disabled:opacity-50 transition-colors"
         onclick="submitEnroll()">Enroll</button>
@@ -495,7 +508,7 @@ pub fn individuals_content() -> String {
     .then(data => {
       const el = document.getElementById('individuals-list');
       if (data.length === 0) {
-        el.innerHTML = `<div class="text-center py-16 text-gray-400 dark:text-slate-500">
+        el.innerHTML = `<div class="text-center py-16 text-gray-400 dark:text-plumage-500">
           <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg>
           <p class="text-sm">No individuals discovered yet</p>
           <p class="text-xs mt-1">Individuals are automatically grouped from Perch embeddings as detections arrive</p>
@@ -513,15 +526,15 @@ pub fn individuals_content() -> String {
 
       let html = '<div class="space-y-6">';
       Object.values(groups).forEach(g => {
-        html += `<div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 overflow-hidden">
-          <div class="px-5 py-3 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between">
+        html += `<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 overflow-hidden">
+          <div class="px-5 py-3 border-b border-gray-100 dark:border-plumage-800 flex items-center justify-between">
             <div>
               <h3 class="font-semibold text-sm">${g.individuals[0].scientific_name}</h3>
-              <p class="text-xs text-gray-400 dark:text-slate-500 italic">${g.scientific_name}</p>
+              <p class="text-xs text-gray-400 dark:text-plumage-500 italic">${g.scientific_name}</p>
             </div>
             <span class="inline-flex items-center justify-center min-w-[1.5rem] rounded-full bg-nuthatch-50 dark:bg-nuthatch-900/20 text-nuthatch-700 dark:text-nuthatch-400 text-xs font-semibold px-2 py-0.5">${g.individuals.length}</span>
           </div>
-          <div class="divide-y divide-gray-100 dark:divide-slate-800">`;
+          <div class="divide-y divide-gray-100 dark:divide-plumage-800">`;
 
         g.individuals.forEach(ind => {
           const _tz = document.body.dataset.tz || 'UTC';
@@ -529,9 +542,9 @@ pub fn individuals_content() -> String {
           html += `<div class="px-5 py-3 flex items-center justify-between">
             <div>
               <p class="font-medium text-sm">${ind.label}</p>
-              <p class="text-xs text-gray-400 dark:text-slate-500 mt-0.5">Enrolled ${enrolled}${ind.notes ? ' — ' + ind.notes : ''}</p>
+              <p class="text-xs text-gray-400 dark:text-plumage-500 mt-0.5">Enrolled ${enrolled}${ind.notes ? ' — ' + ind.notes : ''}</p>
             </div>
-            <span class="text-xs text-gray-400 dark:text-slate-500 font-mono">${ind.id.slice(0, 8)}</span>
+            <span class="text-xs text-gray-400 dark:text-plumage-500 font-mono">${ind.id.slice(0, 8)}</span>
           </div>`;
         });
 
@@ -559,7 +572,7 @@ pub fn individuals_content() -> String {
         const withEmb = data.filter(d => d.has_embedding);
         const el = document.getElementById('enroll-detections');
         if (withEmb.length === 0) {
-          el.innerHTML = '<div class="text-sm text-gray-400 dark:text-slate-500">No Perch detections with embeddings found</div>';
+          el.innerHTML = '<div class="text-sm text-gray-400 dark:text-plumage-500">No Perch detections with embeddings found</div>';
           return;
         }
         el.innerHTML = withEmb.map(d => {
@@ -567,10 +580,10 @@ pub fn individuals_content() -> String {
           const time = new Date(d.detected_at).toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', hour12: false, timeZone: _tz});
           const pct = Math.round(d.confidence * 100);
           return `<button onclick="selectDetection('${d.id}', '${d.species.common_name}', this)"
-            class="w-full text-left px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 hover:border-nuthatch-400 dark:hover:border-nuthatch-500 transition-colors text-sm flex items-center justify-between">
+            class="w-full text-left px-3 py-2 rounded-lg border border-gray-200 dark:border-plumage-700 hover:border-nuthatch-400 dark:hover:border-nuthatch-500 transition-colors text-sm flex items-center justify-between">
             <div>
               <span class="font-medium">${d.species.common_name}</span>
-              <span class="text-gray-400 dark:text-slate-500 ml-2">${time}</span>
+              <span class="text-gray-400 dark:text-plumage-500 ml-2">${time}</span>
             </div>
             <span class="text-xs text-gray-400">${pct}%</span>
           </button>`;
@@ -643,7 +656,7 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
     format!(
         r##"<div class="mb-6">
   <h1 class="text-2xl font-bold tracking-tight">Settings</h1>
-  <p class="text-sm text-gray-500 dark:text-slate-400 mt-0.5">Runtime-changeable configuration</p>
+  <p class="text-sm text-gray-500 dark:text-plumage-400 mt-0.5">Runtime-changeable configuration</p>
 </div>
 
 <div id="toast" class="fixed top-4 right-4 z-50 hidden"></div>
@@ -651,48 +664,81 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
 <form id="settings-form" class="space-y-6" onsubmit="return false;">
 
   <!-- Station -->
-  <div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
-    <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100 uppercase tracking-wider mb-4">Station</h3>
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-4">Station</h3>
     <div class="grid gap-4 sm:grid-cols-2">
       <div>
-        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Name</label>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Name</label>
         <input name="station_name" type="text" value="{station_name}"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
       <div class="hidden sm:block"></div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Latitude</label>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Latitude</label>
         <input name="station_latitude" type="number" step="any" value="{lat}" placeholder="e.g. 44.5868"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Longitude</label>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Longitude</label>
         <input name="station_longitude" type="number" step="any" value="{lon}" placeholder="e.g. -76.0283"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
     </div>
     <div class="sm:col-span-2">
-        <label class="block text-sm font-medium text-stone-700 dark:text-slate-300 mb-1">Timezone</label>
+        <label class="block text-sm font-medium text-stone-700 dark:text-plumage-300 mb-1">Timezone</label>
         <input name="timezone" type="text" value="{timezone}"
-          class="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none"
+          class="w-full rounded-lg border border-stone-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none"
           placeholder="e.g. America/Toronto">
-        <p class="mt-1 text-xs text-stone-400 dark:text-slate-500">IANA timezone. Derived from coordinates if empty.</p>
+        <p class="mt-1 text-xs text-stone-400 dark:text-plumage-500">IANA timezone. Derived from coordinates if empty.</p>
       </div>
     </div>
-    <p class="mt-2 text-xs text-stone-400 dark:text-slate-500">Station ID <code class="bg-stone-100 dark:bg-slate-800 px-1 rounded">{station_id}</code> requires restart to change.</p>
+    <p class="mt-2 text-xs text-stone-400 dark:text-plumage-500">Station ID <code class="bg-stone-100 dark:bg-plumage-800 px-1 rounded">{station_id}</code> requires restart to change.</p>
   </div>
 
   <!-- Display -->
-  <div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
-    <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100 uppercase tracking-wider mb-4">Display</h3>
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-4">Display</h3>
     <div class="grid gap-4 sm:grid-cols-2">
       <div>
-        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Min Confidence (UI)</label>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Min Confidence (UI)</label>
         <input name="display_min_confidence" type="number" step="0.01" min="0" max="1" value="{display_min_confidence}"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
     </div>
-    <p class="mt-2 text-xs text-gray-400 dark:text-slate-500">Detections below this confidence are still captured in the database but hidden from the dashboard, SSE feed, and species summary. Lower this to see more detections; raise it to reduce noise.</p>
+    <p class="mt-2 text-xs text-gray-400 dark:text-plumage-500">Detections below this confidence are still captured in the database but hidden from the dashboard, SSE feed, and species summary. Lower this to see more detections; raise it to reduce noise.</p>
+  </div>
+
+  <!-- Audio Sources -->
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-stone-200 dark:border-plumage-800 p-5">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider">Audio Sources</h3>
+      <button onclick="document.getElementById('add-source-form').classList.toggle('hidden')"
+        class="text-xs text-nuthatch-600 dark:text-nuthatch-400 hover:underline">+ Add source</button>
+    </div>
+    <div id="sources-list" class="space-y-2 text-sm">Loading...</div>
+    <div id="add-source-form" class="hidden mt-4 pt-4 border-t border-stone-200 dark:border-plumage-800 space-y-3">
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">Type</label>
+          <select id="new-source-type" class="w-full rounded-lg border border-stone-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm">
+            <option value="rtsp">RTSP</option>
+            <option value="remote">Remote (Sitta)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">Name</label>
+          <input id="new-source-name" type="text" placeholder="e.g. south_dam"
+            class="w-full rounded-lg border border-stone-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm">
+        </div>
+        <div class="sm:col-span-2">
+          <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">URL</label>
+          <input id="new-source-url" type="text" placeholder="rtsp://... or http://..."
+            class="w-full rounded-lg border border-stone-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm">
+        </div>
+      </div>
+      <button onclick="addSource()" class="px-3 py-1.5 rounded-lg bg-nuthatch-600 text-white text-sm font-medium hover:bg-nuthatch-700 transition-colors">Add</button>
+      <span id="add-source-status" class="text-xs ml-2"></span>
+    </div>
   </div>
 
   {birdnet_section}
@@ -702,10 +748,10 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
   <!-- Actions -->
   <div class="flex items-center gap-3">
     <button type="submit" id="save-btn"
-      class="inline-flex items-center px-4 py-2 rounded-lg bg-nuthatch-600 text-white text-sm font-medium hover:bg-nuthatch-700 focus:ring-2 focus:ring-nuthatch-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 transition-colors">
+      class="inline-flex items-center px-4 py-2 rounded-lg bg-nuthatch-600 text-white text-sm font-medium hover:bg-nuthatch-700 focus:ring-2 focus:ring-nuthatch-500 focus:ring-offset-2 dark:focus:ring-offset-plumage-950 transition-colors">
       Save Changes
     </button>
-    <span id="save-status" class="text-sm text-gray-400 dark:text-slate-500"></span>
+    <span id="save-status" class="text-sm text-gray-400 dark:text-plumage-500"></span>
   </div>
 </form>
 
@@ -775,6 +821,66 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
     }}
   }});
 }})();
+
+// Source management
+(function() {{
+  function loadSources() {{
+    fetch('/api/v1/sources')
+      .then(r => r.json())
+      .then(data => {{
+        const el = document.getElementById('sources-list');
+        if (data.length === 0) {{
+          el.innerHTML = '<p class="text-stone-400 dark:text-plumage-500">No audio sources configured</p>';
+          return;
+        }}
+        el.innerHTML = data.map(s => `<div class="flex items-center justify-between py-2 px-3 rounded-lg bg-stone-50 dark:bg-plumage-800">
+          <div>
+            <span class="font-medium">${{s.name}}</span>
+            <span class="ml-2 text-xs px-1.5 py-0.5 rounded bg-stone-200 dark:bg-plumage-700 text-stone-600 dark:text-plumage-300">${{s.source_type}}</span>
+            ${{s.url ? '<span class="ml-2 text-xs text-stone-400 dark:text-plumage-500 truncate max-w-xs inline-block align-bottom">' + s.url + '</span>' : ''}}
+          </div>
+          <button onclick="removeSource('${{s.name}}')" class="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">Remove</button>
+        </div>`).join('');
+      }})
+      .catch(() => {{
+        document.getElementById('sources-list').innerHTML = '<p class="text-red-400 text-xs">Failed to load sources</p>';
+      }});
+  }}
+  loadSources();
+
+  window.addSource = function() {{
+    const t = document.getElementById('new-source-type').value;
+    const n = document.getElementById('new-source-name').value.trim();
+    const u = document.getElementById('new-source-url').value.trim();
+    const st = document.getElementById('add-source-status');
+    if (!n || !u) {{ st.innerHTML = '<span class="text-amber-500">Name and URL required</span>'; return; }}
+
+    const body = t === 'rtsp'
+      ? {{ type: 'rtsp', name: n, url: u }}
+      : {{ type: 'remote', name: n, url: u }};
+
+    fetch('/api/v1/sources', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify(body),
+    }})
+    .then(r => {{ if (!r.ok) return r.text().then(t => Promise.reject(t)); return r.json(); }})
+    .then(() => {{
+      document.getElementById('new-source-name').value = '';
+      document.getElementById('new-source-url').value = '';
+      document.getElementById('add-source-form').classList.add('hidden');
+      loadSources();
+    }})
+    .catch(e => {{ st.innerHTML = '<span class="text-red-500">' + e + '</span>'; }});
+  }};
+
+  window.removeSource = function(name) {{
+    if (!confirm('Remove source "' + name + '"?')) return;
+    fetch('/api/v1/sources/' + encodeURIComponent(name), {{ method: 'DELETE' }})
+      .then(r => {{ if (!r.ok) return r.text().then(t => Promise.reject(t)); loadSources(); }})
+      .catch(e => alert('Failed: ' + e));
+  }};
+}})();
 </script>"##,
         station_name = settings.station_name,
         lat = lat,
@@ -783,31 +889,31 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
         timezone = settings.timezone,
         display_min_confidence = display_min_confidence,
         birdnet_section = if has_birdnet {{ format!(
-            r#"<div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
-    <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100 uppercase tracking-wider mb-4">BirdNET</h3>
+            r#"<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-4">BirdNET</h3>
     <div class="grid gap-4 sm:grid-cols-2">
       <div>
-        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Min Confidence</label>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Min Confidence</label>
         <input name="birdnet_min_confidence" type="number" step="0.01" min="0" max="1" value="{birdnet_conf}"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Top K</label>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Top K</label>
         <input name="birdnet_top_k" type="number" min="1" max="100" value="{birdnet_topk}"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Meta Threshold</label>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Meta Threshold</label>
         <input name="birdnet_meta_threshold" type="number" step="0.001" min="0" max="1" value="{birdnet_meta}"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Force Allow (eBird codes)</label>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Force Allow (eBird codes)</label>
         <input name="birdnet_force_allow" type="text" value="{birdnet_allow}" placeholder="e.g. helgui1, redjun1"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
     </div>
-    <p class="mt-2 text-xs text-gray-400 dark:text-slate-500">Model and labels paths require restart to change.</p>
+    <p class="mt-2 text-xs text-gray-400 dark:text-plumage-500">Model and labels paths require restart to change.</p>
   </div>"#,
             birdnet_conf = birdnet_conf,
             birdnet_topk = birdnet_topk,
@@ -815,21 +921,21 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
             birdnet_allow = birdnet_allow,
         )}} else { String::new() },
         perch_section = if has_perch {{ format!(
-            r#"<div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
-    <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100 uppercase tracking-wider mb-4">Perch</h3>
+            r#"<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-4">Perch</h3>
     <div class="grid gap-4 sm:grid-cols-2">
       <div>
-        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Min Confidence</label>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Min Confidence</label>
         <input name="perch_min_confidence" type="number" step="0.01" min="0" max="1" value="{perch_conf}"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Top K</label>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Top K</label>
         <input name="perch_top_k" type="number" min="1" max="100" value="{perch_topk}"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
     </div>
-    <p class="mt-2 text-xs text-gray-400 dark:text-slate-500">Model and labels paths require restart to change.</p>
+    <p class="mt-2 text-xs text-gray-400 dark:text-plumage-500">Model and labels paths require restart to change.</p>
   </div>"#,
             perch_conf = perch_conf,
             perch_topk = perch_topk,
