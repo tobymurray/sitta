@@ -276,6 +276,110 @@ pub fn persist_sources_to_toml(
     Ok(())
 }
 
+/// MQTT configuration for the API layer (read/write via dedicated endpoint).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MqttSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub host: String,
+    #[serde(default = "default_mqtt_port")]
+    pub port: u16,
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default = "default_first_of_day_confidence")]
+    pub first_of_day_min_confidence: f32,
+    #[serde(default = "default_ha_discovery")]
+    pub homeassistant_discovery: bool,
+    #[serde(default = "default_ha_prefix")]
+    pub homeassistant_prefix: String,
+}
+
+fn default_mqtt_port() -> u16 { 1883 }
+fn default_first_of_day_confidence() -> f32 { 0.75 }
+fn default_ha_discovery() -> bool { true }
+fn default_ha_prefix() -> String { "homeassistant".into() }
+
+/// Read the current [mqtt] section from config.toml.
+pub fn read_mqtt_from_toml(path: &Path) -> MqttSettings {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return MqttSettings {
+            enabled: false,
+            host: String::new(),
+            port: 1883,
+            username: None,
+            password: None,
+            first_of_day_min_confidence: 0.75,
+            homeassistant_discovery: true,
+            homeassistant_prefix: "homeassistant".into(),
+        },
+    };
+    let doc = match content.parse::<toml_edit::DocumentMut>() {
+        Ok(d) => d,
+        Err(_) => return MqttSettings {
+            enabled: false, host: String::new(), port: 1883, username: None,
+            password: None, first_of_day_min_confidence: 0.75,
+            homeassistant_discovery: true, homeassistant_prefix: "homeassistant".into(),
+        },
+    };
+
+    let Some(mqtt) = doc.get("mqtt").and_then(|v| v.as_table()) else {
+        return MqttSettings {
+            enabled: false, host: String::new(), port: 1883, username: None,
+            password: None, first_of_day_min_confidence: 0.75,
+            homeassistant_discovery: true, homeassistant_prefix: "homeassistant".into(),
+        };
+    };
+
+    MqttSettings {
+        enabled: true,
+        host: mqtt.get("host").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        port: mqtt.get("port").and_then(|v| v.as_integer()).unwrap_or(1883) as u16,
+        username: mqtt.get("username").and_then(|v| v.as_str()).map(String::from),
+        password: mqtt.get("password").and_then(|v| v.as_str()).map(String::from),
+        first_of_day_min_confidence: mqtt.get("first_of_day_min_confidence")
+            .and_then(|v| v.as_float()).unwrap_or(0.75) as f32,
+        homeassistant_discovery: mqtt.get("homeassistant_discovery")
+            .and_then(|v| v.as_bool()).unwrap_or(true),
+        homeassistant_prefix: mqtt.get("homeassistant_prefix")
+            .and_then(|v| v.as_str()).unwrap_or("homeassistant").to_string(),
+    }
+}
+
+/// Write the [mqtt] section to config.toml. If enabled=false, remove the section.
+pub fn persist_mqtt_to_toml(path: &Path, mqtt: &MqttSettings) -> Result<(), String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("failed to read config: {e}"))?;
+    let mut doc = content
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|e| format!("failed to parse config: {e}"))?;
+
+    if !mqtt.enabled || mqtt.host.is_empty() {
+        doc.remove("mqtt");
+    } else {
+        let mut table = toml_edit::Table::new();
+        table["host"] = toml_edit::value(&mqtt.host);
+        table["port"] = toml_edit::value(i64::from(mqtt.port));
+        if let Some(ref u) = mqtt.username {
+            table["username"] = toml_edit::value(u);
+        }
+        if let Some(ref p) = mqtt.password {
+            table["password"] = toml_edit::value(p);
+        }
+        table["first_of_day_min_confidence"] = toml_edit::value(f64::from(mqtt.first_of_day_min_confidence));
+        table["homeassistant_discovery"] = toml_edit::value(mqtt.homeassistant_discovery);
+        table["homeassistant_prefix"] = toml_edit::value(&mqtt.homeassistant_prefix);
+        doc["mqtt"] = toml_edit::Item::Table(table);
+    }
+
+    std::fs::write(path, doc.to_string())
+        .map_err(|e| format!("failed to write config: {e}"))?;
+    Ok(())
+}
+
 /// Round to 4 decimal places (~11m precision, sufficient for station location).
 pub fn round4(v: f64) -> f64 {
     (v * 10_000.0).round() / 10_000.0

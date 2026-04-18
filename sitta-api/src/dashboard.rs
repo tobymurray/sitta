@@ -1053,8 +1053,11 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
 
   <!-- MQTT -->
   <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
-    <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-4">MQTT</h3>
-    {mqtt_section}
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider">MQTT</h3>
+      <span id="mqtt-status" class="text-xs text-stone-400 dark:text-plumage-500"></span>
+    </div>
+    <div id="mqtt-form-area"></div>
   </div>
 
   <!-- Actions -->
@@ -1200,6 +1203,98 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
       .catch(e => alert('Failed: ' + e));
   }};
 }})();
+
+// MQTT config form
+(function() {{
+  const area = document.getElementById('mqtt-form-area');
+  const status = document.getElementById('mqtt-status');
+  if (!area) return;
+
+  function inp(cls) {{ return 'w-full rounded-lg border border-stone-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none'; }}
+
+  fetch('/api/v1/mqtt').then(r => r.json()).then(m => {{
+    area.innerHTML = `<div class="space-y-3">
+      <div class="flex items-center gap-3">
+        <label class="flex items-center gap-2 text-sm cursor-pointer">
+          <input id="mqtt-enabled" type="checkbox" ${{m.enabled ? 'checked' : ''}} class="rounded border-stone-300 dark:border-plumage-700 text-nuthatch-600 focus:ring-nuthatch-500">
+          Enable MQTT
+        </label>
+      </div>
+      <div id="mqtt-fields" class="${{m.enabled ? '' : 'opacity-50 pointer-events-none'}}">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">Host</label>
+            <input id="mqtt-host" type="text" value="${{m.host || ''}}" placeholder="localhost" class="${{inp()}}">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">Port</label>
+            <input id="mqtt-port" type="number" value="${{m.port || 1883}}" class="${{inp()}}">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">Username (optional)</label>
+            <input id="mqtt-user" type="text" value="${{m.username || ''}}" placeholder="" class="${{inp()}}">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">Password (optional)</label>
+            <input id="mqtt-pass" type="password" value="${{m.password || ''}}" class="${{inp()}}">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">First-of-Day Min Confidence</label>
+            <input id="mqtt-fod" type="number" step="0.01" min="0" max="1" value="${{m.first_of_day_min_confidence}}" class="${{inp()}}">
+          </div>
+          <div class="flex items-end">
+            <label class="flex items-center gap-2 text-sm cursor-pointer pb-2">
+              <input id="mqtt-ha" type="checkbox" ${{m.homeassistant_discovery ? 'checked' : ''}} class="rounded border-stone-300 dark:border-plumage-700 text-nuthatch-600 focus:ring-nuthatch-500">
+              HA Discovery
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 mt-2">
+        <button onclick="saveMqtt()" class="px-3 py-1.5 rounded-lg bg-nuthatch-600 text-white text-sm font-medium hover:bg-nuthatch-700 transition-colors">Save MQTT</button>
+        <span id="mqtt-save-status" class="text-xs"></span>
+      </div>
+      <p class="text-xs text-stone-400 dark:text-plumage-500">Changes require restart to take effect.</p>
+    </div>`;
+
+    document.getElementById('mqtt-enabled').addEventListener('change', function() {{
+      document.getElementById('mqtt-fields').classList.toggle('opacity-50', !this.checked);
+      document.getElementById('mqtt-fields').classList.toggle('pointer-events-none', !this.checked);
+    }});
+
+    if (m.enabled && m.host) {{
+      status.innerHTML = '<span class="text-emerald-500">&#x2022;</span> ' + m.host + ':' + m.port;
+    }}
+  }}).catch(() => {{
+    area.innerHTML = '<p class="text-sm text-red-400">Failed to load MQTT config</p>';
+  }});
+
+  window.saveMqtt = function() {{
+    const st = document.getElementById('mqtt-save-status');
+    const body = {{
+      enabled: document.getElementById('mqtt-enabled').checked,
+      host: document.getElementById('mqtt-host').value.trim(),
+      port: parseInt(document.getElementById('mqtt-port').value, 10) || 1883,
+      username: document.getElementById('mqtt-user').value.trim() || null,
+      password: document.getElementById('mqtt-pass').value || null,
+      first_of_day_min_confidence: parseFloat(document.getElementById('mqtt-fod').value) || 0.75,
+      homeassistant_discovery: document.getElementById('mqtt-ha').checked,
+      homeassistant_prefix: 'homeassistant',
+    }};
+    st.textContent = 'Saving...';
+    fetch('/api/v1/mqtt', {{
+      method: 'PUT',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify(body),
+    }}).then(async r => {{
+      const text = await r.text();
+      if (!r.ok) throw new Error(text);
+      st.innerHTML = '<span class="text-emerald-500">Saved (restart required)</span>';
+    }}).catch(e => {{
+      st.innerHTML = '<span class="text-red-500">' + e.message + '</span>';
+    }});
+  }};
+}})();
 </script>"##,
         station_name = settings.station_name,
         lat = lat,
@@ -1259,17 +1354,5 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
             perch_conf = perch_conf,
             perch_topk = perch_topk,
         )}} else { String::new() },
-        mqtt_section = if let (Some(host), Some(port)) = (&initial.mqtt_host, initial.mqtt_port) {
-            format!(
-                r#"<p class="text-sm text-stone-600 dark:text-plumage-300">Connected to <code class="bg-stone-100 dark:bg-plumage-800 px-1.5 py-0.5 rounded text-xs">{host}:{port}</code></p>
-    <p class="mt-1 text-xs text-stone-400 dark:text-plumage-500">Topics: <code>sitta/{station_id}/detection</code>, <code>sitta/{station_id}/first_today/*</code></p>
-    <p class="mt-1 text-xs text-stone-400 dark:text-plumage-500">Edit <code>[mqtt]</code> in config.toml to change connection settings (requires restart).</p>"#,
-                host = host,
-                port = port,
-                station_id = initial.station_id,
-            )
-        } else {
-            r#"<p class="text-sm text-stone-400 dark:text-plumage-500">Not configured. Add a <code class="bg-stone-100 dark:bg-plumage-800 px-1.5 py-0.5 rounded text-xs">[mqtt]</code> section to config.toml to enable.</p>"#.to_string()
-        },
     )
 }

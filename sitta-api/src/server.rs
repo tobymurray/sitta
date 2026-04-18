@@ -82,6 +82,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/v1/candidates", get(list_candidate_clusters))
         .route("/api/v1/candidates/{id}/enroll", axum::routing::post(enroll_cluster))
         .route("/api/v1/candidates/{id}/dismiss", axum::routing::post(dismiss_cluster))
+        .route("/api/v1/mqtt", get(get_mqtt_config).put(put_mqtt_config))
         .route("/api/v1/sources", get(list_sources).post(add_source))
         .route("/api/v1/sources/{name}", delete(remove_source))
         .route("/api/v1/detections/{id}/audio", get(detection_audio_handler))
@@ -790,6 +791,31 @@ struct ClusterEnrollRequest {
 }
 
 // ── Audio rebroadcast ───────────────────────────────────────────
+
+// ── MQTT config ─────────────────────────────────────────────────
+
+async fn get_mqtt_config(
+    State(state): State<ApiState>,
+) -> Json<settings::MqttSettings> {
+    Json(settings::read_mqtt_from_toml(&state.config_path))
+}
+
+async fn put_mqtt_config(
+    State(state): State<ApiState>,
+    Json(mqtt): Json<settings::MqttSettings>,
+) -> Result<Json<settings::MqttSettings>, (StatusCode, String)> {
+    settings::persist_mqtt_to_toml(&state.config_path, &mqtt)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    tracing::info!(
+        enabled = mqtt.enabled,
+        host = %mqtt.host,
+        port = mqtt.port,
+        "MQTT config updated (restart required)"
+    );
+
+    Ok(Json(mqtt))
+}
 
 // ── Source management ────────────────────────────────────────────
 
