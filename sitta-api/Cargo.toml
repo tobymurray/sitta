@@ -18,3 +18,6 @@ arc-swap = { workspace = true }
 toml_edit = { workspace = true }
 toml = { workspace = true }
 sitta-store = { path = "../sitta-store" }
+
+[dev-dependencies]
+tempfile = "3"

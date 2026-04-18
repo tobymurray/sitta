@@ -74,6 +74,16 @@ impl EbirdTaxonomy {
         Ok(Self { entries })
     }
 
+    /// Create a taxonomy from pre-built entries (for testing).
+    #[cfg(any(test, feature = "test-util"))]
+    pub fn from_entries(entries: Vec<TaxonEntry>) -> Self {
+        let map = entries
+            .into_iter()
+            .map(|e| (normalize(&e.scientific_name), e))
+            .collect();
+        Self { entries: map }
+    }
+
     /// Look up a taxon by scientific name.
     ///
     /// Accepts both space-separated (`"Tyto alba"`) and underscore-separated
@@ -95,4 +105,78 @@ impl EbirdTaxonomy {
 /// Replaces underscores with spaces and lowercases.
 fn normalize(name: &str) -> String {
     name.replace('_', " ").to_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_space_separated() {
+        assert_eq!(normalize("Tyto alba"), "tyto alba");
+    }
+
+    #[test]
+    fn normalize_underscore_separated() {
+        assert_eq!(normalize("Tyto_alba"), "tyto alba");
+    }
+
+    #[test]
+    fn normalize_mixed_case() {
+        assert_eq!(normalize("TURDUS_Migratorius"), "turdus migratorius");
+    }
+
+    #[test]
+    fn lookup_space_form() {
+        let tax = EbirdTaxonomy::from_entries(vec![TaxonEntry {
+            species_code: "barowl1".into(),
+            common_name: "Barn Owl".into(),
+            scientific_name: "Tyto alba".into(),
+        }]);
+        let entry = tax.lookup("Tyto alba").unwrap();
+        assert_eq!(entry.species_code, "barowl1");
+        assert_eq!(entry.common_name, "Barn Owl");
+    }
+
+    #[test]
+    fn lookup_underscore_form() {
+        let tax = EbirdTaxonomy::from_entries(vec![TaxonEntry {
+            species_code: "barowl1".into(),
+            common_name: "Barn Owl".into(),
+            scientific_name: "Tyto alba".into(),
+        }]);
+        assert!(tax.lookup("Tyto_alba").is_some());
+    }
+
+    #[test]
+    fn lookup_case_insensitive() {
+        let tax = EbirdTaxonomy::from_entries(vec![TaxonEntry {
+            species_code: "barowl1".into(),
+            common_name: "Barn Owl".into(),
+            scientific_name: "Tyto alba".into(),
+        }]);
+        assert!(tax.lookup("tyto alba").is_some());
+        assert!(tax.lookup("TYTO ALBA").is_some());
+    }
+
+    #[test]
+    fn lookup_missing() {
+        let tax = EbirdTaxonomy::from_entries(vec![]);
+        assert!(tax.lookup("Tyto alba").is_none());
+    }
+
+    #[test]
+    fn len_and_is_empty() {
+        let empty = EbirdTaxonomy::from_entries(vec![]);
+        assert!(empty.is_empty());
+        assert_eq!(empty.len(), 0);
+
+        let one = EbirdTaxonomy::from_entries(vec![TaxonEntry {
+            species_code: "x".into(),
+            common_name: "X".into(),
+            scientific_name: "Genus species".into(),
+        }]);
+        assert!(!one.is_empty());
+        assert_eq!(one.len(), 1);
+    }
 }

@@ -157,7 +157,7 @@ pub fn parse_model_name(name: &str) -> (&str, &str) {
     }
 }
 
-fn parse_label_for_seeding(
+pub fn parse_label_for_seeding(
     label: &str,
     taxonomy: Option<&EbirdTaxonomy>,
 ) -> (Option<String>, String, Option<String>) {
@@ -175,4 +175,65 @@ fn parse_label_for_seeding(
         return (Some(sci.to_string()), common.to_string(), taxon_code);
     }
     (None, label.to_string(), None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sitta_taxonomy::TaxonEntry;
+
+    #[test]
+    fn parse_model_name_known() {
+        assert_eq!(parse_model_name("BirdNET v2.4"), ("birdnet", "2.4"));
+        assert_eq!(parse_model_name("BirdNET v3.0"), ("birdnet", "3.0"));
+        assert_eq!(parse_model_name("Perch v2"), ("perch", "2"));
+        assert_eq!(parse_model_name("BSG Finland"), ("bsg_finland", "4.4"));
+    }
+
+    #[test]
+    fn parse_model_name_unknown() {
+        assert_eq!(parse_model_name("FutureModel v99"), ("unknown", "0"));
+    }
+
+    #[test]
+    fn parse_label_birdnet_format_no_taxonomy() {
+        let (sci, common, taxon) = parse_label_for_seeding("Tyto alba_Barn Owl", None);
+        assert_eq!(sci, Some("Tyto alba".into()));
+        assert_eq!(common, "Barn Owl");
+        assert_eq!(taxon, None);
+    }
+
+    #[test]
+    fn parse_label_perch_format_with_taxonomy() {
+        let tax = EbirdTaxonomy::from_entries(vec![TaxonEntry {
+            species_code: "barowl1".into(),
+            common_name: "Barn Owl".into(),
+            scientific_name: "Tyto alba".into(),
+        }]);
+        let (sci, common, taxon) = parse_label_for_seeding("Tyto_alba", Some(&tax));
+        assert_eq!(sci, Some("Tyto alba".into()));
+        assert_eq!(common, "Barn Owl");
+        assert_eq!(taxon, Some("barowl1".into()));
+    }
+
+    #[test]
+    fn parse_label_non_species() {
+        let (sci, common, taxon) = parse_label_for_seeding("Engine", None);
+        assert_eq!(sci, None);
+        assert_eq!(common, "Engine");
+        assert_eq!(taxon, None);
+    }
+
+    #[test]
+    fn parse_label_birdnet_with_taxonomy_enrichment() {
+        let tax = EbirdTaxonomy::from_entries(vec![TaxonEntry {
+            species_code: "barowl1".into(),
+            common_name: "Barn Owl".into(),
+            scientific_name: "Tyto alba".into(),
+        }]);
+        let (sci, common, taxon) = parse_label_for_seeding("Tyto alba_Barn Owl", Some(&tax));
+        assert_eq!(sci, Some("Tyto alba".into()));
+        assert_eq!(common, "Barn Owl");
+        assert_eq!(taxon, Some("barowl1".into()));
+    }
 }
