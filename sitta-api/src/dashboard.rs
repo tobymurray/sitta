@@ -351,11 +351,48 @@ pub fn dashboard_content(station_name: &str) -> String {
     return new Date(iso).toLocaleTimeString('en-GB', _tf);
   }}
 
+  // Audio playback for detection clips.
+  let clipAudio = null;
+  function playClip(id, btn) {{
+    if (clipAudio) {{ clipAudio.pause(); clipAudio = null; document.querySelectorAll('.clip-btn-playing').forEach(b => {{ b.classList.remove('clip-btn-playing'); b.innerHTML = playSvg; }}); }}
+    clipAudio = new Audio('/api/v1/detections/' + id + '/audio');
+    clipAudio.play();
+    btn.classList.add('clip-btn-playing');
+    btn.innerHTML = stopSvg;
+    clipAudio.onended = () => {{ clipAudio = null; btn.classList.remove('clip-btn-playing'); btn.innerHTML = playSvg; }};
+  }}
+  const playSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/></svg>';
+  const stopSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><rect x="4" y="4" width="12" height="12" rx="1.5"/></svg>';
+
+  // Review detection.
+  function reviewDetection(id, status, card) {{
+    fetch('/api/v1/detections/' + id + '/review', {{
+      method: 'PUT',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ status }})
+    }}).then(r => {{
+      if (!r.ok) return;
+      const strip = card.querySelector('.review-strip');
+      if (strip) {{
+        if (status === 'correct') {{
+          strip.innerHTML = '<span class="text-xs text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>Correct</span>';
+          card.classList.remove('opacity-50');
+          card.classList.add('ring-1', 'ring-emerald-200', 'dark:ring-emerald-800');
+        }} else {{
+          strip.innerHTML = '<span class="text-xs text-red-500 dark:text-red-400 font-medium">False positive</span>';
+          card.classList.add('opacity-50');
+          card.classList.remove('ring-1', 'ring-emerald-200', 'dark:ring-emerald-800');
+        }}
+      }}
+    }});
+  }}
+
   function createCard(d) {{
     const [badge, bar] = confColor(d.confidence);
     const pct = Math.round(d.confidence * 100);
     const card = document.createElement('div');
     card.className = 'slide-in bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4 transition-all';
+    card.dataset.id = d.id;
     card.innerHTML = `
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 flex-1">
@@ -370,7 +407,7 @@ pub fn dashboard_content(station_name: &str) -> String {
             <span class="before:content-[\\\"\\u00b7\\\"] before:mr-3">${{timeAgo(d.detected_at)}}</span>
           </div>
         </div>
-        <div class="flex-shrink-0 w-16 h-16 rounded-lg bg-gray-100 dark:bg-plumage-800 flex items-center justify-center">
+        <div class="flex flex-col items-end gap-2 flex-shrink-0">
           <div class="relative w-12 h-12">
             <svg class="w-12 h-12 -rotate-90" viewBox="0 0 36 36">
               <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
@@ -383,6 +420,24 @@ pub fn dashboard_content(station_name: &str) -> String {
           </div>
         </div>
       </div>
+      ${{d.has_audio || d.snippet_path ? `
+        <div class="mt-3">
+          <img src="/api/v1/detections/${{d.id}}/spectrogram" loading="lazy"
+               class="w-full h-16 rounded-lg object-cover bg-gray-100 dark:bg-plumage-800"
+               alt="spectrogram" onerror="this.style.display='none'"/>
+        </div>` : ''}}
+      <div class="mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          ${{d.has_audio || d.snippet_path ? `<button onclick="playClip('${{d.id}}', this)" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors">${{playSvg}} Play</button>` : ''}}
+          <button onclick="reviewDetection('${{d.id}}', 'correct', this.closest('[data-id]'))" class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-900/30 transition-colors" title="Mark correct (c)">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+          </button>
+          <button onclick="reviewDetection('${{d.id}}', 'false_positive', this.closest('[data-id]'))" class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30 transition-colors" title="False positive (f)">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="review-strip"></div>
+      </div>
       ${{d.alternatives && d.alternatives.length > 0 ? `
         <div class="mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800">
           <p class="text-xs text-gray-400 dark:text-plumage-500 mb-1.5">Alternatives</p>
@@ -392,6 +447,16 @@ pub fn dashboard_content(station_name: &str) -> String {
         </div>` : ''}}`;
     return card;
   }}
+
+  // Keyboard shortcuts for review: hover a card, press c/f.
+  document.addEventListener('keydown', function(e) {{
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key !== 'c' && e.key !== 'f') return;
+    const hovered = document.querySelector('[data-id]:hover');
+    if (!hovered) return;
+    const id = hovered.dataset.id;
+    reviewDetection(id, e.key === 'c' ? 'correct' : 'false_positive', hovered);
+  }});
 
   // Load initial detections from REST
   fetch('/api/v1/detections?limit=20')
