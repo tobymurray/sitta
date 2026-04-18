@@ -1396,7 +1396,8 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
         <div class="grid gap-3 sm:grid-cols-2">
           <div>
             <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">Host</label>
-            <input id="mqtt-host" type="text" value="${{m.host || ''}}" placeholder="localhost" class="${{inp()}}">
+            <input id="mqtt-host" type="text" value="${{m.host || ''}}" placeholder="e.g. 192.168.1.50 or localhost" class="${{inp()}}">
+            <p class="mt-0.5 text-[10px] text-stone-400 dark:text-plumage-600">Hostname or IP only — no protocol prefix (not tcp:// or http://)</p>
           </div>
           <div>
             <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">Port</label>
@@ -1423,6 +1424,7 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
         </div>
       </div>
       <div class="flex items-center gap-2 mt-2">
+        <button onclick="testMqtt()" class="px-3 py-1.5 rounded-lg border border-stone-300 dark:border-plumage-700 text-sm font-medium hover:bg-stone-100 dark:hover:bg-plumage-800 transition-colors">Test Connection</button>
         <button onclick="saveMqtt()" class="px-3 py-1.5 rounded-lg bg-nuthatch-600 text-white text-sm font-medium hover:bg-nuthatch-700 transition-colors">Save MQTT</button>
         <span id="mqtt-save-status" class="text-xs"></span>
       </div>
@@ -1445,9 +1447,8 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
     area.innerHTML = '<p class="text-sm text-red-400">Failed to load MQTT config</p>';
   }});
 
-  window.saveMqtt = function() {{
-    const st = document.getElementById('mqtt-save-status');
-    const body = {{
+  function getMqttFormBody() {{
+    return {{
       enabled: document.getElementById('mqtt-enabled').checked,
       host: document.getElementById('mqtt-host').value.trim(),
       port: parseInt(document.getElementById('mqtt-port').value, 10) || 1883,
@@ -1457,6 +1458,29 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
       homeassistant_discovery: document.getElementById('mqtt-ha').checked,
       homeassistant_prefix: 'homeassistant',
     }};
+  }}
+
+  window.testMqtt = function() {{
+    const st = document.getElementById('mqtt-save-status');
+    const body = getMqttFormBody();
+    if (!body.host) {{ st.innerHTML = '<span class="text-amber-500">Enter a host first</span>'; return; }}
+    st.innerHTML = '<span class="text-stone-400 dark:text-plumage-500">Testing...</span>';
+    fetch('/api/v1/mqtt/test', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify(body),
+    }}).then(r => r.json()).then(d => {{
+      st.innerHTML = d.success
+        ? '<span class="text-emerald-500">' + d.message + '</span>'
+        : '<span class="text-red-500">' + d.message + '</span>';
+    }}).catch(e => {{
+      st.innerHTML = '<span class="text-red-500">Test failed: ' + e.message + '</span>';
+    }});
+  }};
+
+  window.saveMqtt = function() {{
+    const st = document.getElementById('mqtt-save-status');
+    const body = getMqttFormBody();
     st.textContent = 'Saving...';
     fetch('/api/v1/mqtt', {{
       method: 'PUT',

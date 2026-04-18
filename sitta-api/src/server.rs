@@ -93,6 +93,9 @@ pub trait MqttControl: Send + Sync {
     async fn start(&self, settings: &settings::MqttSettings);
     async fn stop(&self);
     async fn is_running(&self) -> bool;
+    /// Attempt a test connection to the broker. Returns Ok(()) on success
+    /// or an error message on failure. Does not affect the running publisher.
+    async fn test_connection(&self, settings: &settings::MqttSettings) -> Result<(), String>;
 }
 
 pub fn router(state: ApiState) -> Router {
@@ -112,6 +115,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/v1/candidates/{id}/enroll", axum::routing::post(enroll_cluster))
         .route("/api/v1/candidates/{id}/dismiss", axum::routing::post(dismiss_cluster))
         .route("/api/v1/mqtt", get(get_mqtt_config).put(put_mqtt_config))
+        .route("/api/v1/mqtt/test", axum::routing::post(test_mqtt_connection))
         .route("/api/v1/sources", get(list_sources).post(add_source))
         .route("/api/v1/sources/{name}", delete(remove_source))
         .route("/api/v1/detections/{id}/audio", get(detection_audio_handler))
@@ -924,6 +928,34 @@ async fn put_mqtt_config(
     }
 
     Ok(Json(mqtt))
+}
+
+async fn test_mqtt_connection(
+    State(state): State<ApiState>,
+    Json(mqtt): Json<settings::MqttSettings>,
+) -> Result<Json<MqttTestResult>, (StatusCode, String)> {
+    let ctrl = state
+        .integrations
+        .mqtt_control
+        .as_ref()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "MQTT controller not available".into()))?;
+
+    match ctrl.test_connection(&mqtt).await {
+        Ok(()) => Ok(Json(MqttTestResult {
+            success: true,
+            message: format!("Connected to {}:{}", mqtt.host, mqtt.port),
+        })),
+        Err(e) => Ok(Json(MqttTestResult {
+            success: false,
+            message: e,
+        })),
+    }
+}
+
+#[derive(Serialize)]
+struct MqttTestResult {
+    success: bool,
+    message: String,
 }
 
 // ── Source management ────────────────────────────────────────────

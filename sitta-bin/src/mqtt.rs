@@ -170,6 +170,54 @@ impl MqttControl for MqttController {
     async fn is_running(&self) -> bool {
         self.is_running().await
     }
+
+    async fn test_connection(&self, settings: &MqttSettings) -> Result<(), String> {
+        test_mqtt_broker(&settings.host, settings.port, settings.username.as_deref(), settings.password.as_deref()).await
+    }
+}
+
+/// Test connectivity to an MQTT broker. Creates a temporary client,
+/// waits for ConnAck or timeout, then disconnects.
+async fn test_mqtt_broker(
+    host: &str,
+    port: u16,
+    username: Option<&str>,
+    password: Option<&str>,
+) -> Result<(), String> {
+    let client_id = format!("sitta-test-{}", uuid::Uuid::now_v7());
+    let mut opts = MqttOptions::new(&client_id, host, port);
+    opts.set_keep_alive(Duration::from_secs(5));
+
+    if let (Some(user), Some(pass)) = (username, password) {
+        opts.set_credentials(user, pass);
+    }
+
+    let (client, mut eventloop) = AsyncClient::new(opts, 8);
+
+    let result = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match eventloop.poll().await {
+                Ok(Event::Incoming(Packet::ConnAck(ack))) => {
+                    return if ack.code == rumqttc::ConnectReturnCode::Success {
+                        Ok(())
+                    } else {
+                        Err(format!("broker rejected connection: {:?}", ack.code))
+                    };
+                }
+                Ok(_) => continue,
+                Err(e) => return Err(format!("connection failed: {e}")),
+            }
+        }
+    })
+    .await;
+
+    let _ = client.disconnect().await;
+
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err(format!("connection timed out after 5s (host: {host}:{port})")),
+    }
 }
 
 fn spawn_mqtt_tasks(
