@@ -252,7 +252,9 @@ impl Database {
     // ── Read queries (for API endpoints) ────────────────────────
 
     /// Recent detections with joined label/model/source info.
-    /// Optional species filter by scientific name.
+    /// Deduplicated: when multiple models detect the same species within a
+    /// 5-second window, only the highest-confidence detection is returned.
+    /// The `model_name` field contains all confirming models (comma-separated).
     pub async fn recent_detections(
         &self,
         since: i64,
@@ -263,6 +265,8 @@ impl Database {
         min_confidence: Option<f64>,
     ) -> Result<Vec<DetectionRow>, crate::StoreError> {
         let conf_floor = min_confidence.unwrap_or(0.0);
+        // Fetch more rows than requested to have headroom for deduplication.
+        let fetch_limit = limit * 3;
         let rows = sqlx::query!(
             r#"SELECT d.id, d.detected_at, d.confidence AS "confidence!: f64",
                       d.snippet_path, d.metadata,
@@ -282,7 +286,7 @@ impl Database {
                LIMIT $3 OFFSET $4"#,
             since,
             until,
-            limit,
+            fetch_limit,
             offset,
             species,
             conf_floor,
@@ -290,23 +294,53 @@ impl Database {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| DetectionRow {
-                id: r.id,
-                detected_at: r.detected_at,
-                confidence: r.confidence,
-                snippet_path: r.snippet_path,
-                metadata: r.metadata,
-                scientific_name: r.scientific_name,
-                common_name: r.common_name,
-                taxon_code: r.taxon_code,
-                model_name: r.model_name,
-                model_version: r.model_version,
-                source_name: r.source_name,
-                has_embedding: r.has_embedding,
-            })
-            .collect())
+        // Deduplicate: group by (species, 5-second time bucket).
+        // Keep the highest-confidence detection per group, merge model names.
+        let mut seen: HashMap<(String, i64), usize> = HashMap::new();
+        let mut result: Vec<DetectionRow> = Vec::new();
+
+        for r in rows {
+            let sci = r.scientific_name.clone().unwrap_or_default();
+            let bucket = r.detected_at / 5000;
+            let key = (sci, bucket);
+
+            if let Some(&idx) = seen.get(&key) {
+                // Merge: append model name if different.
+                let existing = &mut result[idx];
+                if !existing.model_name.contains(&r.model_name) {
+                    existing.model_name = format!("{}, {}", existing.model_name, r.model_name);
+                }
+                // Keep higher confidence.
+                if r.confidence > existing.confidence {
+                    existing.confidence = r.confidence;
+                    existing.id = r.id;
+                    existing.detected_at = r.detected_at;
+                    existing.snippet_path = r.snippet_path;
+                }
+                if r.has_embedding {
+                    existing.has_embedding = true;
+                }
+            } else {
+                seen.insert(key, result.len());
+                result.push(DetectionRow {
+                    id: r.id,
+                    detected_at: r.detected_at,
+                    confidence: r.confidence,
+                    snippet_path: r.snippet_path,
+                    metadata: r.metadata,
+                    scientific_name: r.scientific_name,
+                    common_name: r.common_name,
+                    taxon_code: r.taxon_code,
+                    model_name: r.model_name,
+                    model_version: r.model_version,
+                    source_name: r.source_name,
+                    has_embedding: r.has_embedding,
+                });
+            }
+        }
+
+        result.truncate(limit as usize);
+        Ok(result)
     }
 
     /// Single detection by ID with joined info.

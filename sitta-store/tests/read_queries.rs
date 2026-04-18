@@ -80,7 +80,7 @@ async fn seed_with_detections() -> (Database, Uuid, i64, Vec<i64>, Vec<Uuid>) {
     .unwrap();
     detection_ids.push(d1);
 
-    // Detection 2: Barn Owl at t+1000
+    // Detection 2: Barn Owl at t+10000 (>5s dedup window)
     let d2 = Uuid::now_v7();
     db.insert_detection(&NewDetection {
         id: &d2,
@@ -88,7 +88,7 @@ async fn seed_with_detections() -> (Database, Uuid, i64, Vec<i64>, Vec<Uuid>) {
         source_id: None,
         model_id,
         label_id: label_ids[0],
-        detected_at: base_time + 1000,
+        detected_at: base_time + 10_000,
         confidence: 0.85,
         snippet_path: None,
         snippet_duration_ms: None,
@@ -107,7 +107,7 @@ async fn seed_with_detections() -> (Database, Uuid, i64, Vec<i64>, Vec<Uuid>) {
         source_id: None,
         model_id,
         label_id: label_ids[1],
-        detected_at: base_time + 2000,
+        detected_at: base_time + 20_000,
         confidence: 0.78,
         snippet_path: None,
         snippet_duration_ms: None,

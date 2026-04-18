@@ -103,6 +103,7 @@ pub async fn seed_database(
         matcher: Some(Arc::new(matcher)),
         settings,
         snippet_writer: None, // set by main after spawning the writer
+        broadcast_dedup: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     })
 }
 

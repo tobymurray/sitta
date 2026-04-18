@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
 use sitta_api::event::{Alternative, DetectionEvent, IndividualInfo, SpeciesInfo};
@@ -34,7 +34,14 @@ pub struct PersistCtx {
     pub settings: Arc<ArcSwap<RuntimeSettings>>,
     /// Audio snippet writer. None if snippet saving is disabled.
     pub snippet_writer: Option<SnippetWriter>,
+    /// SSE deduplication: last broadcast time (ms) per species.
+    /// Suppresses duplicate broadcasts within a 5-second window.
+    pub broadcast_dedup: Arc<Mutex<HashMap<String, i64>>>,
 }
+
+/// Deduplication window in milliseconds. Detections of the same species
+/// within this window are stored in the DB but not broadcast to SSE/MQTT.
+const DEDUP_WINDOW_MS: i64 = 5_000;
 
 /// Persist a detection, its secondary predictions, optional embedding,
 /// and broadcast a live event to SSE subscribers.
@@ -194,10 +201,29 @@ pub async fn persist_detections(
         }),
     };
 
-    // Only broadcast to live UI if above the display threshold.
+    // Only broadcast to live UI if above the display threshold AND not a
+    // duplicate of a recent broadcast for the same species (5-second window).
     let display_threshold = ctx.settings.load().display_min_confidence;
     if top.confidence >= display_threshold {
-        let _ = ctx.detection_tx.send(event);
+        let now_ms = detected_at;
+        let species_key = top.species.scientific_name.clone();
+        let should_broadcast = {
+            let mut dedup = ctx.broadcast_dedup.lock().unwrap();
+            // Clean stale entries (older than 2x window) to prevent unbounded growth.
+            if dedup.len() > 500 {
+                dedup.retain(|_, ts| now_ms - *ts < DEDUP_WINDOW_MS * 2);
+            }
+            match dedup.get(&species_key) {
+                Some(&last_ts) if now_ms - last_ts < DEDUP_WINDOW_MS => false,
+                _ => {
+                    dedup.insert(species_key, now_ms);
+                    true
+                }
+            }
+        };
+        if should_broadcast {
+            let _ = ctx.detection_tx.send(event);
+        }
     }
 }
 
