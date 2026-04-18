@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use sitta_api::event::{Alternative, DetectionEvent, IndividualInfo, SpeciesInfo};
+use sitta_api::settings::RuntimeSettings;
 use sitta_audio::chunk::AudioChunk;
 use sitta_inference::model::Classification;
 use sitta_store::db::Database;
@@ -27,6 +29,8 @@ pub struct PersistCtx {
     pub detection_tx: broadcast::Sender<DetectionEvent>,
     /// Individual matcher for Perch embeddings. None if no Perch configured.
     pub matcher: Option<Arc<IndividualMatcher>>,
+    /// Runtime settings (for display_min_confidence threshold).
+    pub settings: Arc<ArcSwap<RuntimeSettings>>,
 }
 
 /// Persist a detection, its secondary predictions, optional embedding,
@@ -163,5 +167,9 @@ pub async fn persist_detections(
         }),
     };
 
-    let _ = ctx.detection_tx.send(event);
+    // Only broadcast to live UI if above the display threshold.
+    let display_threshold = ctx.settings.load().display_min_confidence;
+    if top.confidence >= display_threshold {
+        let _ = ctx.detection_tx.send(event);
+    }
 }

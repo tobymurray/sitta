@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT d.id, d.detected_at, d.confidence AS \"confidence!: f64\",\n                      d.snippet_path, d.metadata,\n                      l.scientific_name, l.common_name AS \"common_name!\",\n                      l.taxon_code,\n                      m.name AS \"model_name!\", m.version AS \"model_version!\",\n                      s.name AS \"source_name?\"\n               FROM detections d\n               JOIN labels l ON l.id = d.label_id\n               JOIN models m ON m.id = d.model_id\n               LEFT JOIN audio_sources s ON s.id = d.source_id\n               WHERE d.detected_at >= $1 AND d.detected_at <= $2\n                 AND ($5 IS NULL OR l.scientific_name = $5)\n               ORDER BY d.detected_at DESC\n               LIMIT $3 OFFSET $4",
+  "query": "SELECT d.id, d.detected_at, d.confidence AS \"confidence!: f64\",\n                      d.snippet_path, d.metadata,\n                      l.scientific_name, l.common_name AS \"common_name!\",\n                      l.taxon_code,\n                      m.name AS \"model_name!\", m.version AS \"model_version!\",\n                      s.name AS \"source_name?\"\n               FROM detections d\n               JOIN labels l ON l.id = d.label_id\n               JOIN models m ON m.id = d.model_id\n               LEFT JOIN audio_sources s ON s.id = d.source_id\n               WHERE d.detected_at >= $1 AND d.detected_at <= $2\n                 AND d.confidence >= $6\n                 AND ($5 IS NULL OR l.scientific_name = $5)\n               ORDER BY d.detected_at DESC\n               LIMIT $3 OFFSET $4",
   "describe": {
     "columns": [
       {
@@ -60,7 +60,7 @@
       }
     ],
     "parameters": {
-      "Right": 5
+      "Right": 6
     },
     "nullable": [
       false,
@@ -76,5 +76,5 @@
       false
     ]
   },
-  "hash": "466b46863d5a4af902f3456398d64786da25f62e13b582f67e41ecc62ec99df2"
+  "hash": "737f81248fd9526b5b0c0e594a7702df1ef538ad2e73ea7147e4ce47e41ba535"
 }

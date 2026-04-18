@@ -72,24 +72,12 @@ async fn main() -> Result<()> {
         .context("failed to open database")?;
     tracing::info!(path = %config.store.path, "Database opened");
 
-    let persist_ctx = seed::seed_database(
-        &db,
-        &config,
-        &classifiers,
-        perch_model.as_ref(),
-        taxonomy.as_deref(),
-    )
-    .await
-    .context("failed to seed database")?;
-
-    // ── API server ──────────────────────────────────────────────
-    let shutdown = CancellationToken::new();
-    let metrics = Arc::new(PipelineMetrics::default());
-
+    // ── Runtime settings ──────────────────────────────────────────
     let runtime_settings = RuntimeSettings {
         station_name: config.station.name.clone(),
         station_latitude: config.station.latitude.map(f64::from),
         station_longitude: config.station.longitude.map(f64::from),
+        display_min_confidence: config.api.display_min_confidence,
         birdnet_min_confidence: config.inference.birdnet.as_ref().map(|b| b.min_confidence),
         birdnet_top_k: config.inference.birdnet.as_ref().map(|b| b.top_k),
         birdnet_meta_threshold: config.inference.birdnet.as_ref().map(|b| b.meta_threshold),
@@ -98,6 +86,21 @@ async fn main() -> Result<()> {
         perch_top_k: config.inference.perch.as_ref().map(|p| p.top_k),
     };
     let settings = Arc::new(ArcSwap::from_pointee(runtime_settings));
+
+    let persist_ctx = seed::seed_database(
+        &db,
+        &config,
+        &classifiers,
+        perch_model.as_ref(),
+        taxonomy.as_deref(),
+        settings.clone(),
+    )
+    .await
+    .context("failed to seed database")?;
+
+    // ── API server ──────────────────────────────────────────────
+    let shutdown = CancellationToken::new();
+    let metrics = Arc::new(PipelineMetrics::default());
     let (settings_notify_tx, _settings_notify_rx) = tokio::sync::watch::channel(());
 
     let initial_config = Arc::new(InitialConfig {

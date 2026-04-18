@@ -602,6 +602,7 @@ function submitEnroll() {
 }
 
 pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> String {
+    let display_min_confidence = settings.display_min_confidence;
     let birdnet_conf = settings.birdnet_min_confidence.unwrap_or(0.25);
     let birdnet_topk = settings.birdnet_top_k.unwrap_or(10);
     let birdnet_meta = settings.birdnet_meta_threshold.unwrap_or(0.01);
@@ -646,6 +647,19 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
       </div>
     </div>
     <p class="mt-2 text-xs text-gray-400 dark:text-slate-500">Station ID <code class="bg-gray-100 dark:bg-slate-800 px-1 rounded">{station_id}</code> requires restart to change.</p>
+  </div>
+
+  <!-- Display -->
+  <div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
+    <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100 uppercase tracking-wider mb-4">Display</h3>
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Min Confidence (UI)</label>
+        <input name="display_min_confidence" type="number" step="0.01" min="0" max="1" value="{display_min_confidence}"
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+      </div>
+    </div>
+    <p class="mt-2 text-xs text-gray-400 dark:text-slate-500">Detections below this confidence are still captured in the database but hidden from the dashboard, SSE feed, and species summary. Lower this to see more detections; raise it to reduce noise.</p>
   </div>
 
   {birdnet_section}
@@ -733,6 +747,7 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
         lat = lat,
         lon = lon,
         station_id = initial.station_id,
+        display_min_confidence = display_min_confidence,
         birdnet_section = if has_birdnet {{ format!(
             r#"<div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
     <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100 uppercase tracking-wider mb-4">BirdNET</h3>

@@ -11,6 +11,9 @@ pub struct RuntimeSettings {
     pub station_name: String,
     pub station_latitude: Option<f64>,
     pub station_longitude: Option<f64>,
+    /// Minimum confidence for displaying detections in the UI and SSE feed.
+    /// Detections below this are still captured in the database.
+    pub display_min_confidence: f32,
     pub birdnet_min_confidence: Option<f32>,
     pub birdnet_top_k: Option<usize>,
     pub birdnet_meta_threshold: Option<f32>,
@@ -26,6 +29,7 @@ pub struct SettingsUpdate {
     pub station_name: Option<String>,
     pub station_latitude: Option<f64>,
     pub station_longitude: Option<f64>,
+    pub display_min_confidence: Option<f32>,
     pub birdnet_min_confidence: Option<f32>,
     pub birdnet_top_k: Option<usize>,
     pub birdnet_meta_threshold: Option<f32>,
@@ -93,6 +97,12 @@ pub fn apply_update(current: &RuntimeSettings, update: &SettingsUpdate) -> (Runt
         merged.station_longitude = Some(v);
         changed.push("station_longitude");
     }
+    if let Some(v) = update.display_min_confidence
+        && (merged.display_min_confidence - v).abs() > f32::EPSILON
+    {
+        merged.display_min_confidence = v;
+        changed.push("display_min_confidence");
+    }
     if let Some(v) = update.birdnet_min_confidence
         && merged.birdnet_min_confidence != Some(v)
     {
@@ -151,6 +161,11 @@ pub fn persist_to_toml(path: &Path, settings: &RuntimeSettings) -> Result<(), St
         if let Some(lon) = settings.station_longitude {
             station["longitude"] = toml_edit::value(lon);
         }
+    }
+
+    // Display threshold — stored under [api]
+    if let Some(api) = doc.get_mut("api").and_then(|v| v.as_table_mut()) {
+        api["display_min_confidence"] = toml_edit::value(f64::from(settings.display_min_confidence));
     }
 
     // BirdNET inference

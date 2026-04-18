@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
+use arc_swap::ArcSwap;
 use sitta_api::event::DetectionEvent;
+use sitta_api::settings::RuntimeSettings;
 use sitta_audio::source::SourceConfig;
 use sitta_inference::model::Classifier;
 use sitta_store::db::Database;
@@ -29,6 +31,7 @@ pub async fn seed_database(
     classifiers: &[Arc<dyn Classifier>],
     perch: Option<&Arc<dyn Classifier>>,
     taxonomy: Option<&EbirdTaxonomy>,
+    settings: Arc<ArcSwap<RuntimeSettings>>,
 ) -> Result<PersistCtx> {
     let station_id = Uuid::new_v5(&SITTA_NS, config.station.id.as_bytes());
     db.upsert_station(&NewStation {
@@ -95,6 +98,7 @@ pub async fn seed_database(
         station_id,
         detection_tx,
         matcher: Some(Arc::new(matcher)),
+        settings,
     })
 }
 

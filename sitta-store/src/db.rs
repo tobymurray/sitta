@@ -256,7 +256,9 @@ impl Database {
         limit: i64,
         offset: i64,
         species: Option<&str>,
+        min_confidence: Option<f64>,
     ) -> Result<Vec<DetectionRow>, crate::StoreError> {
+        let conf_floor = min_confidence.unwrap_or(0.0);
         let rows = sqlx::query!(
             r#"SELECT d.id, d.detected_at, d.confidence AS "confidence!: f64",
                       d.snippet_path, d.metadata,
@@ -269,6 +271,7 @@ impl Database {
                JOIN models m ON m.id = d.model_id
                LEFT JOIN audio_sources s ON s.id = d.source_id
                WHERE d.detected_at >= $1 AND d.detected_at <= $2
+                 AND d.confidence >= $6
                  AND ($5 IS NULL OR l.scientific_name = $5)
                ORDER BY d.detected_at DESC
                LIMIT $3 OFFSET $4"#,
@@ -277,6 +280,7 @@ impl Database {
             limit,
             offset,
             species,
+            conf_floor,
         )
         .fetch_all(&self.pool)
         .await?;
@@ -369,7 +373,9 @@ impl Database {
         &self,
         since: i64,
         until: i64,
+        min_confidence: Option<f64>,
     ) -> Result<Vec<SpeciesSummaryRow>, crate::StoreError> {
+        let conf_floor = min_confidence.unwrap_or(0.0);
         let rows = sqlx::query!(
             r#"SELECT l.scientific_name, l.common_name AS "common_name!",
                       l.taxon_code,
@@ -379,11 +385,13 @@ impl Database {
                FROM detections d
                JOIN labels l ON l.id = d.label_id
                WHERE d.detected_at >= $1 AND d.detected_at <= $2
+                 AND d.confidence >= $3
                  AND l.label_type = 'species'
                GROUP BY l.scientific_name, l.common_name, l.taxon_code
                ORDER BY COUNT(*) DESC"#,
             since,
             until,
+            conf_floor,
         )
         .fetch_all(&self.pool)
         .await?;

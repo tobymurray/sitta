@@ -119,12 +119,17 @@ pub struct ApiConfig {
     /// Socket address to bind (e.g., "0.0.0.0:8080").
     #[serde(default = "default_api_bind")]
     pub bind: String,
+    /// Minimum confidence for displaying detections in the UI and SSE feed.
+    /// Detections below this are still captured in the database. Default: 0.65.
+    #[serde(default = "default_display_min_confidence")]
+    pub display_min_confidence: f32,
 }
 
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
             bind: default_api_bind(),
+            display_min_confidence: default_display_min_confidence(),
         }
     }
 }
@@ -148,6 +153,9 @@ fn default_store_path() -> String {
 }
 fn default_api_bind() -> String {
     "0.0.0.0:8080".into()
+}
+fn default_display_min_confidence() -> f32 {
+    0.65
 }
 fn default_individual_threshold() -> f32 {
     0.85

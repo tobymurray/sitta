@@ -147,9 +147,10 @@ async fn list_detections(
     let limit = params.limit.unwrap_or(50).min(500);
     let offset = params.offset.unwrap_or(0);
 
+    let display_conf = f64::from(state.settings.load().display_min_confidence);
     let rows = state
         .db
-        .recent_detections(since, until, limit, offset, params.species.as_deref())
+        .recent_detections(since, until, limit, offset, params.species.as_deref(), Some(display_conf))
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to query detections");
@@ -247,9 +248,10 @@ async fn list_species(
     let since = params.since.unwrap_or(now - 86_400_000);
     let until = params.until.unwrap_or(now);
 
+    let display_conf = f64::from(state.settings.load().display_min_confidence);
     let rows = state
         .db
-        .species_summary(since, until)
+        .species_summary(since, until, Some(display_conf))
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to query species summary");
