@@ -76,6 +76,17 @@ pub struct NewPrediction {
     pub confidence: f64,
 }
 
+/// Parameters for enrolling a new individual.
+pub struct NewIndividual<'a> {
+    pub id: &'a Uuid,
+    pub scientific_name: &'a str,
+    pub label: &'a str,
+    pub reference_embedding: Option<&'a [u8]>,
+    pub reference_embedding_dim: Option<i64>,
+    pub enrolled_at: i64,
+    pub notes: Option<&'a str>,
+}
+
 // ── Read types (returned by query methods) ──────────────────────
 
 /// A detection row with joined label/model/source info.
@@ -99,6 +110,17 @@ pub struct PredictionRow {
     pub confidence: f64,
     pub scientific_name: Option<String>,
     pub common_name: String,
+}
+
+/// An enrolled individual row.
+pub struct IndividualRow {
+    pub id: Vec<u8>,
+    pub scientific_name: String,
+    pub label: String,
+    pub reference_embedding: Option<Vec<u8>>,
+    pub reference_embedding_dim: Option<i64>,
+    pub enrolled_at: i64,
+    pub notes: Option<String>,
 }
 
 /// Aggregated species summary for a date range.

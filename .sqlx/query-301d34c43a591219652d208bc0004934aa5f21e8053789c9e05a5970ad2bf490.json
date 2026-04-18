@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO individuals (id, scientific_name, label, reference_embedding, reference_embedding_dim, enrolled_at, notes)\n             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "301d34c43a591219652d208bc0004934aa5f21e8053789c9e05a5970ad2bf490"
+}

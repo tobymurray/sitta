@@ -129,6 +129,7 @@ async fn main() -> Result<()> {
         config_path: std::path::PathBuf::from(&config_path),
         initial_config,
         metrics: metrics.clone(),
+        matcher: persist_ctx.matcher.clone(),
     };
     tokio::spawn(server::serve(api_addr, api_state, shutdown.clone()));
 

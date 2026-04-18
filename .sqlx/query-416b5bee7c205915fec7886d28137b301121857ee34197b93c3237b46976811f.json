@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT embedding FROM embeddings WHERE detection_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "embedding",
+        "ordinal": 0,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "416b5bee7c205915fec7886d28137b301121857ee34197b93c3237b46976811f"
+}

@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use sitta_api::event::{Alternative, DetectionEvent, SpeciesInfo};
+use sitta_api::event::{Alternative, DetectionEvent, IndividualInfo, SpeciesInfo};
 use sitta_audio::chunk::AudioChunk;
 use sitta_inference::model::Classification;
 use sitta_store::db::Database;
+use sitta_store::matcher::IndividualMatcher;
 use sitta_store::models::{NewDetection, NewPrediction};
 use tokio::sync::broadcast;
 use uuid::Uuid;
@@ -24,6 +25,8 @@ pub struct PersistCtx {
     pub station_id: Uuid,
     /// Broadcast channel for live detection events (SSE, MQTT, etc.).
     pub detection_tx: broadcast::Sender<DetectionEvent>,
+    /// Individual matcher for Perch embeddings. None if no Perch configured.
+    pub matcher: Option<Arc<IndividualMatcher>>,
 }
 
 /// Persist a detection, its secondary predictions, optional embedding,
@@ -96,6 +99,34 @@ pub async fn persist_detections(
         tracing::error!(error = %e, "Failed to persist embedding");
     }
 
+    // Individual matching.
+    let individual_match = if let Some(emb) = embeddings
+        && let Some(matcher) = &ctx.matcher
+    {
+        matcher.find_match(&top.species.scientific_name, emb)
+    } else {
+        None
+    };
+
+    if let Some(ref m) = individual_match {
+        let match_id = Uuid::now_v7();
+        let now_ms = chunk.captured_at.timestamp_millis();
+        if let Err(e) = ctx
+            .db
+            .insert_individual_match(&match_id, &m.individual_id, &detection_id, f64::from(m.similarity), now_ms)
+            .await
+        {
+            tracing::error!(error = %e, "Failed to persist individual match");
+        } else {
+            tracing::info!(
+                individual = %m.individual_label,
+                similarity = format_args!("{:.3}", m.similarity),
+                species = %top.species.common_name,
+                "Individual matched"
+            );
+        }
+    }
+
     // Broadcast to live subscribers (SSE, MQTT).
     let (model_name, model_version) = parse_model_name(classifier_name);
     let alternatives: Vec<Alternative> = detections
@@ -125,6 +156,11 @@ pub async fn persist_detections(
         confidence: top.confidence,
         alternatives,
         has_embedding,
+        individual: individual_match.map(|m| IndividualInfo {
+            individual_id: m.individual_id.to_string(),
+            label: m.individual_label,
+            similarity: m.similarity,
+        }),
     };
 
     let _ = ctx.detection_tx.send(event);

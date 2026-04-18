@@ -31,6 +31,9 @@ pub struct DetectionEvent {
     pub alternatives: Vec<Alternative>,
     /// Whether an embedding vector was stored for this detection.
     pub has_embedding: bool,
+    /// Individual match info, if this detection matched a known individual.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub individual: Option<IndividualInfo>,
 }
 
 /// Species identification within a detection event.
@@ -40,6 +43,14 @@ pub struct SpeciesInfo {
     pub common_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub taxon_code: Option<String>,
+}
+
+/// Individual match info within a detection event.
+#[derive(Debug, Clone, Serialize)]
+pub struct IndividualInfo {
+    pub individual_id: String,
+    pub label: String,
+    pub similarity: f32,
 }
 
 /// A secondary prediction within a detection event.

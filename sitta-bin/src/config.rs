@@ -84,6 +84,9 @@ pub struct PerchConfig {
     /// Number of top predictions to return. Default: 10.
     #[serde(default = "default_top_k")]
     pub top_k: usize,
+    /// Cosine similarity threshold for individual matching. Default: 0.85.
+    #[serde(default = "default_individual_threshold")]
+    pub individual_threshold: f32,
 }
 
 /// eBird taxonomy configuration for common-name and species-code resolution.
@@ -145,4 +148,7 @@ fn default_store_path() -> String {
 }
 fn default_api_bind() -> String {
     "0.0.0.0:8080".into()
+}
+fn default_individual_threshold() -> f32 {
+    0.85
 }

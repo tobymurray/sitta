@@ -1,6 +1,7 @@
 //! Local storage for detections and embedding vectors.
 
 pub mod db;
+pub mod matcher;
 pub mod models;
 
 /// Errors from the storage layer.

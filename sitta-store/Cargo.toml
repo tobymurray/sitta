@@ -12,6 +12,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 bytemuck = { workspace = true }
+arc-swap = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

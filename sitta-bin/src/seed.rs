@@ -6,6 +6,7 @@ use sitta_api::event::DetectionEvent;
 use sitta_audio::source::SourceConfig;
 use sitta_inference::model::Classifier;
 use sitta_store::db::Database;
+use sitta_store::matcher::IndividualMatcher;
 use sitta_store::models::{NewAudioSource, NewLabel, NewModel, NewStation};
 use sitta_taxonomy::EbirdTaxonomy;
 use tokio::sync::broadcast;
@@ -77,6 +78,15 @@ pub async fn seed_database(
 
     let (detection_tx, _) = broadcast::channel::<DetectionEvent>(64);
 
+    // Individual matcher — threshold from Perch config, or default 0.85.
+    let individual_threshold = config
+        .inference
+        .perch
+        .as_ref()
+        .map(|p| p.individual_threshold)
+        .unwrap_or(0.85);
+    let matcher = IndividualMatcher::new(db.clone(), individual_threshold).await?;
+
     Ok(PersistCtx {
         db: db.clone(),
         label_cache: Arc::new(label_cache),
@@ -84,6 +94,7 @@ pub async fn seed_database(
         source_ids: Arc::new(source_ids),
         station_id,
         detection_tx,
+        matcher: Some(Arc::new(matcher)),
     })
 }
 

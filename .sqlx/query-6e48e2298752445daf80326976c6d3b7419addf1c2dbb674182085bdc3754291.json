@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO individual_matches (id, individual_id, detection_id, similarity, matched_at)\n             VALUES ($1, $2, $3, $4, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "6e48e2298752445daf80326976c6d3b7419addf1c2dbb674182085bdc3754291"
+}

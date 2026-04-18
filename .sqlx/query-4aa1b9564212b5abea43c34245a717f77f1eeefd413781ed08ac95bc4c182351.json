@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, scientific_name, label,\n                      reference_embedding, reference_embedding_dim,\n                      enrolled_at, notes\n               FROM individuals\n               WHERE reference_embedding IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "scientific_name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "label",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "reference_embedding",
+        "ordinal": 3,
+        "type_info": "Blob"
+      },
+      {
+        "name": "reference_embedding_dim",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "enrolled_at",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "notes",
+        "ordinal": 6,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "4aa1b9564212b5abea43c34245a717f77f1eeefd413781ed08ac95bc4c182351"
+}
