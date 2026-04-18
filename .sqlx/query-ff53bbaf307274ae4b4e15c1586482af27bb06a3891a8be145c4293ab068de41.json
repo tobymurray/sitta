@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE candidate_clusters SET status = 'dismissed' WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "ff53bbaf307274ae4b4e15c1586482af27bb06a3891a8be145c4293ab068de41"
+}

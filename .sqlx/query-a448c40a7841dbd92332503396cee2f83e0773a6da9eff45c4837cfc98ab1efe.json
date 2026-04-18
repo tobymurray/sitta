@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT detection_id FROM candidate_embeddings WHERE cluster_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "detection_id",
+        "ordinal": 0,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a448c40a7841dbd92332503396cee2f83e0773a6da9eff45c4837cfc98ab1efe"
+}

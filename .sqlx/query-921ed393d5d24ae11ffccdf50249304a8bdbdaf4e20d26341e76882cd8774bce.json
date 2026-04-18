@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM candidate_embeddings WHERE cluster_id IS NULL AND created_at < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "921ed393d5d24ae11ffccdf50249304a8bdbdaf4e20d26341e76882cd8774bce"
+}

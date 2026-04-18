@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO candidate_clusters (scientific_name, centroid, centroid_dim, member_count, distinct_days, first_seen_at, last_seen_at)\n             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "9b511208eef5f4ff6336d6615c5a6024cbfde713f80d966677e143e7f24aea9a"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE candidate_clusters SET status = 'enrolled', individual_id = $1 WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "a39205227b3f49648c2e3171ae2460d011267f4a1848a1cc4e7f199b4a269334"
+}

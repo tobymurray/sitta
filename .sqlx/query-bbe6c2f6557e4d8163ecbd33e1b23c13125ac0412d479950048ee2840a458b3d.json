@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT detection_id, scientific_name, embedding,\n                      cluster_id AS \"cluster_id?\", created_at\n               FROM candidate_embeddings\n               WHERE scientific_name = $1 AND cluster_id IS NULL\n               ORDER BY created_at ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "detection_id",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "scientific_name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "embedding",
+        "ordinal": 2,
+        "type_info": "Blob"
+      },
+      {
+        "name": "cluster_id?",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 4,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "bbe6c2f6557e4d8163ecbd33e1b23c13125ac0412d479950048ee2840a458b3d"
+}

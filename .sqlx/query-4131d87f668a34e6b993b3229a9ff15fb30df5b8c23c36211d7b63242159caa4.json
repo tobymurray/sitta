@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE candidate_clusters\n             SET centroid = $1, member_count = $2, distinct_days = $3,\n                 first_seen_at = $4, last_seen_at = $5\n             WHERE id = $6",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "4131d87f668a34e6b993b3229a9ff15fb30df5b8c23c36211d7b63242159caa4"
+}

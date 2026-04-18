@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!\", scientific_name, centroid, centroid_dim,\n                      member_count, distinct_days, first_seen_at, last_seen_at,\n                      status, individual_id\n               FROM candidate_clusters\n               WHERE scientific_name = $1 AND status = 'pending'\n               ORDER BY member_count DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "scientific_name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "centroid",
+        "ordinal": 2,
+        "type_info": "Blob"
+      },
+      {
+        "name": "centroid_dim",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "member_count",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "distinct_days",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "first_seen_at",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "last_seen_at",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "status",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "individual_id",
+        "ordinal": 9,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "191764d4d8233c4729b3c01527290a2ea14d80bfa31c1b9c7892385d42fea30a"
+}

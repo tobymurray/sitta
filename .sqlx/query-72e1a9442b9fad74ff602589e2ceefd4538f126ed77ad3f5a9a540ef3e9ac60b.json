@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE candidate_embeddings SET cluster_id = $1 WHERE detection_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "72e1a9442b9fad74ff602589e2ceefd4538f126ed77ad3f5a9a540ef3e9ac60b"
+}

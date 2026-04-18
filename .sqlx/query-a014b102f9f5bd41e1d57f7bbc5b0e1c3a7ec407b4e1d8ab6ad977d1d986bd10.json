@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO candidate_embeddings (detection_id, scientific_name, embedding, created_at)\n             VALUES ($1, $2, $3, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "a014b102f9f5bd41e1d57f7bbc5b0e1c3a7ec407b4e1d8ab6ad977d1d986bd10"
+}
