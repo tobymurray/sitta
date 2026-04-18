@@ -1,5 +1,6 @@
 //! Local storage for detections and embedding vectors.
 
+pub mod clustering;
 pub mod db;
 pub mod matcher;
 pub mod models;

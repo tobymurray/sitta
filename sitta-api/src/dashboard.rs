@@ -706,27 +706,33 @@ pub fn individuals_content() -> String {
     r##"<div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-bold tracking-tight">Individuals</h1>
-    <p class="text-sm text-gray-500 dark:text-plumage-400 mt-0.5">Distinct animals discovered automatically from Perch embeddings</p>
+    <p class="text-sm text-gray-500 dark:text-plumage-400 mt-0.5">Recurring visitors identified from Perch embeddings</p>
   </div>
 </div>
 
-<!-- Overview: species groups -->
+<!-- Suggested clusters -->
+<div id="suggestions-section" class="hidden mb-8">
+  <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+    <span class="w-2 h-2 rounded-full bg-nuthatch-500"></span>
+    Suggested Individuals
+  </h2>
+  <p class="text-sm text-gray-500 dark:text-plumage-400 mb-4">These clusters of similar detections may represent distinct individuals. Review and enroll them to start tracking.</p>
+  <div id="suggestions-list" class="space-y-3"></div>
+</div>
+
+<!-- Enrolled individuals -->
 <div id="individuals-list">
   <div class="text-center py-12 text-gray-400 dark:text-plumage-500 text-sm">Loading...</div>
 </div>
 
-<!-- Enrollment modal -->
+<!-- Enrollment modal for cluster -->
 <div id="enroll-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50">
   <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 shadow-xl w-full max-w-md mx-4 p-6">
-    <h2 class="text-lg font-semibold mb-4">Enroll Individual</h2>
-    <p class="text-sm text-gray-500 dark:text-plumage-400 mb-4">Select a recent Perch detection to use as the reference embedding.</p>
+    <h2 class="text-lg font-semibold mb-1">Enroll Individual</h2>
+    <p id="enroll-species" class="text-sm text-gray-500 dark:text-plumage-400 mb-4 italic"></p>
 
-    <div id="enroll-detections" class="space-y-2 max-h-48 overflow-y-auto mb-4">
-      <div class="text-sm text-gray-400 dark:text-plumage-500">Loading recent detections...</div>
-    </div>
-
-    <div id="enroll-form" class="hidden space-y-3">
-      <input type="hidden" id="enroll-detection-id">
+    <input type="hidden" id="enroll-cluster-id">
+    <div class="space-y-3">
       <div>
         <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Label</label>
         <input id="enroll-label" type="text" placeholder="e.g. Barn Owl #1"
@@ -734,7 +740,7 @@ pub fn individuals_content() -> String {
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Notes (optional)</label>
-        <input id="enroll-notes" type="text" placeholder="e.g. First seen near north paddock"
+        <input id="enroll-notes" type="text" placeholder="e.g. Visits the north feeder regularly"
           class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 outline-none">
       </div>
     </div>
@@ -742,9 +748,9 @@ pub fn individuals_content() -> String {
     <div class="flex justify-end gap-2 mt-4">
       <button onclick="document.getElementById('enroll-modal').classList.add('hidden')"
         class="px-3 py-1.5 rounded-lg text-sm text-stone-500 dark:text-plumage-400 hover:bg-gray-100 dark:hover:bg-plumage-800 transition-colors">Cancel</button>
-      <button id="enroll-btn" disabled
+      <button id="enroll-btn"
         class="px-3 py-1.5 rounded-lg bg-nuthatch-600 text-white text-sm font-medium hover:bg-nuthatch-700 disabled:opacity-50 transition-colors"
-        onclick="submitEnroll()">Enroll</button>
+        onclick="submitClusterEnroll()">Enroll</button>
     </div>
     <div id="enroll-status" class="mt-2 text-sm"></div>
   </div>
@@ -752,7 +758,40 @@ pub fn individuals_content() -> String {
 
 <script>
 (function() {
-  // Load individuals grouped by species.
+  const _tz = document.body.dataset.tz || 'UTC';
+  const _df = { month: 'short', day: 'numeric', timeZone: _tz };
+
+  // ── Load suggested clusters ────────────────────────────────
+  fetch('/api/v1/candidates')
+    .then(r => r.json())
+    .then(data => {
+      if (data.length === 0) return;
+      document.getElementById('suggestions-section').classList.remove('hidden');
+      const el = document.getElementById('suggestions-list');
+      el.innerHTML = data.map(c => {
+        const first = new Date(c.first_seen_at).toLocaleDateString('en-GB', _df);
+        const last = new Date(c.last_seen_at).toLocaleDateString('en-GB', _df);
+        const range = first === last ? first : first + ' — ' + last;
+        return `<div class="bg-white dark:bg-plumage-900 rounded-xl border border-nuthatch-200 dark:border-nuthatch-800/50 border-l-4 border-l-nuthatch-500 p-4 flex items-center justify-between gap-4">
+          <div class="min-w-0 flex-1">
+            <p class="font-semibold text-sm">${c.scientific_name}</p>
+            <p class="text-xs text-gray-500 dark:text-plumage-400 mt-0.5">
+              ${c.member_count} detections over ${c.distinct_days} day${c.distinct_days !== 1 ? 's' : ''}
+              <span class="text-gray-400 dark:text-plumage-500 ml-1">${range}</span>
+            </p>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <button onclick="openClusterEnroll(${c.id}, '${c.scientific_name.replace(/'/g, "\\'")}')"
+              class="px-3 py-1.5 rounded-lg bg-nuthatch-600 text-white text-xs font-medium hover:bg-nuthatch-700 transition-colors">Enroll</button>
+            <button onclick="dismissCluster(${c.id}, this)"
+              class="px-3 py-1.5 rounded-lg text-xs text-stone-500 dark:text-plumage-400 hover:bg-gray-100 dark:hover:bg-plumage-800 transition-colors">Dismiss</button>
+          </div>
+        </div>`;
+      }).join('');
+    })
+    .catch(() => {});
+
+  // ── Load enrolled individuals ──────────────────────────────
   fetch('/api/v1/individuals')
     .then(r => r.json())
     .then(data => {
@@ -760,13 +799,12 @@ pub fn individuals_content() -> String {
       if (data.length === 0) {
         el.innerHTML = `<div class="text-center py-16 text-gray-400 dark:text-plumage-500">
           <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg>
-          <p class="text-sm">No individuals discovered yet</p>
-          <p class="text-xs mt-1">Individuals are automatically grouped from Perch embeddings as detections arrive</p>
+          <p class="text-sm">No individuals enrolled yet</p>
+          <p class="text-xs mt-1">Suggested individuals will appear above once Perch detects recurring visitors</p>
         </div>`;
         return;
       }
 
-      // Group by species.
       const groups = {};
       data.forEach(ind => {
         const key = ind.scientific_name;
@@ -774,7 +812,7 @@ pub fn individuals_content() -> String {
         groups[key].individuals.push(ind);
       });
 
-      let html = '<div class="space-y-6">';
+      let html = '<h2 class="text-lg font-semibold mb-3">Enrolled Individuals</h2><div class="space-y-6">';
       Object.values(groups).forEach(g => {
         html += `<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 overflow-hidden">
           <div class="px-5 py-3 border-b border-gray-100 dark:border-plumage-800 flex items-center justify-between">
@@ -787,7 +825,6 @@ pub fn individuals_content() -> String {
           <div class="divide-y divide-gray-100 dark:divide-plumage-800">`;
 
         g.individuals.forEach(ind => {
-          const _tz = document.body.dataset.tz || 'UTC';
           const enrolled = new Date(ind.enrolled_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric', year: 'numeric', timeZone: _tz });
           html += `<div class="px-5 py-3 flex items-center justify-between">
             <div>
@@ -807,54 +844,33 @@ pub fn individuals_content() -> String {
       document.getElementById('individuals-list').innerHTML =
         '<div class="text-center py-8 text-red-400 text-sm">Failed to load individuals</div>';
     });
-
-  // Load recent Perch detections for enrollment picker.
-  document.getElementById('enroll-modal').addEventListener('transitionend', () => {});
-  const modal = document.getElementById('enroll-modal');
-  new MutationObserver(() => {
-    if (!modal.classList.contains('hidden')) loadEnrollDetections();
-  }).observe(modal, { attributes: true, attributeFilter: ['class'] });
-
-  function loadEnrollDetections() {
-    fetch('/api/v1/detections?limit=20')
-      .then(r => r.json())
-      .then(data => {
-        const withEmb = data.filter(d => d.has_embedding);
-        const el = document.getElementById('enroll-detections');
-        if (withEmb.length === 0) {
-          el.innerHTML = '<div class="text-sm text-gray-400 dark:text-plumage-500">No Perch detections with embeddings found</div>';
-          return;
-        }
-        el.innerHTML = withEmb.map(d => {
-          const _tz = document.body.dataset.tz || 'UTC';
-          const time = new Date(d.detected_at).toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', hour12: false, timeZone: _tz});
-          const pct = Math.round(d.confidence * 100);
-          return `<button onclick="selectDetection('${d.id}', '${d.species.common_name}', this)"
-            class="w-full text-left px-3 py-2 rounded-lg border border-gray-200 dark:border-plumage-700 hover:border-nuthatch-400 dark:hover:border-nuthatch-500 transition-colors text-sm flex items-center justify-between">
-            <div>
-              <span class="font-medium">${d.species.common_name}</span>
-              <span class="text-gray-400 dark:text-plumage-500 ml-2">${time}</span>
-            </div>
-            <span class="text-xs text-gray-400">${pct}%</span>
-          </button>`;
-        }).join('');
-      });
-  }
 })();
 
-function selectDetection(id, species, btn) {
-  document.getElementById('enroll-detection-id').value = id;
+function openClusterEnroll(clusterId, species) {
+  document.getElementById('enroll-cluster-id').value = clusterId;
+  document.getElementById('enroll-species').textContent = species;
+  document.getElementById('enroll-label').value = '';
   document.getElementById('enroll-label').placeholder = species + ' #1';
-  document.getElementById('enroll-form').classList.remove('hidden');
+  document.getElementById('enroll-notes').value = '';
+  document.getElementById('enroll-status').textContent = '';
   document.getElementById('enroll-btn').disabled = false;
-  // Highlight selected.
-  document.querySelectorAll('#enroll-detections button').forEach(b =>
-    b.classList.remove('border-nuthatch-500', 'dark:border-nuthatch-400', 'bg-nuthatch-50', 'dark:bg-nuthatch-900/20'));
-  btn.classList.add('border-nuthatch-500', 'dark:border-nuthatch-400', 'bg-nuthatch-50', 'dark:bg-nuthatch-900/20');
+  document.getElementById('enroll-modal').classList.remove('hidden');
 }
 
-function submitEnroll() {
-  const detId = document.getElementById('enroll-detection-id').value;
+function dismissCluster(clusterId, btn) {
+  btn.disabled = true;
+  fetch('/api/v1/candidates/' + clusterId + '/dismiss', { method: 'POST' })
+    .then(r => {
+      if (r.ok) {
+        btn.closest('[class*="border-l-nuthatch"]').remove();
+        const remaining = document.querySelectorAll('#suggestions-list > div');
+        if (remaining.length === 0) document.getElementById('suggestions-section').classList.add('hidden');
+      }
+    });
+}
+
+function submitClusterEnroll() {
+  const clusterId = document.getElementById('enroll-cluster-id').value;
   const label = document.getElementById('enroll-label').value;
   const notes = document.getElementById('enroll-notes').value;
   const status = document.getElementById('enroll-status');
@@ -867,21 +883,21 @@ function submitEnroll() {
   document.getElementById('enroll-btn').disabled = true;
   status.textContent = 'Enrolling...';
 
-  fetch('/api/v1/individuals', {
+  fetch('/api/v1/candidates/' + clusterId + '/enroll', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ detection_id: detId, label: label.trim(), notes: notes.trim() || undefined }),
+    body: JSON.stringify({ label: label.trim(), notes: notes.trim() || undefined }),
   })
   .then(r => {
-    if (!r.ok) return r.json().then(d => Promise.reject(d));
+    if (!r.ok) return r.text().then(t => Promise.reject(t));
     return r.json();
   })
-  .then(data => {
+  .then(() => {
     document.getElementById('enroll-modal').classList.add('hidden');
     location.reload();
   })
   .catch(e => {
-    status.innerHTML = '<span class="text-red-500">Error: ' + (typeof e === 'string' ? e : JSON.stringify(e)) + '</span>';
+    status.innerHTML = '<span class="text-red-500">Error: ' + e + '</span>';
     document.getElementById('enroll-btn').disabled = false;
   });
 }

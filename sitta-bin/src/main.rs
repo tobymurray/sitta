@@ -151,6 +151,18 @@ async fn main() -> Result<()> {
         perch_labels_path: config.inference.perch.as_ref().map(|p| p.labels_path.clone()),
         store_path: config.store.path.clone(),
         api_bind: config.api.bind.clone(),
+        min_cluster_size: config
+            .inference
+            .perch
+            .as_ref()
+            .map(|p| i64::from(p.min_cluster_size))
+            .unwrap_or(5),
+        min_distinct_days: config
+            .inference
+            .perch
+            .as_ref()
+            .map(|p| i64::from(p.min_distinct_days))
+            .unwrap_or(2),
     });
 
     let api_addr: std::net::SocketAddr = config
@@ -222,6 +234,58 @@ async fn main() -> Result<()> {
             stride_samples,
         },
     );
+
+    // ── Background clustering ───────────────────────────────────
+    if config.inference.perch.is_some() {
+        let cluster_db = db.clone();
+        let cluster_shutdown = shutdown.clone();
+        let cluster_matcher = persist_ctx.matcher.clone();
+        let cluster_config = sitta_store::clustering::ClusterConfig {
+            merge_threshold: config
+                .inference
+                .perch
+                .as_ref()
+                .map(|p| p.cluster_merge_threshold)
+                .unwrap_or(0.70),
+            timezone: settings.load().timezone.clone(),
+            retention_days: config
+                .inference
+                .perch
+                .as_ref()
+                .map(|p| p.candidate_retention_days)
+                .unwrap_or(30),
+        };
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            interval.tick().await; // skip immediate first tick
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        match sitta_store::clustering::run_clustering_pass(&cluster_db, &cluster_config).await {
+                            Ok(stats) => {
+                                if stats.candidates_processed > 0 {
+                                    tracing::info!(
+                                        candidates = stats.candidates_processed,
+                                        assigned = stats.assigned_to_existing,
+                                        new_clusters = stats.new_clusters_created,
+                                        pruned = stats.pruned,
+                                        "Clustering pass complete"
+                                    );
+                                }
+                            }
+                            Err(e) => tracing::error!(error = %e, "Clustering pass failed"),
+                        }
+                        // Reload matcher in case any clusters were enrolled via API since last pass.
+                        if let Some(m) = &cluster_matcher {
+                            let _ = m.reload().await;
+                        }
+                    }
+                    () = cluster_shutdown.cancelled() => break,
+                }
+            }
+        });
+        tracing::info!("Background clustering task started (5-minute interval)");
+    }
 
     // ── Shutdown ────────────────────────────────────────────────
     tokio::signal::ctrl_c()

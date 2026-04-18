@@ -6,9 +6,9 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::models::{
-    uuid_bytes, DetectionRow, HourlyActivityRow, IndividualRow, NewAudioSource, NewDetection,
-    NewIndividual, NewLabel, NewModel, NewPrediction, NewStation, PredictionRow, ReviewRow,
-    SpeciesSummaryRow,
+    uuid_bytes, CandidateRow, ClusterRow, DetectionRow, HourlyActivityRow, IndividualRow,
+    NewAudioSource, NewDetection, NewIndividual, NewLabel, NewModel, NewPrediction, NewStation,
+    PredictionRow, ReviewRow, SpeciesSummaryRow,
 };
 
 /// Connection to the Sitta SQLite database.
@@ -773,5 +773,302 @@ impl Database {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    // ── Candidate clustering queries ───────────────────────────
+
+    /// Insert an unmatched embedding into the candidate pool.
+    pub async fn insert_candidate(
+        &self,
+        detection_id: &Uuid,
+        scientific_name: &str,
+        embedding: &[u8],
+        created_at: i64,
+    ) -> Result<(), crate::StoreError> {
+        let det_bytes = uuid_bytes(detection_id);
+        sqlx::query!(
+            "INSERT OR IGNORE INTO candidate_embeddings (detection_id, scientific_name, embedding, created_at)
+             VALUES ($1, $2, $3, $4)",
+            det_bytes,
+            scientific_name,
+            embedding,
+            created_at,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Load all unclustered candidates for a species.
+    pub async fn unclustered_candidates(
+        &self,
+        scientific_name: &str,
+    ) -> Result<Vec<CandidateRow>, crate::StoreError> {
+        let rows = sqlx::query!(
+            r#"SELECT detection_id, scientific_name, embedding,
+                      cluster_id AS "cluster_id?", created_at
+               FROM candidate_embeddings
+               WHERE scientific_name = $1 AND cluster_id IS NULL
+               ORDER BY created_at ASC"#,
+            scientific_name,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| CandidateRow {
+                detection_id: r.detection_id,
+                scientific_name: r.scientific_name,
+                embedding: r.embedding,
+                cluster_id: r.cluster_id,
+                created_at: r.created_at,
+            })
+            .collect())
+    }
+
+    /// List distinct species that have unclustered candidates.
+    pub async fn species_with_unclustered(&self) -> Result<Vec<String>, crate::StoreError> {
+        let rows = sqlx::query!(
+            "SELECT DISTINCT scientific_name FROM candidate_embeddings WHERE cluster_id IS NULL"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| r.scientific_name).collect())
+    }
+
+    /// Assign a candidate to a cluster.
+    pub async fn assign_candidate_to_cluster(
+        &self,
+        detection_id: &[u8],
+        cluster_id: i64,
+    ) -> Result<(), crate::StoreError> {
+        sqlx::query!(
+            "UPDATE candidate_embeddings SET cluster_id = $1 WHERE detection_id = $2",
+            cluster_id,
+            detection_id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Create a new cluster and return its auto-generated ID.
+    pub async fn insert_cluster(
+        &self,
+        scientific_name: &str,
+        centroid: &[u8],
+        centroid_dim: i64,
+        member_count: i64,
+        distinct_days: i64,
+        first_seen_at: i64,
+        last_seen_at: i64,
+    ) -> Result<i64, crate::StoreError> {
+        let result = sqlx::query!(
+            "INSERT INTO candidate_clusters (scientific_name, centroid, centroid_dim, member_count, distinct_days, first_seen_at, last_seen_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            scientific_name,
+            centroid,
+            centroid_dim,
+            member_count,
+            distinct_days,
+            first_seen_at,
+            last_seen_at,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.last_insert_rowid())
+    }
+
+    /// Update a cluster's centroid, counts, and time range.
+    pub async fn update_cluster(
+        &self,
+        cluster_id: i64,
+        centroid: &[u8],
+        member_count: i64,
+        distinct_days: i64,
+        first_seen_at: i64,
+        last_seen_at: i64,
+    ) -> Result<(), crate::StoreError> {
+        sqlx::query!(
+            "UPDATE candidate_clusters
+             SET centroid = $1, member_count = $2, distinct_days = $3,
+                 first_seen_at = $4, last_seen_at = $5
+             WHERE id = $6",
+            centroid,
+            member_count,
+            distinct_days,
+            first_seen_at,
+            last_seen_at,
+            cluster_id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Load all pending clusters for a species (for the clustering pass).
+    pub async fn pending_clusters(
+        &self,
+        scientific_name: &str,
+    ) -> Result<Vec<ClusterRow>, crate::StoreError> {
+        let rows = sqlx::query!(
+            r#"SELECT id AS "id!", scientific_name, centroid, centroid_dim,
+                      member_count, distinct_days, first_seen_at, last_seen_at,
+                      status, individual_id
+               FROM candidate_clusters
+               WHERE scientific_name = $1 AND status = 'pending'
+               ORDER BY member_count DESC"#,
+            scientific_name,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| ClusterRow {
+                id: r.id,
+                scientific_name: r.scientific_name,
+                centroid: r.centroid,
+                centroid_dim: r.centroid_dim,
+                member_count: r.member_count,
+                distinct_days: r.distinct_days,
+                first_seen_at: r.first_seen_at,
+                last_seen_at: r.last_seen_at,
+                status: r.status,
+                individual_id: r.individual_id,
+            })
+            .collect())
+    }
+
+    /// List all pending clusters that meet readiness criteria, sorted by member_count desc.
+    pub async fn ready_clusters(
+        &self,
+        min_members: i64,
+        min_days: i64,
+    ) -> Result<Vec<ClusterRow>, crate::StoreError> {
+        let rows = sqlx::query!(
+            r#"SELECT id AS "id!", scientific_name, centroid, centroid_dim,
+                      member_count, distinct_days, first_seen_at, last_seen_at,
+                      status, individual_id
+               FROM candidate_clusters
+               WHERE status = 'pending'
+                 AND member_count >= $1
+                 AND distinct_days >= $2
+               ORDER BY member_count DESC"#,
+            min_members,
+            min_days,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| ClusterRow {
+                id: r.id,
+                scientific_name: r.scientific_name,
+                centroid: r.centroid,
+                centroid_dim: r.centroid_dim,
+                member_count: r.member_count,
+                distinct_days: r.distinct_days,
+                first_seen_at: r.first_seen_at,
+                last_seen_at: r.last_seen_at,
+                status: r.status,
+                individual_id: r.individual_id,
+            })
+            .collect())
+    }
+
+    /// Get a single cluster by ID.
+    pub async fn get_cluster(&self, cluster_id: i64) -> Result<Option<ClusterRow>, crate::StoreError> {
+        let row = sqlx::query!(
+            r#"SELECT id AS "id!", scientific_name, centroid, centroid_dim,
+                      member_count, distinct_days, first_seen_at, last_seen_at,
+                      status, individual_id
+               FROM candidate_clusters WHERE id = $1"#,
+            cluster_id,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| ClusterRow {
+            id: r.id,
+            scientific_name: r.scientific_name,
+            centroid: r.centroid,
+            centroid_dim: r.centroid_dim,
+            member_count: r.member_count,
+            distinct_days: r.distinct_days,
+            first_seen_at: r.first_seen_at,
+            last_seen_at: r.last_seen_at,
+            status: r.status,
+            individual_id: r.individual_id,
+        }))
+    }
+
+    /// Mark a cluster as enrolled, linking it to an individual.
+    pub async fn enroll_cluster(
+        &self,
+        cluster_id: i64,
+        individual_id: &Uuid,
+    ) -> Result<(), crate::StoreError> {
+        let ind_bytes = uuid_bytes(individual_id);
+        sqlx::query!(
+            "UPDATE candidate_clusters SET status = 'enrolled', individual_id = $1 WHERE id = $2",
+            ind_bytes,
+            cluster_id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Dismiss a cluster (hide from suggestions).
+    pub async fn dismiss_cluster(&self, cluster_id: i64) -> Result<(), crate::StoreError> {
+        sqlx::query!(
+            "UPDATE candidate_clusters SET status = 'dismissed' WHERE id = $1",
+            cluster_id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Get detection IDs belonging to a cluster (for enrollment linking).
+    pub async fn cluster_detection_ids(
+        &self,
+        cluster_id: i64,
+    ) -> Result<Vec<Vec<u8>>, crate::StoreError> {
+        let rows = sqlx::query!(
+            "SELECT detection_id FROM candidate_embeddings WHERE cluster_id = $1",
+            cluster_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| r.detection_id).collect())
+    }
+
+    /// Get all member timestamps for a cluster (for distinct_days computation).
+    pub async fn cluster_member_timestamps(
+        &self,
+        cluster_id: i64,
+    ) -> Result<Vec<i64>, crate::StoreError> {
+        let rows = sqlx::query!(
+            "SELECT created_at FROM candidate_embeddings WHERE cluster_id = $1",
+            cluster_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| r.created_at).collect())
+    }
+
+    /// Prune old unclustered candidates older than `before_ms` (Unix milliseconds).
+    pub async fn prune_old_candidates(&self, before_ms: i64) -> Result<u64, crate::StoreError> {
+        let result = sqlx::query!(
+            "DELETE FROM candidate_embeddings WHERE cluster_id IS NULL AND created_at < $1",
+            before_ms,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
     }
 }

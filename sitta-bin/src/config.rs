@@ -95,9 +95,35 @@ pub struct PerchConfig {
     /// Number of top predictions to return. Default: 10.
     #[serde(default = "default_top_k")]
     pub top_k: usize,
-    /// Cosine similarity threshold for individual matching. Default: 0.85.
+    /// Cosine similarity threshold for matching against enrolled individuals. Default: 0.85.
     #[serde(default = "default_individual_threshold")]
     pub individual_threshold: f32,
+    /// Minimum cosine similarity to merge a candidate into an existing cluster.
+    /// Lower = more aggressive grouping. Default: 0.70.
+    #[serde(default = "default_cluster_merge_threshold")]
+    pub cluster_merge_threshold: f32,
+    /// Minimum cluster size before suggesting enrollment. Default: 5.
+    #[serde(default = "default_min_cluster_size")]
+    pub min_cluster_size: u32,
+    /// Minimum distinct calendar days of detections before suggesting enrollment. Default: 2.
+    #[serde(default = "default_min_distinct_days")]
+    pub min_distinct_days: u32,
+    /// Days to keep unclustered candidates before pruning. Default: 30.
+    #[serde(default = "default_candidate_retention_days")]
+    pub candidate_retention_days: u32,
+    /// Per-species overrides for min_cluster_size.
+    /// Keys are scientific names (e.g., "Turdus migratorius").
+    #[serde(default)]
+    pub species_overrides: std::collections::HashMap<String, SpeciesOverride>,
+}
+
+/// Per-species overrides for clustering thresholds.
+#[derive(Debug, Deserialize)]
+pub struct SpeciesOverride {
+    /// Override min_cluster_size for this species.
+    pub min_cluster_size: Option<u32>,
+    /// Override min_distinct_days for this species.
+    pub min_distinct_days: Option<u32>,
 }
 
 /// eBird taxonomy configuration for common-name and species-code resolution.
@@ -213,4 +239,16 @@ fn default_max_disk_mb() -> u64 {
 }
 fn default_birdnet_stride() -> f32 {
     1.0
+}
+fn default_cluster_merge_threshold() -> f32 {
+    0.70
+}
+fn default_min_cluster_size() -> u32 {
+    5
+}
+fn default_min_distinct_days() -> u32 {
+    2
+}
+fn default_candidate_retention_days() -> u32 {
+    30
 }

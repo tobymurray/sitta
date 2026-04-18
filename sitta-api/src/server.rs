@@ -79,6 +79,9 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/v1/settings", get(get_settings).put(update_settings))
         .route("/api/v1/individuals", get(list_individuals).post(enroll_individual))
         .route("/api/v1/individuals/{id}", get(get_individual))
+        .route("/api/v1/candidates", get(list_candidate_clusters))
+        .route("/api/v1/candidates/{id}/enroll", axum::routing::post(enroll_cluster))
+        .route("/api/v1/candidates/{id}/dismiss", axum::routing::post(dismiss_cluster))
         .route("/api/v1/sources", get(list_sources).post(add_source))
         .route("/api/v1/sources/{name}", delete(remove_source))
         .route("/api/v1/detections/{id}/audio", get(detection_audio_handler))
@@ -606,6 +609,164 @@ struct IndividualSummary {
     label: String,
     enrolled_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    notes: Option<String>,
+}
+
+// ── Candidate clusters ─────────────────────────────────────────
+
+async fn list_candidate_clusters(
+    State(state): State<ApiState>,
+) -> Result<Json<Vec<CandidateClusterSummary>>, StatusCode> {
+    let min_members = state.initial_config.min_cluster_size;
+    let min_days = state.initial_config.min_distinct_days;
+
+    let rows = state
+        .db
+        .ready_clusters(min_members, min_days)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to list candidate clusters");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let clusters = rows
+        .into_iter()
+        .map(|r| CandidateClusterSummary {
+            id: r.id,
+            scientific_name: r.scientific_name,
+            member_count: r.member_count,
+            distinct_days: r.distinct_days,
+            first_seen_at: millis_to_rfc3339(r.first_seen_at).unwrap_or_default(),
+            last_seen_at: millis_to_rfc3339(r.last_seen_at).unwrap_or_default(),
+        })
+        .collect();
+
+    Ok(Json(clusters))
+}
+
+async fn enroll_cluster(
+    State(state): State<ApiState>,
+    Path(cluster_id): Path<i64>,
+    Json(req): Json<ClusterEnrollRequest>,
+) -> Result<Json<IndividualSummary>, (StatusCode, String)> {
+    let cluster = state
+        .db
+        .get_cluster(cluster_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "cluster not found".into()))?;
+
+    if cluster.status != "pending" {
+        return Err((StatusCode::CONFLICT, format!("cluster is already {}", cluster.status)));
+    }
+
+    // Create individual from cluster centroid.
+    let individual_id = uuid::Uuid::now_v7();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let dim = cluster.centroid_dim;
+
+    state
+        .db
+        .insert_individual(&sitta_store::models::NewIndividual {
+            id: &individual_id,
+            scientific_name: &cluster.scientific_name,
+            label: &req.label,
+            reference_embedding: Some(&cluster.centroid),
+            reference_embedding_dim: Some(dim),
+            enrolled_at: now_ms,
+            notes: req.notes.as_deref(),
+        })
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Mark cluster as enrolled.
+    state
+        .db
+        .enroll_cluster(cluster_id, &individual_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Link cluster member detections to the new individual.
+    let detection_ids = state
+        .db
+        .cluster_detection_ids(cluster_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    for det_bytes in &detection_ids {
+        if let Ok(det_uuid) = uuid_from_blob(det_bytes.clone()) {
+            let match_id = uuid::Uuid::now_v7();
+            // Use similarity 0.0 as a sentinel — these are founding members, not runtime matches.
+            let _ = state
+                .db
+                .insert_individual_match(&match_id, &individual_id, &det_uuid, 1.0, now_ms)
+                .await;
+        }
+    }
+
+    // Reload matcher so future detections match against this individual.
+    if let Some(matcher) = &state.matcher
+        && let Err(e) = matcher.reload().await
+    {
+        tracing::warn!(error = %e, "Failed to reload matcher after cluster enrollment");
+    }
+
+    tracing::info!(
+        cluster_id,
+        individual = %individual_id,
+        label = %req.label,
+        species = %cluster.scientific_name,
+        members = detection_ids.len(),
+        "Cluster enrolled as individual"
+    );
+
+    Ok(Json(IndividualSummary {
+        id: individual_id.to_string(),
+        scientific_name: cluster.scientific_name,
+        label: req.label,
+        enrolled_at: millis_to_rfc3339(now_ms).unwrap_or_default(),
+        notes: req.notes,
+    }))
+}
+
+async fn dismiss_cluster(
+    State(state): State<ApiState>,
+    Path(cluster_id): Path<i64>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let cluster = state
+        .db
+        .get_cluster(cluster_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "cluster not found".into()))?;
+
+    if cluster.status != "pending" {
+        return Err((StatusCode::CONFLICT, format!("cluster is already {}", cluster.status)));
+    }
+
+    state
+        .db
+        .dismiss_cluster(cluster_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    tracing::info!(cluster_id, species = %cluster.scientific_name, "Cluster dismissed");
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize)]
+struct CandidateClusterSummary {
+    id: i64,
+    scientific_name: String,
+    member_count: i64,
+    distinct_days: i64,
+    first_seen_at: String,
+    last_seen_at: String,
+}
+
+#[derive(Deserialize)]
+struct ClusterEnrollRequest {
+    label: String,
     notes: Option<String>,
 }
 

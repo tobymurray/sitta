@@ -141,6 +141,29 @@ pub struct HourlyActivityRow {
     pub count: i64,
 }
 
+/// A candidate embedding awaiting clustering.
+pub struct CandidateRow {
+    pub detection_id: Vec<u8>,
+    pub scientific_name: String,
+    pub embedding: Vec<u8>,
+    pub cluster_id: Option<i64>,
+    pub created_at: i64,
+}
+
+/// A discovered cluster of candidate embeddings.
+pub struct ClusterRow {
+    pub id: i64,
+    pub scientific_name: String,
+    pub centroid: Vec<u8>,
+    pub centroid_dim: i64,
+    pub member_count: i64,
+    pub distinct_days: i64,
+    pub first_seen_at: i64,
+    pub last_seen_at: i64,
+    pub status: String,
+    pub individual_id: Option<Vec<u8>>,
+}
+
 /// Aggregated species summary for a date range.
 pub struct SpeciesSummaryRow {
     pub scientific_name: Option<String>,

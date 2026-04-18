@@ -52,6 +52,12 @@ pub struct InitialConfig {
     pub perch_labels_path: Option<String>,
     pub store_path: String,
     pub api_bind: String,
+    /// Minimum cluster size for candidate enrollment suggestions.
+    #[serde(skip_serializing)]
+    pub min_cluster_size: i64,
+    /// Minimum distinct days for candidate enrollment suggestions.
+    #[serde(skip_serializing)]
+    pub min_distinct_days: i64,
 }
 
 /// Full response for GET /api/v1/settings.
