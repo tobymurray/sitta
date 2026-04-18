@@ -188,6 +188,7 @@ async fn list_detections(
             },
             confidence: r.confidence as f32,
             has_embedding: r.has_embedding,
+            has_audio: r.snippet_path.is_some(),
         })
     }).collect();
 
@@ -926,6 +927,8 @@ struct DetectionSummary {
     species: SpeciesInfo,
     confidence: f32,
     has_embedding: bool,
+    /// Whether this detection has a saved audio clip.
+    has_audio: bool,
 }
 
 #[derive(Serialize)]
