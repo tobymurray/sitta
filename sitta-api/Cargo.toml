@@ -14,4 +14,7 @@ chrono = { workspace = true }
 tokio-util = { workspace = true }
 futures-core = "0.3"
 uuid = { workspace = true }
+arc-swap = { workspace = true }
+toml_edit = { workspace = true }
+toml = { workspace = true }
 sitta-store = { path = "../sitta-store" }

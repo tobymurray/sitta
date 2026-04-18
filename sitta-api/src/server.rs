@@ -2,8 +2,11 @@
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
+use arc_swap::ArcSwap;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -17,6 +20,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::dashboard;
 use crate::event::{Alternative, DetectionEvent, SpeciesInfo};
+use crate::settings::{
+    self, InitialConfig, RuntimeSettings, SettingsResponse, SettingsUpdate,
+    RESTART_REQUIRED_FIELDS,
+};
 use sitta_store::db::Database;
 use sitta_store::models::uuid_from_blob;
 
@@ -26,7 +33,14 @@ pub struct ApiState {
     pub db: Database,
     /// Clone of the broadcast sender — call `.subscribe()` per SSE client.
     pub detection_tx: broadcast::Sender<DetectionEvent>,
-    pub station_name: String,
+    /// Lock-free runtime settings.
+    pub settings: Arc<ArcSwap<RuntimeSettings>>,
+    /// Notify consumers when settings change so they can rebuild classifiers.
+    pub settings_notify: Arc<tokio::sync::watch::Sender<()>>,
+    /// Path to config.toml for persisting changes.
+    pub config_path: PathBuf,
+    /// Read-only snapshot of restart-required values.
+    pub initial_config: Arc<InitialConfig>,
 }
 
 /// Build the axum router with all routes.
@@ -38,10 +52,12 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/v1/detections/{id}", get(get_detection))
         .route("/api/v1/species", get(list_species))
         .route("/api/v1/status", get(status_handler))
+        .route("/api/v1/settings", get(get_settings).put(update_settings))
         // Dashboard pages
         .route("/", get(dashboard_page))
         .route("/species", get(species_page))
         .route("/status", get(status_page))
+        .route("/settings", get(settings_page))
         .with_state(state)
 }
 
@@ -240,11 +256,84 @@ async fn list_species(
 
 async fn status_handler(State(state): State<ApiState>) -> Json<StatusResponse> {
     let detection_count = state.db.detection_count().await.unwrap_or(-1);
+    let s = state.settings.load();
     Json(StatusResponse {
-        station_name: state.station_name.clone(),
+        station_name: s.station_name.clone(),
         status: "running",
         detection_count,
     })
+}
+
+// ── REST: settings ──────────────────────────────────────────────
+
+async fn get_settings(State(state): State<ApiState>) -> Json<SettingsResponse> {
+    let runtime = (**state.settings.load()).clone();
+    Json(SettingsResponse {
+        runtime,
+        initial: (*state.initial_config).clone(),
+        restart_required: RESTART_REQUIRED_FIELDS.to_vec(),
+    })
+}
+
+async fn update_settings(
+    State(state): State<ApiState>,
+    Json(update): Json<SettingsUpdate>,
+) -> Result<Json<UpdateResponse>, (StatusCode, String)> {
+    let current = state.settings.load();
+    let (merged, changed) = settings::apply_update(&current, &update);
+
+    if changed.is_empty() {
+        return Ok(Json(UpdateResponse {
+            updated: vec![],
+            rebuild_triggered: false,
+            persist_error: None,
+        }));
+    }
+
+    // Persist to disk first (best-effort).
+    let persist_error = settings::persist_to_toml(&state.config_path, &merged).err();
+    if let Some(ref e) = persist_error {
+        tracing::warn!(error = %e, "Settings applied in memory but failed to persist to disk");
+    }
+
+    // Check if inference rebuild is needed.
+    let rebuild = changed.iter().any(|f| {
+        matches!(
+            *f,
+            "birdnet_min_confidence"
+                | "birdnet_top_k"
+                | "birdnet_meta_threshold"
+                | "birdnet_force_allow"
+                | "perch_min_confidence"
+                | "perch_top_k"
+                | "station_latitude"
+                | "station_longitude"
+        )
+    });
+
+    // Swap settings atomically.
+    state.settings.store(Arc::new(merged));
+
+    // Notify consumers.
+    if rebuild {
+        let _ = state.settings_notify.send(());
+    }
+
+    tracing::info!(?changed, rebuild, "Settings updated");
+
+    Ok(Json(UpdateResponse {
+        updated: changed.iter().map(|s| s.to_string()).collect(),
+        rebuild_triggered: rebuild,
+        persist_error,
+    }))
+}
+
+#[derive(Serialize)]
+struct UpdateResponse {
+    updated: Vec<String>,
+    rebuild_triggered: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    persist_error: Option<String>,
 }
 
 // ── Response types ──────────────────────────────────────────────
@@ -308,7 +397,8 @@ fn millis_to_rfc3339(ms: i64) -> Option<String> {
 async fn dashboard_page(
     State(state): State<ApiState>,
 ) -> axum::response::Html<String> {
-    let content = dashboard::dashboard_content(&state.station_name);
+    let s = state.settings.load();
+    let content = dashboard::dashboard_content(&s.station_name);
     dashboard::page("Dashboard", "dashboard", &content)
 }
 
@@ -322,6 +412,15 @@ async fn species_page(
 async fn status_page(
     State(state): State<ApiState>,
 ) -> axum::response::Html<String> {
-    let content = dashboard::status_content(&state.station_name);
+    let s = state.settings.load();
+    let content = dashboard::status_content(&s.station_name);
     dashboard::page("Status", "status", &content)
+}
+
+async fn settings_page(
+    State(state): State<ApiState>,
+) -> axum::response::Html<String> {
+    let s = state.settings.load();
+    let content = dashboard::settings_content(&s, &state.initial_config);
+    dashboard::page("Settings", "settings", &content)
 }

@@ -13,8 +13,10 @@ use sitta_audio::source::SourceConfig;
 use sitta_inference::birdnet::BirdNet;
 use sitta_inference::model::{Classification, Classifier};
 use sitta_inference::rangefilter::RangeFilter;
+use arc_swap::ArcSwap;
 use sitta_api::event::{Alternative, DetectionEvent, SpeciesInfo};
 use sitta_api::server::{self, ApiState};
+use sitta_api::settings::{InitialConfig, RuntimeSettings};
 use sitta_store::db::Database;
 use sitta_store::models::{
     NewAudioSource, NewDetection, NewLabel, NewModel, NewPrediction, NewStation,
@@ -113,6 +115,31 @@ async fn main() -> Result<()> {
     // ── API server ───────────────────────────────────────────────
     let shutdown = CancellationToken::new();
 
+    let runtime_settings = RuntimeSettings {
+        station_name: config.station.name.clone(),
+        station_latitude: config.station.latitude.map(f64::from),
+        station_longitude: config.station.longitude.map(f64::from),
+        birdnet_min_confidence: config.inference.birdnet.as_ref().map(|b| b.min_confidence),
+        birdnet_top_k: config.inference.birdnet.as_ref().map(|b| b.top_k),
+        birdnet_meta_threshold: config.inference.birdnet.as_ref().map(|b| b.meta_threshold),
+        birdnet_force_allow: config.inference.birdnet.as_ref().map(|b| b.force_allow.clone()),
+        perch_min_confidence: config.inference.perch.as_ref().map(|p| p.min_confidence),
+        perch_top_k: config.inference.perch.as_ref().map(|p| p.top_k),
+    };
+    let settings = Arc::new(ArcSwap::from_pointee(runtime_settings));
+    let (settings_notify_tx, _settings_notify_rx) = tokio::sync::watch::channel(());
+
+    let initial_config = Arc::new(InitialConfig {
+        station_id: config.station.id.clone(),
+        birdnet_model_path: config.inference.birdnet.as_ref().map(|b| b.model_path.clone()),
+        birdnet_labels_path: config.inference.birdnet.as_ref().map(|b| b.labels_path.clone()),
+        birdnet_meta_model_path: config.inference.birdnet.as_ref().and_then(|b| b.meta_model_path.clone()),
+        perch_model_path: config.inference.perch.as_ref().map(|p| p.model_path.clone()),
+        perch_labels_path: config.inference.perch.as_ref().map(|p| p.labels_path.clone()),
+        store_path: config.store.path.clone(),
+        api_bind: config.api.bind.clone(),
+    });
+
     let api_addr: std::net::SocketAddr = config
         .api
         .bind
@@ -121,7 +148,10 @@ async fn main() -> Result<()> {
     let api_state = ApiState {
         db: db.clone(),
         detection_tx: persist_ctx.detection_tx.clone(),
-        station_name: config.station.name.clone(),
+        settings: settings.clone(),
+        settings_notify: Arc::new(settings_notify_tx),
+        config_path: std::path::PathBuf::from(&config_path),
+        initial_config,
     };
     tokio::spawn(server::serve(api_addr, api_state, shutdown.clone()));
 

@@ -22,3 +22,4 @@ sitta-store = { path = "../sitta-store" }
 sitta-api = { path = "../sitta-api" }
 rubato = { workspace = true }
 uuid = { workspace = true }
+arc-swap = { workspace = true }

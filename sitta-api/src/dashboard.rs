@@ -6,6 +6,8 @@
 
 use axum::response::Html;
 
+use crate::settings::{InitialConfig, RuntimeSettings};
+
 /// Render a full HTML page with the shared shell.
 pub fn page(title: &str, active: &str, content: &str) -> Html<String> {
     Html(format!(
@@ -51,6 +53,7 @@ tailwind.config = {{
       {nav_dashboard}
       {nav_species}
       {nav_status}
+      {nav_settings}
     </div>
     <div class="px-5 py-4 border-t border-gray-200 dark:border-slate-800 text-xs text-gray-400 dark:text-slate-600">
       Sitta v0.1.0
@@ -70,6 +73,7 @@ tailwind.config = {{
         <a href="/" class="px-2.5 py-1.5 text-sm rounded-md {mob_dashboard}">Live</a>
         <a href="/species" class="px-2.5 py-1.5 text-sm rounded-md {mob_species}">Species</a>
         <a href="/status" class="px-2.5 py-1.5 text-sm rounded-md {mob_status}">Status</a>
+        <a href="/settings" class="px-2.5 py-1.5 text-sm rounded-md {mob_settings}">Settings</a>
       </nav>
     </header>
 
@@ -91,9 +95,12 @@ tailwind.config = {{
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z"/>"#),
         nav_status = nav_item("Status", "/status", "status", active,
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M9.348 14.651a3.75 3.75 0 010-5.303m5.304 0a3.75 3.75 0 010 5.303m-7.425 2.122a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.788m13.788 0c3.808 3.808 3.808 9.98 0 13.788M12 12h.008v.008H12V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/>"#),
+        nav_settings = nav_item("Settings", "/settings", "settings", active,
+            r#"<path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>"#),
         mob_dashboard = if active == "dashboard" { "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium" } else { "text-gray-600 dark:text-slate-400" },
         mob_species = if active == "species" { "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium" } else { "text-gray-600 dark:text-slate-400" },
         mob_status = if active == "status" { "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium" } else { "text-gray-600 dark:text-slate-400" },
+        mob_settings = if active == "settings" { "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium" } else { "text-gray-600 dark:text-slate-400" },
     ))
 }
 
@@ -375,5 +382,192 @@ fetch('/api/v1/status')
   }});
 </script>"##,
         station_name = station_name,
+    )
+}
+
+pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> String {
+    let birdnet_conf = settings.birdnet_min_confidence.unwrap_or(0.25);
+    let birdnet_topk = settings.birdnet_top_k.unwrap_or(10);
+    let birdnet_meta = settings.birdnet_meta_threshold.unwrap_or(0.01);
+    let birdnet_allow = settings.birdnet_force_allow.as_deref().unwrap_or(&[]).join(", ");
+    let perch_conf = settings.perch_min_confidence.unwrap_or(0.25);
+    let perch_topk = settings.perch_top_k.unwrap_or(10);
+    let lat = settings.station_latitude.map(|v| v.to_string()).unwrap_or_default();
+    let lon = settings.station_longitude.map(|v| v.to_string()).unwrap_or_default();
+
+    let has_birdnet = initial.birdnet_model_path.is_some();
+    let has_perch = initial.perch_model_path.is_some();
+
+    format!(
+        r##"<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Settings</h1>
+  <p class="text-sm text-gray-500 dark:text-slate-400 mt-0.5">Runtime-changeable configuration</p>
+</div>
+
+<div id="toast" class="fixed top-4 right-4 z-50 hidden"></div>
+
+<form id="settings-form" class="space-y-6" onsubmit="return false;">
+
+  <!-- Station -->
+  <div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
+    <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100 uppercase tracking-wider mb-4">Station</h3>
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Name</label>
+        <input name="station_name" type="text" value="{station_name}"
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+      </div>
+      <div class="hidden sm:block"></div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Latitude</label>
+        <input name="station_latitude" type="number" step="any" value="{lat}" placeholder="e.g. 44.5868"
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Longitude</label>
+        <input name="station_longitude" type="number" step="any" value="{lon}" placeholder="e.g. -76.0283"
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+      </div>
+    </div>
+    <p class="mt-2 text-xs text-gray-400 dark:text-slate-500">Station ID <code class="bg-gray-100 dark:bg-slate-800 px-1 rounded">{station_id}</code> requires restart to change.</p>
+  </div>
+
+  {birdnet_section}
+
+  {perch_section}
+
+  <!-- Actions -->
+  <div class="flex items-center gap-3">
+    <button type="submit" id="save-btn"
+      class="inline-flex items-center px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 transition-colors">
+      Save Changes
+    </button>
+    <span id="save-status" class="text-sm text-gray-400 dark:text-slate-500"></span>
+  </div>
+</form>
+
+<script>
+(function() {{
+  const form = document.getElementById('settings-form');
+  const btn = document.getElementById('save-btn');
+  const status = document.getElementById('save-status');
+  const toast = document.getElementById('toast');
+
+  function showToast(msg, ok) {{
+    toast.className = 'fixed top-4 right-4 z-50 px-4 py-2.5 rounded-lg text-sm font-medium shadow-lg transition-opacity ' +
+      (ok ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white');
+    toast.textContent = msg;
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 3000);
+  }}
+
+  form.addEventListener('submit', async () => {{
+    btn.disabled = true;
+    status.textContent = 'Saving...';
+
+    const body = {{}};
+    const fd = new FormData(form);
+    for (const [k, v] of fd.entries()) {{
+      if (v === '') continue;
+      if (k === 'station_latitude' || k === 'station_longitude' ||
+          k === 'birdnet_min_confidence' || k === 'birdnet_meta_threshold' ||
+          k === 'perch_min_confidence') {{
+        body[k] = parseFloat(v);
+      }} else if (k === 'birdnet_top_k' || k === 'perch_top_k') {{
+        body[k] = parseInt(v, 10);
+      }} else if (k === 'birdnet_force_allow') {{
+        body[k] = v.split(',').map(s => s.trim()).filter(s => s);
+      }} else {{
+        body[k] = v;
+      }}
+    }}
+
+    try {{
+      const res = await fetch('/api/v1/settings', {{
+        method: 'PUT',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify(body),
+      }});
+      const data = await res.json();
+      if (res.ok) {{
+        const n = data.updated.length;
+        if (n === 0) {{
+          showToast('No changes detected', true);
+        }} else {{
+          showToast(n + ' setting' + (n > 1 ? 's' : '') + ' updated' + (data.rebuild_triggered ? ' (rebuilding models...)' : ''), true);
+        }}
+        if (data.persist_error) {{
+          status.textContent = 'Warning: ' + data.persist_error;
+          status.className = 'text-sm text-amber-500';
+        }} else {{
+          status.textContent = '';
+        }}
+      }} else {{
+        showToast('Failed to save: ' + (data.persist_error || res.statusText), false);
+      }}
+    }} catch (e) {{
+      showToast('Network error: ' + e.message, false);
+    }} finally {{
+      btn.disabled = false;
+    }}
+  }});
+}})();
+</script>"##,
+        station_name = settings.station_name,
+        lat = lat,
+        lon = lon,
+        station_id = initial.station_id,
+        birdnet_section = if has_birdnet {{ format!(
+            r#"<div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
+    <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100 uppercase tracking-wider mb-4">BirdNET</h3>
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Min Confidence</label>
+        <input name="birdnet_min_confidence" type="number" step="0.01" min="0" max="1" value="{birdnet_conf}"
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Top K</label>
+        <input name="birdnet_top_k" type="number" min="1" max="100" value="{birdnet_topk}"
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Meta Threshold</label>
+        <input name="birdnet_meta_threshold" type="number" step="0.001" min="0" max="1" value="{birdnet_meta}"
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Force Allow (eBird codes)</label>
+        <input name="birdnet_force_allow" type="text" value="{birdnet_allow}" placeholder="e.g. helgui1, redjun1"
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+      </div>
+    </div>
+    <p class="mt-2 text-xs text-gray-400 dark:text-slate-500">Model and labels paths require restart to change.</p>
+  </div>"#,
+            birdnet_conf = birdnet_conf,
+            birdnet_topk = birdnet_topk,
+            birdnet_meta = birdnet_meta,
+            birdnet_allow = birdnet_allow,
+        )}} else { String::new() },
+        perch_section = if has_perch {{ format!(
+            r#"<div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
+    <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100 uppercase tracking-wider mb-4">Perch</h3>
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Min Confidence</label>
+        <input name="perch_min_confidence" type="number" step="0.01" min="0" max="1" value="{perch_conf}"
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Top K</label>
+        <input name="perch_top_k" type="number" min="1" max="100" value="{perch_topk}"
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+      </div>
+    </div>
+    <p class="mt-2 text-xs text-gray-400 dark:text-slate-500">Model and labels paths require restart to change.</p>
+  </div>"#,
+            perch_conf = perch_conf,
+            perch_topk = perch_topk,
+        )}} else { String::new() },
     )
 }
