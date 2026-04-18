@@ -124,6 +124,14 @@ pub struct IndividualRow {
     pub notes: Option<String>,
 }
 
+/// A detection review row.
+pub struct ReviewRow {
+    pub detection_id: Vec<u8>,
+    pub status: String,
+    pub reviewed_at: i64,
+    pub comment: Option<String>,
+}
+
 /// Aggregated species summary for a date range.
 pub struct SpeciesSummaryRow {
     pub scientific_name: Option<String>,

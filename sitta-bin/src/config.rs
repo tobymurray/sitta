@@ -11,6 +11,8 @@ pub struct Config {
     #[serde(default)]
     pub api: ApiConfig,
     #[serde(default)]
+    pub snippets: SnippetConfig,
+    #[serde(default)]
     pub inference: InferenceConfig,
     #[serde(default)]
     pub taxonomy: Option<TaxonomyConfig>,
@@ -73,6 +75,12 @@ pub struct BirdNetConfig {
     /// Example: ["helgui1"] for Helmeted Guineafowl (Domestic type), ["redjun1"] for Domestic Chicken.
     #[serde(default)]
     pub force_allow: Vec<String>,
+    /// Stride in seconds for inference windows. Controls overlap.
+    /// stride = chunk_seconds means no overlap. stride < chunk_seconds means
+    /// overlapping windows (e.g. 1.0 with 3s chunks = 2s overlap).
+    /// Default: 1.0 (2s overlap, matching BirdNET-Go behaviour).
+    #[serde(default = "default_birdnet_stride")]
+    pub stride_seconds: f32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,6 +120,34 @@ impl Default for StoreConfig {
     fn default() -> Self {
         Self {
             path: default_store_path(),
+        }
+    }
+}
+
+/// Audio snippet saving configuration.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SnippetConfig {
+    /// Whether to save audio clips of detections. Default: true.
+    #[serde(default = "default_snippet_enabled")]
+    pub enabled: bool,
+    /// Base directory for clip storage. Default: "./clips".
+    #[serde(default = "default_snippet_dir")]
+    pub clip_dir: String,
+    /// Maximum retention age in days. 0 = unlimited. Default: 30.
+    #[serde(default = "default_retention_days")]
+    pub retention_days: u32,
+    /// Maximum total disk usage in MB. 0 = unlimited. Default: 2048.
+    #[serde(default = "default_max_disk_mb")]
+    pub max_disk_mb: u64,
+}
+
+impl Default for SnippetConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_snippet_enabled(),
+            clip_dir: default_snippet_dir(),
+            retention_days: default_retention_days(),
+            max_disk_mb: default_max_disk_mb(),
         }
     }
 }
@@ -162,4 +198,19 @@ fn default_display_min_confidence() -> f32 {
 }
 fn default_individual_threshold() -> f32 {
     0.85
+}
+fn default_snippet_enabled() -> bool {
+    true
+}
+fn default_snippet_dir() -> String {
+    "./clips".into()
+}
+fn default_retention_days() -> u32 {
+    30
+}
+fn default_max_disk_mb() -> u64 {
+    2048
+}
+fn default_birdnet_stride() -> f32 {
+    1.0
 }

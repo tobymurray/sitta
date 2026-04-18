@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT detection_id, status, reviewed_at, comment\n               FROM detection_reviews WHERE detection_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "detection_id",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "status",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "reviewed_at",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "comment",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "c30a5b2162cfee171dccea52337bad35ba9b8306a60a3b64067eb4106fee4ac7"
+}

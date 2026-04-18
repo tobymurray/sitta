@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::models::{
     uuid_bytes, DetectionRow, IndividualRow, NewAudioSource, NewDetection, NewIndividual, NewLabel,
-    NewModel, NewPrediction, NewStation, PredictionRow, SpeciesSummaryRow,
+    NewModel, NewPrediction, NewStation, PredictionRow, ReviewRow, SpeciesSummaryRow,
 };
 
 /// Connection to the Sitta SQLite database.
@@ -545,6 +545,163 @@ impl Database {
         .await?;
         Ok(row.map(|r| r.embedding))
     }
+
+    // ── Snippet update ──────────────────────────────────────────
+
+    /// Update the snippet path for a detection after async clip saving.
+    pub async fn update_snippet_path(
+        &self,
+        detection_id: &[u8],
+        path: &str,
+        duration_ms: i64,
+        sample_rate: i64,
+    ) -> Result<(), crate::StoreError> {
+        sqlx::query!(
+            "UPDATE detections SET snippet_path = $1, snippet_duration_ms = $2, snippet_sample_rate = $3 WHERE id = $4",
+            path,
+            duration_ms,
+            sample_rate,
+            detection_id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Clear the snippet path for a detection (after retention cleanup).
+    pub async fn clear_snippet_path(
+        &self,
+        detection_id: &[u8],
+    ) -> Result<(), crate::StoreError> {
+        sqlx::query!(
+            "UPDATE detections SET snippet_path = NULL, snippet_duration_ms = NULL, snippet_sample_rate = NULL WHERE id = $1",
+            detection_id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Fetch detections with non-NULL snippet_path ordered by detected_at ASC.
+    /// Used by the retention worker.
+    pub async fn detections_with_snippets(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<DetectionRow>, crate::StoreError> {
+        let rows = sqlx::query!(
+            r#"SELECT d.id, d.detected_at, d.confidence AS "confidence!: f64",
+                      d.snippet_path, d.metadata,
+                      l.scientific_name, l.common_name AS "common_name!",
+                      l.taxon_code,
+                      m.name AS "model_name!", m.version AS "model_version!",
+                      s.name AS "source_name?",
+                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS "has_embedding!: bool"
+               FROM detections d
+               JOIN labels l ON l.id = d.label_id
+               JOIN models m ON m.id = d.model_id
+               LEFT JOIN audio_sources s ON s.id = d.source_id
+               WHERE d.snippet_path IS NOT NULL
+               ORDER BY d.detected_at ASC
+               LIMIT $1"#,
+            limit,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| DetectionRow {
+                id: r.id,
+                detected_at: r.detected_at,
+                confidence: r.confidence,
+                snippet_path: r.snippet_path,
+                metadata: r.metadata,
+                scientific_name: r.scientific_name,
+                common_name: r.common_name,
+                taxon_code: r.taxon_code,
+                model_name: r.model_name,
+                model_version: r.model_version,
+                source_name: r.source_name,
+                has_embedding: r.has_embedding,
+            })
+            .collect())
+    }
+
+    // ── Detection reviews ──────────────────────────────────────
+
+    /// Insert or replace a review for a detection.
+    pub async fn upsert_review(
+        &self,
+        detection_id: &[u8],
+        status: &str,
+        reviewed_at: i64,
+        comment: Option<&str>,
+    ) -> Result<(), crate::StoreError> {
+        sqlx::query!(
+            "INSERT INTO detection_reviews (detection_id, status, reviewed_at, comment)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT(detection_id) DO UPDATE SET status = $2, reviewed_at = $3, comment = $4",
+            detection_id,
+            status,
+            reviewed_at,
+            comment,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Fetch the review for a detection.
+    pub async fn get_review(
+        &self,
+        detection_id: &[u8],
+    ) -> Result<Option<ReviewRow>, crate::StoreError> {
+        let row = sqlx::query!(
+            r#"SELECT detection_id, status, reviewed_at, comment
+               FROM detection_reviews WHERE detection_id = $1"#,
+            detection_id,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| ReviewRow {
+            detection_id: r.detection_id,
+            status: r.status,
+            reviewed_at: r.reviewed_at,
+            comment: r.comment,
+        }))
+    }
+
+    /// Delete a review (un-review a detection).
+    pub async fn delete_review(
+        &self,
+        detection_id: &[u8],
+    ) -> Result<bool, crate::StoreError> {
+        let result = sqlx::query!(
+            "DELETE FROM detection_reviews WHERE detection_id = $1",
+            detection_id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Check whether a detection is reviewed as "correct" (used by retention).
+    pub async fn is_review_correct(
+        &self,
+        detection_id: &[u8],
+    ) -> Result<bool, crate::StoreError> {
+        let row = sqlx::query!(
+            r#"SELECT COUNT(*) AS "count!" FROM detection_reviews
+               WHERE detection_id = $1 AND status = 'correct'"#,
+            detection_id,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.count > 0)
+    }
+
+    // ── Individual queries ──────────────────────────────────────
 
     /// Insert an individual match record.
     pub async fn insert_individual_match(

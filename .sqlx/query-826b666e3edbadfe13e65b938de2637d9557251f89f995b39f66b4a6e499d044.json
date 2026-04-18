@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM detection_reviews WHERE detection_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "826b666e3edbadfe13e65b938de2637d9557251f89f995b39f66b4a6e499d044"
+}

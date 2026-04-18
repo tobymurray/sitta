@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO detection_reviews (detection_id, status, reviewed_at, comment)\n             VALUES ($1, $2, $3, $4)\n             ON CONFLICT(detection_id) DO UPDATE SET status = $2, reviewed_at = $3, comment = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "7f279638851ccdfb8b00555c8d694aff4f36d4b963cdefd48744cbda0411b46e"
+}
