@@ -114,11 +114,13 @@ pub struct PerchConfig {
     /// Per-species overrides for min_cluster_size.
     /// Keys are scientific names (e.g., "Turdus migratorius").
     #[serde(default)]
+    #[allow(dead_code)] // Deserialized from config; per-species filtering planned.
     pub species_overrides: std::collections::HashMap<String, SpeciesOverride>,
 }
 
 /// Per-species overrides for clustering thresholds.
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // Deserialized from config; will be used when per-species API filtering is added.
 pub struct SpeciesOverride {
     /// Override min_cluster_size for this species.
     pub min_cluster_size: Option<u32>,

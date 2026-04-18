@@ -7,8 +7,8 @@ use uuid::Uuid;
 
 use crate::models::{
     uuid_bytes, CandidateRow, ClusterRow, DetectionRow, HourlyActivityRow, IndividualRow,
-    NewAudioSource, NewDetection, NewIndividual, NewLabel, NewModel, NewPrediction, NewStation,
-    PredictionRow, ReviewRow, SpeciesSummaryRow,
+    NewAudioSource, NewCluster, NewDetection, NewIndividual, NewLabel, NewModel, NewPrediction,
+    NewStation, PredictionRow, ReviewRow, SpeciesSummaryRow,
 };
 
 /// Connection to the Sitta SQLite database.
@@ -863,26 +863,17 @@ impl Database {
     }
 
     /// Create a new cluster and return its auto-generated ID.
-    pub async fn insert_cluster(
-        &self,
-        scientific_name: &str,
-        centroid: &[u8],
-        centroid_dim: i64,
-        member_count: i64,
-        distinct_days: i64,
-        first_seen_at: i64,
-        last_seen_at: i64,
-    ) -> Result<i64, crate::StoreError> {
+    pub async fn insert_cluster(&self, c: &NewCluster<'_>) -> Result<i64, crate::StoreError> {
         let result = sqlx::query!(
             "INSERT INTO candidate_clusters (scientific_name, centroid, centroid_dim, member_count, distinct_days, first_seen_at, last_seen_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7)",
-            scientific_name,
-            centroid,
-            centroid_dim,
-            member_count,
-            distinct_days,
-            first_seen_at,
-            last_seen_at,
+            c.scientific_name,
+            c.centroid,
+            c.centroid_dim,
+            c.member_count,
+            c.distinct_days,
+            c.first_seen_at,
+            c.last_seen_at,
         )
         .execute(&self.pool)
         .await?;

@@ -141,6 +141,17 @@ pub struct HourlyActivityRow {
     pub count: i64,
 }
 
+/// Parameters for creating a new candidate cluster.
+pub struct NewCluster<'a> {
+    pub scientific_name: &'a str,
+    pub centroid: &'a [u8],
+    pub centroid_dim: i64,
+    pub member_count: i64,
+    pub distinct_days: i64,
+    pub first_seen_at: i64,
+    pub last_seen_at: i64,
+}
+
 /// A candidate embedding awaiting clustering.
 pub struct CandidateRow {
     pub detection_id: Vec<u8>,

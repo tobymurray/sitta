@@ -149,15 +149,15 @@ pub async fn cluster_species(
         } else if !cluster.new_members.is_empty() {
             // Create new cluster.
             let cid = db
-                .insert_cluster(
+                .insert_cluster(&crate::models::NewCluster {
                     scientific_name,
-                    centroid_bytes,
-                    dim,
-                    total,
+                    centroid: centroid_bytes,
+                    centroid_dim: dim,
+                    member_count: total,
                     distinct_days,
-                    cluster.first_seen,
-                    cluster.last_seen,
-                )
+                    first_seen_at: cluster.first_seen,
+                    last_seen_at: cluster.last_seen,
+                })
                 .await?;
             // Assign members.
             for (det_id, _) in &cluster.new_members {
