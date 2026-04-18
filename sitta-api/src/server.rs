@@ -170,6 +170,7 @@ async fn list_detections(
                 taxon_code: r.taxon_code,
             },
             confidence: r.confidence as f32,
+            has_embedding: r.has_embedding,
         })
     }).collect();
 
@@ -524,6 +525,7 @@ struct DetectionSummary {
     model_version: String,
     species: SpeciesInfo,
     confidence: f32,
+    has_embedding: bool,
 }
 
 #[derive(Serialize)]

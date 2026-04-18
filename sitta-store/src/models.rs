@@ -102,6 +102,7 @@ pub struct DetectionRow {
     pub model_name: String,
     pub model_version: String,
     pub source_name: Option<String>,
+    pub has_embedding: bool,
 }
 
 /// A secondary prediction row with label info.

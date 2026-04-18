@@ -8,7 +8,7 @@ use sitta_audio::chunk::AudioChunk;
 use sitta_inference::model::Classification;
 use sitta_store::db::Database;
 use sitta_store::matcher::IndividualMatcher;
-use sitta_store::models::{NewDetection, NewPrediction};
+use sitta_store::models::{NewDetection, NewIndividual, NewPrediction};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
@@ -103,33 +103,32 @@ pub async fn persist_detections(
         tracing::error!(error = %e, "Failed to persist embedding");
     }
 
-    // Individual matching.
+    // Individual matching / auto-clustering.
     let individual_match = if let Some(emb) = embeddings
         && let Some(matcher) = &ctx.matcher
     {
-        matcher.find_match(&top.species.scientific_name, emb)
+        match matcher.find_match(&top.species.scientific_name, emb) {
+            Some(m) => {
+                // Known individual — record the match.
+                let match_id = Uuid::now_v7();
+                let now_ms = chunk.captured_at.timestamp_millis();
+                if let Err(e) = ctx
+                    .db
+                    .insert_individual_match(&match_id, &m.individual_id, &detection_id, f64::from(m.similarity), now_ms)
+                    .await
+                {
+                    tracing::error!(error = %e, "Failed to persist individual match");
+                }
+                Some(m)
+            }
+            None => {
+                // New individual — auto-enroll from this detection's embedding.
+                auto_enroll(ctx, &top.species, emb, &detection_id, chunk).await
+            }
+        }
     } else {
         None
     };
-
-    if let Some(ref m) = individual_match {
-        let match_id = Uuid::now_v7();
-        let now_ms = chunk.captured_at.timestamp_millis();
-        if let Err(e) = ctx
-            .db
-            .insert_individual_match(&match_id, &m.individual_id, &detection_id, f64::from(m.similarity), now_ms)
-            .await
-        {
-            tracing::error!(error = %e, "Failed to persist individual match");
-        } else {
-            tracing::info!(
-                individual = %m.individual_label,
-                similarity = format_args!("{:.3}", m.similarity),
-                species = %top.species.common_name,
-                "Individual matched"
-            );
-        }
-    }
 
     // Broadcast to live subscribers (SSE, MQTT).
     let (model_name, model_version) = parse_model_name(classifier_name);
@@ -173,3 +172,65 @@ pub async fn persist_detections(
         let _ = ctx.detection_tx.send(event);
     }
 }
+
+/// Auto-enroll a new individual when no match is found.
+/// Creates an individual with an auto-generated label and reloads the matcher.
+async fn auto_enroll(
+    ctx: &PersistCtx,
+    species: &sitta_inference::model::Species,
+    embedding: &[f32],
+    detection_id: &Uuid,
+    chunk: &AudioChunk,
+) -> Option<sitta_store::matcher::MatchResult> {
+    let matcher = ctx.matcher.as_ref()?;
+
+    // Count existing individuals for this species to generate a label.
+    let existing = matcher.count_for_species(&species.scientific_name);
+    let label = format!("{} #{}", species.common_name, existing + 1);
+
+    let individual_id = Uuid::now_v7();
+    let now_ms = chunk.captured_at.timestamp_millis();
+    let emb_bytes: &[u8] = bytemuck::cast_slice(embedding);
+
+    if let Err(e) = ctx
+        .db
+        .insert_individual(&NewIndividual {
+            id: &individual_id,
+            scientific_name: &species.scientific_name,
+            label: &label,
+            reference_embedding: Some(emb_bytes),
+            reference_embedding_dim: Some(embedding.len() as i64),
+            enrolled_at: now_ms,
+            notes: Some("auto-enrolled"),
+        })
+        .await
+    {
+        tracing::error!(error = %e, "Failed to auto-enroll individual");
+        return None;
+    }
+
+    // Record the match (similarity 1.0 — the reference IS this embedding).
+    let match_id = Uuid::now_v7();
+    let _ = ctx
+        .db
+        .insert_individual_match(&match_id, &individual_id, detection_id, 1.0, now_ms)
+        .await;
+
+    // Reload matcher cache so subsequent detections can match against this individual.
+    if let Err(e) = matcher.reload().await {
+        tracing::warn!(error = %e, "Failed to reload matcher after auto-enrollment");
+    }
+
+    tracing::info!(
+        individual = %label,
+        species = %species.common_name,
+        "New individual auto-enrolled"
+    );
+
+    Some(sitta_store::matcher::MatchResult {
+        individual_id,
+        individual_label: label,
+        similarity: 1.0,
+    })
+}
+

@@ -265,7 +265,8 @@ impl Database {
                       l.scientific_name, l.common_name AS "common_name!",
                       l.taxon_code,
                       m.name AS "model_name!", m.version AS "model_version!",
-                      s.name AS "source_name?"
+                      s.name AS "source_name?",
+                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS "has_embedding!: bool"
                FROM detections d
                JOIN labels l ON l.id = d.label_id
                JOIN models m ON m.id = d.model_id
@@ -299,6 +300,7 @@ impl Database {
                 model_name: r.model_name,
                 model_version: r.model_version,
                 source_name: r.source_name,
+                has_embedding: r.has_embedding,
             })
             .collect())
     }
@@ -314,7 +316,8 @@ impl Database {
                       l.scientific_name, l.common_name AS "common_name!",
                       l.taxon_code,
                       m.name AS "model_name!", m.version AS "model_version!",
-                      s.name AS "source_name?"
+                      s.name AS "source_name?",
+                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS "has_embedding!: bool"
                FROM detections d
                JOIN labels l ON l.id = d.label_id
                JOIN models m ON m.id = d.model_id
@@ -337,6 +340,7 @@ impl Database {
             model_name: r.model_name,
             model_version: r.model_version,
             source_name: r.source_name,
+            has_embedding: r.has_embedding,
         }))
     }
 

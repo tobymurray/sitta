@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT d.id, d.detected_at, d.confidence AS \"confidence!: f64\",\n                      d.snippet_path, d.metadata,\n                      l.scientific_name, l.common_name AS \"common_name!\",\n                      l.taxon_code,\n                      m.name AS \"model_name!\", m.version AS \"model_version!\",\n                      s.name AS \"source_name?\"\n               FROM detections d\n               JOIN labels l ON l.id = d.label_id\n               JOIN models m ON m.id = d.model_id\n               LEFT JOIN audio_sources s ON s.id = d.source_id\n               WHERE d.id = $1",
+  "query": "SELECT d.id, d.detected_at, d.confidence AS \"confidence!: f64\",\n                      d.snippet_path, d.metadata,\n                      l.scientific_name, l.common_name AS \"common_name!\",\n                      l.taxon_code,\n                      m.name AS \"model_name!\", m.version AS \"model_version!\",\n                      s.name AS \"source_name?\",\n                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS \"has_embedding!: bool\"\n               FROM detections d\n               JOIN labels l ON l.id = d.label_id\n               JOIN models m ON m.id = d.model_id\n               LEFT JOIN audio_sources s ON s.id = d.source_id\n               WHERE d.id = $1",
   "describe": {
     "columns": [
       {
@@ -57,6 +57,11 @@
         "name": "source_name?",
         "ordinal": 10,
         "type_info": "Text"
+      },
+      {
+        "name": "has_embedding!: bool",
+        "ordinal": 11,
+        "type_info": "Null"
       }
     ],
     "parameters": {
@@ -73,8 +78,9 @@
       true,
       false,
       false,
-      false
+      false,
+      null
     ]
   },
-  "hash": "49b2902279f2e1435c17a7d544ef9c2dbaf7c074aa0bf4c3f0d36149884adb1f"
+  "hash": "4a2f2d69e72e5989b511653bc31113755683ceb4e2d4705f6e02a367e5d862cb"
 }

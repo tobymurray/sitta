@@ -74,6 +74,12 @@ impl IndividualMatcher {
         best
     }
 
+    /// Count enrolled individuals for a species (for auto-labeling).
+    pub fn count_for_species(&self, scientific_name: &str) -> usize {
+        let map = self.entries.load();
+        map.get(scientific_name).map_or(0, |v| v.len())
+    }
+
     /// Reload all reference embeddings from the database. Call after enrollment
     /// or embedding updates.
     pub async fn reload(&self) -> Result<(), StoreError> {
