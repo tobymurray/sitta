@@ -725,6 +725,15 @@ pub fn individuals_content() -> String {
   <div class="text-center py-12 text-gray-400 dark:text-plumage-500 text-sm">Loading...</div>
 </div>
 
+<!-- Danger zone -->
+<div id="danger-zone" class="hidden mt-8 pt-6 border-t border-gray-200 dark:border-plumage-800">
+  <p class="text-xs text-gray-400 dark:text-plumage-500 mb-2">Danger zone</p>
+  <button onclick="clearAllIndividuals()"
+    class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+    Clear all enrolled individuals
+  </button>
+</div>
+
 <!-- Enrollment modal for cluster -->
 <div id="enroll-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50">
   <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 shadow-xl w-full max-w-md mx-4 p-6">
@@ -812,6 +821,7 @@ pub fn individuals_content() -> String {
         groups[key].individuals.push(ind);
       });
 
+      document.getElementById('danger-zone').classList.remove('hidden');
       let html = '<h2 class="text-lg font-semibold mb-3">Enrolled Individuals</h2><div class="space-y-6">';
       Object.values(groups).forEach(g => {
         html += `<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 overflow-hidden">
@@ -900,6 +910,14 @@ function submitClusterEnroll() {
     status.innerHTML = '<span class="text-red-500">Error: ' + e + '</span>';
     document.getElementById('enroll-btn').disabled = false;
   });
+}
+
+function clearAllIndividuals() {
+  if (!confirm('Delete all enrolled individuals and their match history? This cannot be undone.')) return;
+  fetch('/api/v1/individuals', { method: 'DELETE' })
+    .then(r => r.json())
+    .then(d => { alert('Deleted ' + d.deleted + ' individual(s).'); location.reload(); })
+    .catch(e => alert('Failed: ' + e));
 }
 </script>"##
     .to_string()

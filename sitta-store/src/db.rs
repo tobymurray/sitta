@@ -493,6 +493,15 @@ impl Database {
         Ok(())
     }
 
+    /// Delete all individuals and their matches. Returns the number of individuals deleted.
+    pub async fn delete_all_individuals(&self) -> Result<u64, crate::StoreError> {
+        // Matches are CASCADE deleted via FK.
+        let result = sqlx::query!("DELETE FROM individuals")
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected())
+    }
+
     /// Fetch a single individual by ID.
     pub async fn get_individual(
         &self,

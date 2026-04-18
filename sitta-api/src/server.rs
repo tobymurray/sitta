@@ -77,7 +77,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/v1/activity/hourly", get(hourly_activity))
         .route("/api/v1/status", get(status_handler))
         .route("/api/v1/settings", get(get_settings).put(update_settings))
-        .route("/api/v1/individuals", get(list_individuals).post(enroll_individual))
+        .route("/api/v1/individuals", get(list_individuals).post(enroll_individual).delete(delete_all_individuals))
         .route("/api/v1/individuals/{id}", get(get_individual))
         .route("/api/v1/candidates", get(list_candidate_clusters))
         .route("/api/v1/candidates/{id}/enroll", axum::routing::post(enroll_cluster))
@@ -521,6 +521,25 @@ async fn get_individual(
         enrolled_at: millis_to_rfc3339(row.enrolled_at).unwrap_or_default(),
         notes: row.notes,
     }))
+}
+
+async fn delete_all_individuals(
+    State(state): State<ApiState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let deleted = state.db.delete_all_individuals().await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to delete all individuals");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    // Reload matcher to clear the in-memory cache.
+    if let Some(matcher) = &state.matcher
+        && let Err(e) = matcher.reload().await
+    {
+        tracing::warn!(error = %e, "Failed to reload matcher after bulk delete");
+    }
+
+    tracing::info!(deleted, "Deleted all individuals");
+    Ok(Json(serde_json::json!({ "deleted": deleted })))
 }
 
 async fn enroll_individual(
