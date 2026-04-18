@@ -527,3 +527,106 @@ correct upsert pattern for SQLite when foreign key relationships exist.
 **Lesson:** Never use `INSERT OR REPLACE` on tables that are referenced by
 foreign keys. It's a well-documented SQLite footgun — the DELETE step can
 cascade or orphan depending on FK enforcement state.
+
+---
+
+## 2026-04-17: Audio clip saving, spectrograms, and detection review
+
+### Decision: Save the analysis window, not a longer clip
+
+BirdNET-Go saves 15-second clips (3s pre-buffer + detection + post) from a 120-second
+ring buffer. After researching user feedback, the core use case is "hear what the model
+heard" for false-positive triage. Saving the exact analysis window (3s for BirdNET, 5s
+for Perch) is sufficient for this and avoids the memory overhead of a ring buffer on a
+2GB Pi. A ring buffer for longer clips can be added later.
+
+### Decision: Overlapping BirdNET windows with configurable stride
+
+BirdNET-Go uses 3s windows with 1s stride (2s overlap) to avoid missing detections at
+chunk boundaries. Sitta's BirdNET consumer was processing chunks 1:1 (no overlap).
+Refactored both consumers to use the same sliding-window pattern:
+
+| Consumer | Window | Stride | Overlap |
+|----------|--------|--------|---------|
+| BirdNET  | 3s (144k samples) | 1s (48k) | 2s |
+| Perch    | 5s (240k samples) | 3s (144k) | 2s |
+
+The BirdNET stride is configurable via `inference.birdnet.stride_seconds` (default 1.0).
+Setting stride = chunk_seconds (3.0) disables overlap for CPU-constrained boards.
+
+With 1s stride, BirdNET runs ~3x more inference per second. On a Pi 5, BirdNET inference
+takes ~200ms per window, so 3 windows per 3s chunk = 600ms / 3s = ~20% CPU. Acceptable.
+
+### Decision: Async snippet writer with bounded channel
+
+Audio saving must not block inference. The snippet writer uses a bounded `mpsc` channel
+(capacity 64) feeding a single background task. The task writes WAV files inside
+`spawn_blocking` (SD card I/O must not block the async runtime). If the channel is full
+(SD card saturated), jobs are dropped with a warning — never blocks.
+
+**Atomic writes:** WAV data goes to `{path}.wav.tmp`, then `fs::rename` on success.
+This prevents the API from serving partial files. The audio endpoint returns 503 +
+`Retry-After: 1` if a `.tmp` file exists.
+
+**File layout:** `clips/{YYYY-MM-DD}/{detection_id}.wav`. Using the detection UUID as
+the filename avoids special-character issues in species names and makes DB lookups O(1).
+
+### Decision: 16-bit PCM WAV, not f32
+
+The audio pipeline uses f32 samples internally, but WAV files are written as 16-bit PCM.
+This halves file size (3s @ 48kHz = ~282KB vs ~562KB) with negligible quality loss for
+the review use case. The WAV writer is a dependency-free 60-line module in sitta-audio.
+
+### Decision: Pure-Rust mel spectrograms (no sox dependency)
+
+BirdNET-Go shells out to `sox` for spectrogram generation with an `ffmpeg` fallback.
+Sitta uses `rustfft` + `image` crate instead — no external binary dependencies beyond
+ffmpeg (which is already needed for RTSP).
+
+Parameters: 512-point FFT, 256 hop (50% overlap), 80 mel bins (150 Hz – 15 kHz),
+viridis-style colormap. Output: 800x200 PNG. On a Pi 5, generation takes <50ms including
+PNG encoding.
+
+**On-demand with disk cache:** Spectrograms are generated when first requested via the
+API, then cached as `.png` alongside the `.wav` file. Aggressive `Cache-Control:
+immutable` headers prevent re-requests.
+
+### Decision: Detection review workflow
+
+The `detection_reviews` table already existed in the schema. Added:
+- `PUT /api/v1/detections/{id}/review` — mark as correct or false_positive
+- `GET /api/v1/detections/{id}/review` — fetch review status
+- `DELETE /api/v1/detections/{id}/review` — un-review
+
+Dashboard integration: checkmark and X buttons on every detection card, plus keyboard
+shortcuts (hover + c/f) for rapid bulk triage. This matches the quick-review workflow
+that BirdNET-Go users explicitly requested (GitHub issue #2712).
+
+Reviewed-as-correct clips are never deleted by the retention worker.
+
+### Decision: Age + size retention policy
+
+SD cards are small. Two retention strategies run hourly:
+- **Age-based:** delete clips older than `retention_days` (default 30)
+- **Size-based:** if total clip storage exceeds `max_disk_mb` (default 2GB), delete
+  oldest unreviewed clips until under the limit
+
+Both strategies skip clips reviewed as "correct" — they are effectively pinned.
+Spectrograms are deleted alongside their WAV files.
+
+### Insight: Perch consumer was passing the wrong audio to persist
+
+The Perch consumer accumulated chunks in a buffer, extracted 5s windows for inference,
+but passed the *last received 3s chunk* (not the 5s window) to `persist_detections()`.
+This meant snippet saving would have captured only 3s of a 5s analysis. Fixed by
+constructing a synthetic `AudioChunk` from the full 5s window (at 48kHz, before
+resampling) and passing that to persist instead.
+
+### Insight: BirdNET-Go audio clips are a core feature, not nice-to-have
+
+Research into BirdNET-Go's GitHub issues and community revealed that audio clip saving is
+the most important user-facing feature. When it broke in v0.6.3, multiple users filed
+bugs within hours and the maintainer shipped a P0 hotfix. Users do daily bulk false-positive
+triage by listening to clips — this is the primary workflow, not an optional extra.
+Spectrograms are a strong supporting feature (users develop visual pattern recognition),
+and the review workflow is what makes it actionable.

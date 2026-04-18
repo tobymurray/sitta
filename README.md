@@ -345,13 +345,17 @@ Runtime dependencies: `ffmpeg` must be installed on the host for RTSP capture.
 | `rubato` | High-quality FFT-based audio resampling (48→32 kHz for Perch) |
 | `csv` | eBird taxonomy CSV parsing |
 
+| `axum` | Tokio-native HTTP server with SSE |
+| `sqlx` | SQLite with WAL mode, compile-time checked SQL |
+| `arc-swap` | Lock-free runtime settings reads |
+| `rustfft` | FFT for mel spectrogram generation |
+| `image` | PNG encoding for spectrograms |
+
 ### Planned (future phases)
 
 | Crate | Purpose |
 |---|---|
-| `axum` | Tokio-native HTTP/WS server |
 | `rumqttc` | Async MQTT client |
-| `sqlx` | SQLite with WAL mode, compile-time checked SQL |
 | `cpal` | Local sound card capture (ALSA) |
 | `core_affinity` | CPU pinning for deterministic scheduling |
 
@@ -392,16 +396,25 @@ Capture audio, run BirdNET, emit detections.
 
 **Deliverable:** `cargo run` on an RPi, species detections in the terminal.
 
-### Phase 2 -- API & Home Assistant
+### Phase 2 -- API, Dashboard & Audio Clips
 
-Expose detections over the network.
+Expose detections over the network. Let users hear what the model heard.
 
-- [ ] axum REST API (`/detections`, `/status`)
+- [x] axum REST API (`/detections`, `/species`, `/status`, `/settings`, `/individuals`)
+- [x] SSE live event stream (`/api/v1/stream/events`)
+- [x] Embedded Tailwind CSS dashboard (live feed, species list, status, settings)
+- [x] Runtime settings via ArcSwap (confidence thresholds, station coords, force_allow)
+- [x] Audio snippet saving (16-bit PCM WAV, async writer, atomic temp-file writes)
+- [x] Configurable retention (age-based + size-based, reviewed-as-correct clips preserved)
+- [x] Audio serving endpoint (`/api/v1/detections/{id}/audio`)
+- [x] Pure-Rust mel spectrogram generation (`rustfft` + `image`, on-demand with disk cache)
+- [x] Spectrogram endpoint (`/api/v1/detections/{id}/spectrogram`)
+- [x] Detection review API (correct / false_positive / un-review)
+- [x] Dashboard: spectrogram images, play button, review buttons, keyboard shortcuts (c/f)
+- [x] BirdNET sliding-window inference (configurable stride, default 1s for 2s overlap)
 - [ ] MQTT client with HA auto-discovery
-- [ ] WebSocket live event stream
-- [ ] Audio snippet saving (WAV, configurable retention)
 
-**Deliverable:** Detections appear as HA sensor entities.
+**Deliverable:** Full detection review workflow in the browser. Hear what the model heard.
 
 ### Phase 3 -- Individual Recognition
 
@@ -409,10 +422,10 @@ Expose detections over the network.
 
 - [x] Perch v2 consumer (second consumer on ring buffer, 48→32 kHz resampling) *(completed in Phase 1)*
 - [x] Embedding extraction (1536-dim vectors returned per window, logged at DEBUG) *(completed in Phase 1)*
-- [ ] Store embeddings in `sitta-store` (SQLite + binary blob)
-- [ ] `IndividualMatcher` with cosine similarity
-- [ ] Enrolment API endpoint
-- [ ] `individual` field in detection events
+- [x] Store embeddings in `sitta-store` (SQLite + binary blob)
+- [x] `IndividualMatcher` with cosine similarity (brute-force cosine search)
+- [x] Enrolment API endpoint + auto-enrolment on first sighting
+- [x] `individual` field in detection events (individual_id, label, similarity)
 
 **Deliverable:** API returns individual IDs on detections.
 
@@ -421,8 +434,6 @@ Expose detections over the network.
 Deploy to multiple stations, see everything in one place.
 
 - [ ] Station-to-station MQTT federation
-- [ ] Lightweight web dashboard (htmx or Leptos, no JS build chain)
-- [ ] Spectrogram generation for detection review (`rustfft`)
 - [ ] Detection export (CSV, JSON lines)
 - [ ] Coral TPU support behind feature flag
 
