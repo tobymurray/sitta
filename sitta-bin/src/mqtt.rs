@@ -11,10 +11,12 @@ use sitta_api::event::DetectionEvent;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
+use sitta_api::server::MqttControl;
+use sitta_api::settings::MqttSettings;
+
 use crate::config::MqttConfig;
 
 /// Sanitize a scientific name for use in MQTT topic paths.
-/// Lowercase, spaces → underscores, strip non-alphanumeric/underscore.
 fn topic_name(scientific_name: &str) -> String {
     scientific_name
         .to_lowercase()
@@ -42,8 +44,6 @@ impl FirstOfDayTracker {
         }
     }
 
-    /// Returns true if this is the first detection of the species today.
-    /// Resets automatically at midnight in the configured timezone.
     fn is_first_today(&mut self, scientific_name: &str) -> bool {
         let today = Utc::now().with_timezone(&self.tz).date_naive();
         if today != self.current_date {
@@ -84,8 +84,95 @@ struct StatusPayload {
     state: &'static str,
 }
 
-/// Spawn the MQTT publisher as two background tasks.
-pub fn spawn_mqtt_publisher(
+/// Controls the MQTT publisher lifecycle — start, stop, restart at runtime.
+pub struct MqttController {
+    cancel: tokio::sync::Mutex<Option<CancellationToken>>,
+    detection_tx: broadcast::Sender<DetectionEvent>,
+    station_id: String,
+    station_name: String,
+    timezone: String,
+    display_min_confidence: f32,
+    global_shutdown: CancellationToken,
+}
+
+impl MqttController {
+    pub fn new(
+        detection_tx: broadcast::Sender<DetectionEvent>,
+        station_id: String,
+        station_name: String,
+        timezone: String,
+        display_min_confidence: f32,
+        global_shutdown: CancellationToken,
+    ) -> Self {
+        Self {
+            cancel: tokio::sync::Mutex::new(None),
+            detection_tx,
+            station_id,
+            station_name,
+            timezone,
+            display_min_confidence,
+            global_shutdown,
+        }
+    }
+
+    /// Start the MQTT publisher with the given config. Stops any existing publisher first.
+    pub async fn start(&self, config: &MqttConfig) {
+        self.stop().await;
+        let token = self.global_shutdown.child_token();
+        spawn_mqtt_tasks(
+            config,
+            &self.station_id,
+            &self.station_name,
+            &self.timezone,
+            &self.detection_tx,
+            self.display_min_confidence,
+            token.clone(),
+        );
+        *self.cancel.lock().await = Some(token);
+        tracing::info!(host = %config.host, port = config.port, "MQTT publisher started");
+    }
+
+    /// Stop the MQTT publisher if running.
+    pub async fn stop(&self) {
+        if let Some(token) = self.cancel.lock().await.take() {
+            token.cancel();
+            tracing::info!("MQTT publisher stopped");
+        }
+    }
+
+    /// Whether the publisher is currently running.
+    pub async fn is_running(&self) -> bool {
+        self.cancel.lock().await.is_some()
+    }
+}
+
+#[async_trait::async_trait]
+impl MqttControl for MqttController {
+    async fn start(&self, settings: &MqttSettings) {
+        // Convert MqttSettings to MqttConfig for the internal spawn function.
+        let config = MqttConfig {
+            host: settings.host.clone(),
+            port: settings.port,
+            username: settings.username.clone(),
+            password: settings.password.clone(),
+            client_id: None,
+            first_of_day_min_confidence: settings.first_of_day_min_confidence,
+            homeassistant_discovery: settings.homeassistant_discovery,
+            homeassistant_prefix: settings.homeassistant_prefix.clone(),
+        };
+        self.start(&config).await;
+    }
+
+    async fn stop(&self) {
+        self.stop().await;
+    }
+
+    async fn is_running(&self) -> bool {
+        self.is_running().await
+    }
+}
+
+fn spawn_mqtt_tasks(
     config: &MqttConfig,
     station_id: &str,
     station_name: &str,
@@ -106,7 +193,6 @@ pub fn spawn_mqtt_publisher(
         opts.set_credentials(user, pass);
     }
 
-    // Last Will and Testament — published by broker if we disconnect ungracefully.
     let status_topic = format!("sitta/{station_id}/status");
     let lwt_payload = serde_json::to_string(&StatusPayload { state: "offline" }).unwrap();
     opts.set_last_will(rumqttc::LastWill::new(
@@ -118,7 +204,6 @@ pub fn spawn_mqtt_publisher(
 
     let (client, mut eventloop) = AsyncClient::new(opts, 128);
 
-    // Shared state for the publisher.
     let sid = station_id.to_string();
     let sname = station_name.to_string();
     let ha_enabled = config.homeassistant_discovery;
@@ -126,7 +211,7 @@ pub fn spawn_mqtt_publisher(
     let first_of_day_conf = config.first_of_day_min_confidence;
     let min_conf = display_min_confidence;
 
-    // Task 1: Drive the MQTT event loop and handle connect/reconnect.
+    // Task 1: Event loop.
     let client_for_loop = client.clone();
     let sid_for_loop = sid.clone();
     let sname_for_loop = sname.clone();
@@ -139,12 +224,9 @@ pub fn spawn_mqtt_publisher(
                     match event {
                         Ok(Event::Incoming(Packet::ConnAck(_))) => {
                             tracing::info!("MQTT connected");
-                            // Publish online status.
                             let topic = format!("sitta/{}/status", sid_for_loop);
                             let payload = serde_json::to_string(&StatusPayload { state: "online" }).unwrap();
                             let _ = client_for_loop.publish(&topic, QoS::AtLeastOnce, true, payload).await;
-
-                            // Publish HA discovery if enabled.
                             if ha_enabled {
                                 publish_ha_discovery(&client_for_loop, &ha_prefix_for_loop, &sid_for_loop, &sname_for_loop).await;
                             }
@@ -157,7 +239,6 @@ pub fn spawn_mqtt_publisher(
                     }
                 }
                 () = shutdown_loop.cancelled() => {
-                    // Try to publish offline status before exiting.
                     let topic = format!("sitta/{}/status", sid_for_loop);
                     let payload = serde_json::to_string(&StatusPayload { state: "offline" }).unwrap();
                     let _ = client_for_loop.publish(&topic, QoS::AtLeastOnce, true, payload).await;
@@ -168,7 +249,7 @@ pub fn spawn_mqtt_publisher(
         }
     });
 
-    // Task 2: Subscribe to detection events and publish to MQTT.
+    // Task 2: Publisher.
     let mut rx = detection_tx.subscribe();
     let tz_owned = timezone.to_string();
     tokio::spawn(async move {
@@ -183,13 +264,11 @@ pub fn spawn_mqtt_publisher(
                                 continue;
                             }
 
-                            // Publish detection.
                             let det_topic = format!("sitta/{sid}/detection");
                             if let Ok(payload) = serde_json::to_string(&event) {
                                 let _ = client.publish(&det_topic, QoS::AtMostOnce, false, payload).await;
                             }
 
-                            // First-of-day check.
                             if event.confidence >= first_of_day_conf
                                 && tracker.is_first_today(&event.species.scientific_name)
                             {
@@ -204,19 +283,16 @@ pub fn spawn_mqtt_publisher(
                                     day: tracker.date_string(),
                                 };
                                 if let Ok(payload) = serde_json::to_string(&fod) {
-                                    // Per-species topic (retained).
                                     let _ = client.publish(
                                         format!("sitta/{sid}/first_today/{sci_topic}"),
                                         QoS::AtLeastOnce, true, payload.clone(),
                                     ).await;
-                                    // Aggregated topic (retained, for HA sensor).
                                     let _ = client.publish(
                                         format!("sitta/{sid}/first_today"),
                                         QoS::AtLeastOnce, true, payload,
                                     ).await;
                                 }
 
-                                // Update species count.
                                 let count = SpeciesCountPayload {
                                     count: tracker.species_count(),
                                     day: tracker.date_string(),
@@ -263,29 +339,24 @@ async fn publish_ha_discovery(client: &AsyncClient, prefix: &str, station_id: &s
         "payload_not_available": "offline"
     });
 
-    // Station status (binary sensor).
     let _ = client.publish(
         format!("{prefix}/binary_sensor/sitta_{station_id}/status/config"),
-        QoS::AtLeastOnce,
-        true,
+        QoS::AtLeastOnce, true,
         serde_json::to_string(&serde_json::json!({
             "name": "Station Status",
             "unique_id": format!("sitta_{station_id}_status"),
             "device": device,
             "state_topic": format!("sitta/{station_id}/status"),
             "value_template": "{{ value_json.state }}",
-            "payload_on": "online",
-            "payload_off": "offline",
+            "payload_on": "online", "payload_off": "offline",
             "device_class": "connectivity",
             "availability": [avail],
         })).unwrap(),
     ).await;
 
-    // Latest detection (sensor).
     let _ = client.publish(
         format!("{prefix}/sensor/sitta_{station_id}/latest_detection/config"),
-        QoS::AtLeastOnce,
-        true,
+        QoS::AtLeastOnce, true,
         serde_json::to_string(&serde_json::json!({
             "name": "Latest Detection",
             "unique_id": format!("sitta_{station_id}_latest_detection"),
@@ -298,11 +369,9 @@ async fn publish_ha_discovery(client: &AsyncClient, prefix: &str, station_id: &s
         })).unwrap(),
     ).await;
 
-    // First bird of day (sensor).
     let _ = client.publish(
         format!("{prefix}/sensor/sitta_{station_id}/first_bird_today/config"),
-        QoS::AtLeastOnce,
-        true,
+        QoS::AtLeastOnce, true,
         serde_json::to_string(&serde_json::json!({
             "name": "First Bird of Day",
             "unique_id": format!("sitta_{station_id}_first_bird_today"),
@@ -315,11 +384,9 @@ async fn publish_ha_discovery(client: &AsyncClient, prefix: &str, station_id: &s
         })).unwrap(),
     ).await;
 
-    // Species count today (sensor).
     let _ = client.publish(
         format!("{prefix}/sensor/sitta_{station_id}/species_today/config"),
-        QoS::AtLeastOnce,
-        true,
+        QoS::AtLeastOnce, true,
         serde_json::to_string(&serde_json::json!({
             "name": "Species Detected Today",
             "unique_id": format!("sitta_{station_id}_species_today"),
@@ -350,8 +417,8 @@ mod tests {
     fn first_of_day_tracks_species() {
         let mut tracker = FirstOfDayTracker::new("UTC");
         assert!(tracker.is_first_today("Tyto alba"));
-        assert!(!tracker.is_first_today("Tyto alba")); // already seen
-        assert!(tracker.is_first_today("Strix aluco")); // different species
+        assert!(!tracker.is_first_today("Tyto alba"));
+        assert!(tracker.is_first_today("Strix aluco"));
         assert_eq!(tracker.species_count(), 2);
     }
 
@@ -359,9 +426,8 @@ mod tests {
     fn first_of_day_resets_on_new_date() {
         let mut tracker = FirstOfDayTracker::new("UTC");
         tracker.is_first_today("Tyto alba");
-        // Simulate date change by manually setting to yesterday.
         tracker.current_date = tracker.current_date.pred_opt().unwrap();
-        assert!(tracker.is_first_today("Tyto alba")); // should be first again
+        assert!(tracker.is_first_today("Tyto alba"));
         assert_eq!(tracker.species_count(), 1);
     }
 }

@@ -52,6 +52,8 @@ pub struct ApiState {
     pub audio_tx: broadcast::Sender<Arc<sitta_audio::chunk::AudioChunk>>,
     /// Dynamic source manager for add/remove at runtime.
     pub source_manager: sitta_audio::manager::SourceManager,
+    /// MQTT controller for dynamic start/stop from the API.
+    pub mqtt_control: Option<Arc<dyn MqttControl>>,
     /// Base directory for audio clips. None if snippet saving is disabled.
     pub clip_dir: Option<PathBuf>,
 }
@@ -67,6 +69,15 @@ pub struct PipelineMetrics {
 }
 
 /// Build the axum router with all routes.
+/// Trait for controlling the MQTT publisher from API handlers.
+/// Implemented in sitta-bin to avoid circular dependencies.
+#[async_trait::async_trait]
+pub trait MqttControl: Send + Sync {
+    async fn start(&self, settings: &settings::MqttSettings);
+    async fn stop(&self);
+    async fn is_running(&self) -> bool;
+}
+
 pub fn router(state: ApiState) -> Router {
     Router::new()
         // API endpoints
@@ -796,23 +807,33 @@ struct ClusterEnrollRequest {
 
 async fn get_mqtt_config(
     State(state): State<ApiState>,
-) -> Json<settings::MqttSettings> {
-    Json(settings::read_mqtt_from_toml(&state.config_path))
+) -> Json<serde_json::Value> {
+    let mut mqtt = serde_json::to_value(settings::read_mqtt_from_toml(&state.config_path)).unwrap();
+    let running = if let Some(ref ctrl) = state.mqtt_control {
+        ctrl.is_running().await
+    } else {
+        false
+    };
+    mqtt.as_object_mut().unwrap().insert("running".into(), running.into());
+    Json(mqtt)
 }
 
 async fn put_mqtt_config(
     State(state): State<ApiState>,
     Json(mqtt): Json<settings::MqttSettings>,
 ) -> Result<Json<settings::MqttSettings>, (StatusCode, String)> {
+    // Persist to config.toml.
     settings::persist_mqtt_to_toml(&state.config_path, &mqtt)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    tracing::info!(
-        enabled = mqtt.enabled,
-        host = %mqtt.host,
-        port = mqtt.port,
-        "MQTT config updated (restart required)"
-    );
+    // Dynamically start or stop the MQTT publisher.
+    if let Some(ref ctrl) = state.mqtt_control {
+        if mqtt.enabled && !mqtt.host.is_empty() {
+            ctrl.start(&mqtt).await;
+        } else {
+            ctrl.stop().await;
+        }
+    }
 
     Ok(Json(mqtt))
 }

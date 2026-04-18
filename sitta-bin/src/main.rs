@@ -179,6 +179,16 @@ async fn main() -> Result<()> {
     let source_manager = SourceManager::new(tx.clone(), shutdown.clone(), config.audio.chunk_seconds);
     source_manager.add_initial(&config.audio.sources).await;
 
+    // MQTT controller — created before ApiState so it can be shared.
+    let mqtt_controller: Arc<mqtt::MqttController> = Arc::new(mqtt::MqttController::new(
+        persist_ctx.detection_tx.clone(),
+        config.station.id.clone(),
+        config.station.name.clone(),
+        settings.load().timezone.clone(),
+        config.api.display_min_confidence,
+        shutdown.clone(),
+    ));
+
     let api_state = ApiState {
         db: db.clone(),
         detection_tx: persist_ctx.detection_tx.clone(),
@@ -195,6 +205,7 @@ async fn main() -> Result<()> {
         } else {
             None
         },
+        mqtt_control: Some(mqtt_controller.clone()),
     };
     tokio::spawn(server::serve(api_addr, api_state, shutdown.clone()));
 
@@ -292,21 +303,7 @@ async fn main() -> Result<()> {
 
     // ── MQTT publisher ──────────────────────────────────────────
     if let Some(ref mqtt_config) = config.mqtt {
-        let tz = &settings.load().timezone;
-        mqtt::spawn_mqtt_publisher(
-            mqtt_config,
-            &config.station.id,
-            &config.station.name,
-            tz,
-            &persist_ctx.detection_tx,
-            config.api.display_min_confidence,
-            shutdown.clone(),
-        );
-        tracing::info!(
-            host = %mqtt_config.host,
-            port = mqtt_config.port,
-            "MQTT publisher started"
-        );
+        mqtt_controller.start(mqtt_config).await;
     }
 
     // ── Shutdown ────────────────────────────────────────────────

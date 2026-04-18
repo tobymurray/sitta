@@ -1254,7 +1254,7 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
         <button onclick="saveMqtt()" class="px-3 py-1.5 rounded-lg bg-nuthatch-600 text-white text-sm font-medium hover:bg-nuthatch-700 transition-colors">Save MQTT</button>
         <span id="mqtt-save-status" class="text-xs"></span>
       </div>
-      <p class="text-xs text-stone-400 dark:text-plumage-500">Changes require restart to take effect.</p>
+      <p id="mqtt-running-status" class="text-xs text-stone-400 dark:text-plumage-500"></p>
     </div>`;
 
     document.getElementById('mqtt-enabled').addEventListener('change', function() {{
@@ -1262,8 +1262,12 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
       document.getElementById('mqtt-fields').classList.toggle('pointer-events-none', !this.checked);
     }});
 
-    if (m.enabled && m.host) {{
+    if (m.running) {{
       status.innerHTML = '<span class="text-emerald-500">&#x2022;</span> ' + m.host + ':' + m.port;
+      const rs = document.getElementById('mqtt-running-status');
+      if (rs) rs.innerHTML = '<span class="text-emerald-500">&#x2022; Connected</span>';
+    }} else if (m.enabled && m.host) {{
+      status.innerHTML = '<span class="text-amber-500">&#x2022;</span> ' + m.host + ':' + m.port;
     }}
   }}).catch(() => {{
     area.innerHTML = '<p class="text-sm text-red-400">Failed to load MQTT config</p>';
@@ -1289,7 +1293,18 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
     }}).then(async r => {{
       const text = await r.text();
       if (!r.ok) throw new Error(text);
-      st.innerHTML = '<span class="text-emerald-500">Saved (restart required)</span>';
+      st.innerHTML = '<span class="text-emerald-500">Saved &amp; applied</span>';
+      // Refresh running status after a brief delay for connection to establish
+      setTimeout(() => {{
+        fetch('/api/v1/mqtt').then(r => r.json()).then(d => {{
+          const rs = document.getElementById('mqtt-running-status');
+          if (rs) rs.innerHTML = d.running
+            ? '<span class="text-emerald-500">&#x2022; Connected</span>'
+            : d.enabled ? '<span class="text-amber-500">&#x2022; Connecting...</span>' : '';
+          const hs = document.getElementById('mqtt-status');
+          if (hs) hs.innerHTML = d.running ? '<span class="text-emerald-500">&#x2022;</span> ' + d.host + ':' + d.port : '';
+        }});
+      }}, 2000);
     }}).catch(e => {{
       st.innerHTML = '<span class="text-red-500">' + e.message + '</span>';
     }});
