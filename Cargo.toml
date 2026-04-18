@@ -32,3 +32,5 @@ axum = "0.8"
 async-stream = "0.3"
 arc-swap = "1"
 toml_edit = "0.22"
+reqwest = { version = "0.12", default-features = false, features = ["stream"] }
+bytes = "1"

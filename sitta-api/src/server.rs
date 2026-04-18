@@ -7,6 +7,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use bytes::Bytes;
+
 use arc_swap::ArcSwap;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -46,6 +48,10 @@ pub struct ApiState {
     pub metrics: Arc<PipelineMetrics>,
     /// Individual matcher for enrollment reload. None if no Perch configured.
     pub matcher: Option<Arc<sitta_store::matcher::IndividualMatcher>>,
+    /// Audio broadcast channel for PCM rebroadcast to remote consumers.
+    pub audio_tx: broadcast::Sender<Arc<sitta_audio::chunk::AudioChunk>>,
+    /// Configured audio source names (for validating stream requests).
+    pub audio_source_names: Arc<Vec<String>>,
 }
 
 /// Pipeline metrics tracked via atomic counters.
@@ -70,6 +76,8 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/v1/settings", get(get_settings).put(update_settings))
         .route("/api/v1/individuals", get(list_individuals).post(enroll_individual))
         .route("/api/v1/individuals/{id}", get(get_individual))
+        .route("/api/v1/audio/sources", get(list_audio_sources))
+        .route("/api/v1/audio/stream/{source_name}", get(audio_stream_handler))
         // Dashboard pages
         .route("/", get(dashboard_page))
         .route("/species", get(species_page))
@@ -511,6 +519,73 @@ struct IndividualSummary {
     enrolled_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     notes: Option<String>,
+}
+
+// ── Audio rebroadcast ───────────────────────────────────────────
+
+async fn list_audio_sources(
+    State(state): State<ApiState>,
+) -> Json<Vec<String>> {
+    Json((*state.audio_source_names).clone())
+}
+
+async fn audio_stream_handler(
+    State(state): State<ApiState>,
+    Path(source_name): Path<String>,
+) -> axum::response::Response {
+    use axum::body::Body;
+    use axum::http::Response;
+
+    if !state.audio_source_names.contains(&source_name) {
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from(format!("unknown source: {source_name}")))
+            .unwrap();
+    }
+
+    let mut rx = state.audio_tx.subscribe();
+    let header_source = source_name.clone();
+    let stream = async_stream::stream! {
+        let mut header_sent = false;
+
+        loop {
+            match rx.recv().await {
+                Ok(chunk) => {
+                    if chunk.source_name != source_name {
+                        continue;
+                    }
+
+                    if !header_sent {
+                        let header = sitta_audio::chunk::PcmStreamHeader {
+                            sample_rate: chunk.sample_rate,
+                            channels: chunk.channels,
+                            _pad: 0,
+                            chunk_samples: chunk.samples.len() as u32,
+                            _reserved: [0; 8],
+                        };
+                        yield Ok::<_, Infallible>(Bytes::copy_from_slice(
+                            bytemuck::bytes_of(&header)
+                        ));
+                        header_sent = true;
+                    }
+
+                    let sample_bytes: &[u8] = bytemuck::cast_slice(&chunk.samples);
+                    yield Ok(Bytes::copy_from_slice(sample_bytes));
+                }
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::debug!(dropped = n, source = %source_name, "Audio stream client lagged");
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    };
+
+    Response::builder()
+        .header("content-type", "application/octet-stream")
+        .header("x-sitta-format", "f32le")
+        .header("x-sitta-source", &header_source)
+        .body(Body::from_stream(stream))
+        .unwrap()
 }
 
 // ── Response types ──────────────────────────────────────────────

@@ -138,6 +138,11 @@ async fn main() -> Result<()> {
         .parse()
         .with_context(|| format!("invalid api.bind address: {}", config.api.bind))?;
 
+    // Audio broadcast channel — created before API state so it can be shared
+    // with both inference consumers and the audio rebroadcast endpoint.
+    let (tx, _rx) = broadcast::channel::<Arc<AudioChunk>>(32);
+    let audio_source_names: Vec<String> = config.audio.sources.iter().map(|s| s.name().to_string()).collect();
+
     let api_state = ApiState {
         db: db.clone(),
         detection_tx: persist_ctx.detection_tx.clone(),
@@ -147,11 +152,12 @@ async fn main() -> Result<()> {
         initial_config,
         metrics: metrics.clone(),
         matcher: persist_ctx.matcher.clone(),
+        audio_tx: tx.clone(),
+        audio_source_names: Arc::new(audio_source_names),
     };
     tokio::spawn(server::serve(api_addr, api_state, shutdown.clone()));
 
     // ── Audio capture ───────────────────────────────────────────
-    let (tx, _rx) = broadcast::channel::<Arc<AudioChunk>>(32);
 
     for source_config in &config.audio.sources {
         match source_config {
@@ -168,6 +174,16 @@ async fn main() -> Result<()> {
                     source = %local_config.name,
                     "Local audio capture not yet implemented, skipping"
                 );
+            }
+            SourceConfig::Remote(remote_config) => {
+                let source = sitta_audio::remote::RemoteSource::new(
+                    remote_config.clone(),
+                    tx.clone(),
+                );
+                let token = shutdown.clone();
+                tokio::spawn(async move {
+                    source.run(token).await;
+                });
             }
         }
     }

@@ -10,6 +10,9 @@ pub enum SourceConfig {
     /// Local sound card (not yet implemented).
     #[serde(rename = "local")]
     Local(LocalSourceConfig),
+    /// Remote Sitta instance audio stream.
+    #[serde(rename = "remote")]
+    Remote(RemoteSourceConfig),
 }
 
 impl SourceConfig {
@@ -17,8 +20,22 @@ impl SourceConfig {
         match self {
             Self::Rtsp(c) => &c.name,
             Self::Local(c) => &c.name,
+            Self::Remote(c) => &c.name,
         }
     }
+}
+
+/// Remote audio source: connects to another Sitta instance's PCM stream.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RemoteSourceConfig {
+    /// Display name for this source.
+    pub name: String,
+    /// Full URL to the remote audio stream endpoint,
+    /// e.g., "http://192.168.1.10:8080/api/v1/audio/stream/north_feeder".
+    pub url: String,
+    /// Seconds to wait before reconnecting after a failure.
+    #[serde(default = "default_reconnect_seconds")]
+    pub reconnect_seconds: u64,
 }
 
 /// RTSP stream configuration.

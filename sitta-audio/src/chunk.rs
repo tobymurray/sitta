@@ -49,6 +49,18 @@ impl AudioChunk {
     }
 }
 
+/// Wire-format header for the PCM audio rebroadcast stream.
+/// 20 bytes, little-endian. Sent once at the start of the HTTP response.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PcmStreamHeader {
+    pub sample_rate: u32,
+    pub channels: u16,
+    pub _pad: u16,
+    pub chunk_samples: u32,
+    pub _reserved: [u8; 8],
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

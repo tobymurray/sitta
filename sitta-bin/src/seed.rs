@@ -51,6 +51,9 @@ pub async fn seed_database(
             SourceConfig::Local(c) => {
                 ("local", Some(c.device.as_str()), c.sample_rate, c.channels)
             }
+            SourceConfig::Remote(c) => {
+                ("remote", Some(c.url.as_str()), 48000, 1)
+            }
         };
         db.upsert_audio_source(&NewAudioSource {
             id: &source_id,
