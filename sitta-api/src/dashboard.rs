@@ -71,6 +71,7 @@ tailwind.config = {{
       {nav_individuals}
       {nav_settings}
     </div>
+    <div id="audio-sources" class="px-3 pb-2"></div>
     <div class="px-5 py-3 border-t border-stone-200 dark:border-plumage-800">
       <button onclick="toggleTheme()" class="flex items-center gap-2 text-xs text-stone-400 dark:text-plumage-500 hover:text-stone-600 dark:hover:text-plumage-300 transition-colors">
         <svg class="w-4 h-4 hidden dark:block" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z"/></svg>
@@ -193,9 +194,6 @@ pub fn dashboard_content(station_name: &str) -> String {
     <p id="stat-conf" class="text-2xl font-bold mt-1">--</p>
   </div>
 </div>
-
-<!-- Audio sources -->
-<div id="audio-sources" class="mb-6"></div>
 
 <!-- Audio player modal -->
 <div id="audio-player" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
@@ -348,31 +346,37 @@ pub fn dashboard_content(station_name: &str) -> String {
   sse.onopen = () => setConnected(true);
   sse.onerror = () => setConnected(false);
 
-  // ── Audio sources: scrolling waveform level meters ──────────────
+  // ── Audio sources: scrolling waveform in sidebar ─────────────
   const srcEl = document.getElementById('audio-sources');
   let activePlayer = null;
   let audioCtx = null;
-  const WAVE_COLS = 40;  // number of historical bars in the waveform
-  const waveData = {{}};  // source_name -> array of 0..1 values
+  const WAVE_COLS = 30;
+  const waveData = {{}};
 
   fetch('/api/v1/sources')
     .then(r => r.json())
     .then(sources => {{
       if (sources.length === 0) return;
-      srcEl.innerHTML = '<div class="flex flex-wrap gap-x-4 gap-y-2">' +
-        sources.map(s => {{
-          waveData[s.name] = new Array(WAVE_COLS).fill(0);
-          return `<div class="flex items-center gap-2 group">
-            <button onclick="startPlayer('${{s.name}}')" title="Listen to ${{s.name}}" class="text-stone-400 dark:text-plumage-500 hover:text-nuthatch-500 dark:hover:text-nuthatch-400 transition-colors">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z"/></svg>
+      srcEl.innerHTML = sources.map(s => {{
+        waveData[s.name] = new Array(WAVE_COLS).fill(0);
+        return `<div class="mb-2">
+          <div class="flex items-center justify-between mb-0.5">
+            <button onclick="startPlayer('${{s.name}}')" title="Listen to ${{s.name}}"
+              class="flex items-center gap-1.5 text-[11px] text-stone-500 dark:text-plumage-400 hover:text-nuthatch-500 dark:hover:text-nuthatch-400 transition-colors truncate">
+              <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z"/></svg>
+              ${{s.name}}
             </button>
-            <canvas id="wave-${{s.name}}" width="${{WAVE_COLS * 3}}" height="20" class="rounded" style="image-rendering:pixelated"></canvas>
-            <span class="text-[11px] text-stone-500 dark:text-plumage-400 font-medium truncate max-w-[8rem]">${{s.name}}</span>
-            <span id="dbfs-${{s.name}}" class="text-[10px] text-stone-400 dark:text-plumage-500 font-mono w-14 text-right">--</span>
-          </div>`;
-        }}).join('') + '</div>';
-      // Initial draw
-      sources.forEach(s => drawWave(s.name));
+            <span id="dbfs-${{s.name}}" class="text-[9px] text-stone-400 dark:text-plumage-600 font-mono">--</span>
+          </div>
+          <canvas id="wave-${{s.name}}" height="16" class="w-full rounded-sm" style="image-rendering:pixelated"></canvas>
+        </div>`;
+      }}).join('');
+      // Set canvas widths after layout
+      sources.forEach(s => {{
+        const c = document.getElementById('wave-' + s.name);
+        if (c) c.width = c.offsetWidth;
+        drawWave(s.name);
+      }});
     }});
 
   function drawWave(name) {{
@@ -382,20 +386,22 @@ pub fn dashboard_content(station_name: &str) -> String {
     const w = cvs.width, h = cvs.height;
     const data = waveData[name];
     if (!data) return;
-    const barW = w / WAVE_COLS;
+    const barW = Math.max(2, w / WAVE_COLS);
     const isDark = document.documentElement.classList.contains('dark');
 
     ctx.clearRect(0, 0, w, h);
     for (let i = 0; i < WAVE_COLS; i++) {{
-      const val = data[i];
-      const barH = Math.max(1, val * h);
-      const opacity = (i + 1) / WAVE_COLS;  // left=faint, right=opaque
-      // Color: nuthatch-500 (#d97226) in light, nuthatch-400 (#e38a47) in dark
+      const raw = data[i];
+      // Exaggerate: use a power curve so quiet signals are still visible.
+      // sqrt(x) maps 0.1 → 0.32, 0.25 → 0.5, 0.5 → 0.71
+      const val = Math.sqrt(raw);
+      const barH = Math.max(1, val * h * 0.95);
+      const opacity = 0.15 + 0.85 * (i + 1) / WAVE_COLS;
       const r = isDark ? 227 : 217, g = isDark ? 138 : 114, b = isDark ? 71 : 38;
       ctx.fillStyle = `rgba(${{r}},${{g}},${{b}},${{opacity}})`;
       const x = i * barW;
       const y = (h - barH) / 2;
-      ctx.fillRect(x, y, barW - 0.5, barH);
+      ctx.fillRect(x, y, barW - 1, barH);
     }}
   }}
 
@@ -403,8 +409,8 @@ pub fn dashboard_content(station_name: &str) -> String {
   window.addEventListener('beforeunload', () => levelSse.close());
   levelSse.addEventListener('level', (e) => {{
     const d = JSON.parse(e.data);
-    // Normalize: -60 dBFS → 0, 0 dBFS → 1
-    const val = Math.max(0, Math.min(1, (d.rms_dbfs + 60) / 60));
+    // Normalize: -48 dBFS → 0, -6 dBFS → 1 (compress the useful range)
+    const val = Math.max(0, Math.min(1, (d.rms_dbfs + 48) / 42));
 
     if (waveData[d.source]) {{
       waveData[d.source].shift();
@@ -415,7 +421,6 @@ pub fn dashboard_content(station_name: &str) -> String {
     const dbfsEl = document.getElementById('dbfs-' + d.source);
     if (dbfsEl) dbfsEl.textContent = (d.rms_dbfs > -100 ? d.rms_dbfs.toFixed(0) + ' dB' : '--');
 
-    // Update player level if playing this source
     if (activePlayer === d.source) {{
       const pb = document.getElementById('player-bar');
       const pd = document.getElementById('player-dbfs');
