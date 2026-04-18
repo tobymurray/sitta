@@ -30,31 +30,48 @@ use crate::settings::{
 use sitta_store::db::Database;
 use sitta_store::models::uuid_from_blob;
 
-/// Shared state for all axum handlers.
+/// Shared state for all axum handlers, grouped by concern.
 #[derive(Clone)]
 pub struct ApiState {
+    /// Core: database, settings, config persistence.
+    pub core: CoreState,
+    /// Audio: broadcast channel, source management.
+    pub audio: AudioState,
+    /// Inference: detection broadcast, matcher, pipeline metrics.
+    pub inference: InferenceState,
+    /// Integrations: MQTT, audio clips.
+    pub integrations: IntegrationState,
+}
+
+/// Database, settings, and config persistence.
+#[derive(Clone)]
+pub struct CoreState {
     pub db: Database,
-    /// Clone of the broadcast sender — call `.subscribe()` per SSE client.
-    pub detection_tx: broadcast::Sender<DetectionEvent>,
-    /// Lock-free runtime settings.
     pub settings: Arc<ArcSwap<RuntimeSettings>>,
-    /// Notify consumers when settings change so they can rebuild classifiers.
     pub settings_notify: Arc<tokio::sync::watch::Sender<()>>,
-    /// Path to config.toml for persisting changes.
     pub config_path: PathBuf,
-    /// Read-only snapshot of restart-required values.
     pub initial_config: Arc<InitialConfig>,
-    /// Pipeline metrics (chunks processed/dropped per consumer).
-    pub metrics: Arc<PipelineMetrics>,
-    /// Individual matcher for enrollment reload. None if no Perch configured.
-    pub matcher: Option<Arc<sitta_store::matcher::IndividualMatcher>>,
-    /// Audio broadcast channel for PCM rebroadcast to remote consumers.
+}
+
+/// Audio streaming and source lifecycle.
+#[derive(Clone)]
+pub struct AudioState {
     pub audio_tx: broadcast::Sender<Arc<sitta_audio::chunk::AudioChunk>>,
-    /// Dynamic source manager for add/remove at runtime.
     pub source_manager: sitta_audio::manager::SourceManager,
-    /// MQTT controller for dynamic start/stop from the API.
+}
+
+/// Inference pipeline: detections, matching, metrics.
+#[derive(Clone)]
+pub struct InferenceState {
+    pub detection_tx: broadcast::Sender<DetectionEvent>,
+    pub matcher: Option<Arc<sitta_store::matcher::IndividualMatcher>>,
+    pub metrics: Arc<PipelineMetrics>,
+}
+
+/// External integrations: MQTT, audio clips.
+#[derive(Clone)]
+pub struct IntegrationState {
     pub mqtt_control: Option<Arc<dyn MqttControl>>,
-    /// Base directory for audio clips. None if snippet saving is disabled.
     pub clip_dir: Option<PathBuf>,
 }
 
@@ -134,7 +151,7 @@ pub async fn serve(addr: SocketAddr, state: ApiState, shutdown: CancellationToke
 async fn sse_handler(
     State(state): State<ApiState>,
 ) -> Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>> {
-    let mut rx = state.detection_tx.subscribe();
+    let mut rx = state.inference.detection_tx.subscribe();
     let stream = async_stream::stream! {
         loop {
             match rx.recv().await {
@@ -181,9 +198,9 @@ async fn list_detections(
     let limit = params.limit.unwrap_or(50).min(500);
     let offset = params.offset.unwrap_or(0);
 
-    let display_conf = f64::from(state.settings.load().display_min_confidence);
+    let display_conf = f64::from(state.core.settings.load().display_min_confidence);
     let rows = state
-        .db
+        .core.db
         .recent_detections(since, until, limit, offset, params.species.as_deref(), Some(display_conf))
         .await
         .map_err(|e| {
@@ -220,7 +237,7 @@ async fn get_detection(
     let id_bytes = uuid.as_bytes().as_slice();
 
     let row = state
-        .db
+        .core.db
         .get_detection(id_bytes)
         .await
         .map_err(|e| {
@@ -230,7 +247,7 @@ async fn get_detection(
         .ok_or(StatusCode::NOT_FOUND)?;
 
     let predictions = state
-        .db
+        .core.db
         .get_predictions(id_bytes)
         .await
         .map_err(|e| {
@@ -284,9 +301,9 @@ async fn list_species(
     let since = params.since.unwrap_or(now - 86_400_000);
     let until = params.until.unwrap_or(now);
 
-    let display_conf = f64::from(state.settings.load().display_min_confidence);
+    let display_conf = f64::from(state.core.settings.load().display_min_confidence);
     let rows = state
-        .db
+        .core.db
         .species_summary(since, until, Some(display_conf))
         .await
         .map_err(|e| {
@@ -332,9 +349,9 @@ async fn hourly_activity(
     });
     let until = params.until.unwrap_or(since + 86_400_000);
 
-    let display_conf = f64::from(state.settings.load().display_min_confidence);
+    let display_conf = f64::from(state.core.settings.load().display_min_confidence);
     let rows = state
-        .db
+        .core.db
         .hourly_activity(since, until, Some(display_conf))
         .await
         .map_err(|e| {
@@ -391,10 +408,10 @@ async fn species_insights(
     State(state): State<ApiState>,
     Path(name): Path<String>,
 ) -> Result<Json<SpeciesInsightsResponse>, StatusCode> {
-    let display_conf = f64::from(state.settings.load().display_min_confidence);
+    let display_conf = f64::from(state.core.settings.load().display_min_confidence);
 
     let stats = state
-        .db
+        .core.db
         .species_stats(&name, Some(display_conf))
         .await
         .map_err(|e| {
@@ -404,7 +421,7 @@ async fn species_insights(
         .ok_or(StatusCode::NOT_FOUND)?;
 
     let profile_rows = state
-        .db
+        .core.db
         .species_hourly_profile(&name, Some(display_conf))
         .await
         .map_err(|e| {
@@ -421,7 +438,7 @@ async fn species_insights(
         }
     }
 
-    let s = state.settings.load();
+    let s = state.core.settings.load();
 
     Ok(Json(SpeciesInsightsResponse {
         scientific_name: name,
@@ -458,9 +475,9 @@ struct SpeciesInsightsResponse {
 // ── REST: status ────────────────────────────────────────────────
 
 async fn status_handler(State(state): State<ApiState>) -> Json<StatusResponse> {
-    let detection_count = state.db.detection_count().await.unwrap_or(-1);
-    let s = state.settings.load();
-    let m = &state.metrics;
+    let detection_count = state.core.db.detection_count().await.unwrap_or(-1);
+    let s = state.core.settings.load();
+    let m = &state.inference.metrics;
     Json(StatusResponse {
         station_name: s.station_name.clone(),
         status: "running",
@@ -477,10 +494,10 @@ async fn status_handler(State(state): State<ApiState>) -> Json<StatusResponse> {
 // ── REST: settings ──────────────────────────────────────────────
 
 async fn get_settings(State(state): State<ApiState>) -> Json<SettingsResponse> {
-    let runtime = (**state.settings.load()).clone();
+    let runtime = (**state.core.settings.load()).clone();
     Json(SettingsResponse {
         runtime,
-        initial: (*state.initial_config).clone(),
+        initial: (*state.core.initial_config).clone(),
         restart_required: RESTART_REQUIRED_FIELDS.to_vec(),
     })
 }
@@ -489,7 +506,7 @@ async fn update_settings(
     State(state): State<ApiState>,
     Json(update): Json<SettingsUpdate>,
 ) -> Result<Json<UpdateResponse>, (StatusCode, String)> {
-    let current = state.settings.load();
+    let current = state.core.settings.load();
     let (merged, changed) = settings::apply_update(&current, &update);
 
     if changed.is_empty() {
@@ -501,7 +518,7 @@ async fn update_settings(
     }
 
     // Persist to disk first (best-effort).
-    let persist_error = settings::persist_to_toml(&state.config_path, &merged).err();
+    let persist_error = settings::persist_to_toml(&state.core.config_path, &merged).err();
     if let Some(ref e) = persist_error {
         tracing::warn!(error = %e, "Settings applied in memory but failed to persist to disk");
     }
@@ -522,11 +539,11 @@ async fn update_settings(
     });
 
     // Swap settings atomically.
-    state.settings.store(Arc::new(merged));
+    state.core.settings.store(Arc::new(merged));
 
     // Notify consumers.
     if rebuild {
-        let _ = state.settings_notify.send(());
+        let _ = state.core.settings_notify.send(());
     }
 
     tracing::info!(?changed, rebuild, "Settings updated");
@@ -553,7 +570,7 @@ async fn list_individuals(
     Query(params): Query<IndividualParams>,
 ) -> Result<Json<Vec<IndividualSummary>>, StatusCode> {
     let rows = state
-        .db
+        .core.db
         .list_individuals(params.species.as_deref())
         .await
         .map_err(|e| {
@@ -588,7 +605,7 @@ async fn get_individual(
 ) -> Result<Json<IndividualSummary>, StatusCode> {
     let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
     let row = state
-        .db
+        .core.db
         .get_individual(uuid.as_bytes().as_slice())
         .await
         .map_err(|e| {
@@ -609,13 +626,13 @@ async fn get_individual(
 async fn delete_all_individuals(
     State(state): State<ApiState>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let deleted = state.db.delete_all_individuals().await.map_err(|e| {
+    let deleted = state.core.db.delete_all_individuals().await.map_err(|e| {
         tracing::error!(error = %e, "Failed to delete all individuals");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
     // Reload matcher to clear the in-memory cache.
-    if let Some(matcher) = &state.matcher
+    if let Some(matcher) = &state.inference.matcher
         && let Err(e) = matcher.reload().await
     {
         tracing::warn!(error = %e, "Failed to reload matcher after bulk delete");
@@ -636,7 +653,7 @@ async fn enroll_individual(
 
     // Fetch the detection to get the species.
     let det = state
-        .db
+        .core.db
         .get_detection(det_uuid.as_bytes().as_slice())
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -644,7 +661,7 @@ async fn enroll_individual(
 
     // Fetch the embedding for this detection.
     let emb_blob = state
-        .db
+        .core.db
         .get_embedding_for_detection(det_uuid.as_bytes().as_slice())
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -661,7 +678,7 @@ async fn enroll_individual(
     let scientific_name = det.scientific_name.unwrap_or_default();
 
     state
-        .db
+        .core.db
         .insert_individual(&sitta_store::models::NewIndividual {
             id: &individual_id,
             scientific_name: &scientific_name,
@@ -675,7 +692,7 @@ async fn enroll_individual(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Reload the matcher cache so future detections see this individual.
-    if let Some(matcher) = &state.matcher
+    if let Some(matcher) = &state.inference.matcher
         && let Err(e) = matcher.reload().await
     {
         tracing::warn!(error = %e, "Failed to reload matcher after enrollment");
@@ -719,11 +736,11 @@ struct IndividualSummary {
 async fn list_candidate_clusters(
     State(state): State<ApiState>,
 ) -> Result<Json<Vec<CandidateClusterSummary>>, StatusCode> {
-    let min_members = state.initial_config.min_cluster_size;
-    let min_days = state.initial_config.min_distinct_days;
+    let min_members = state.core.initial_config.min_cluster_size;
+    let min_days = state.core.initial_config.min_distinct_days;
 
     let rows = state
-        .db
+        .core.db
         .ready_clusters(min_members, min_days)
         .await
         .map_err(|e| {
@@ -752,7 +769,7 @@ async fn enroll_cluster(
     Json(req): Json<ClusterEnrollRequest>,
 ) -> Result<Json<IndividualSummary>, (StatusCode, String)> {
     let cluster = state
-        .db
+        .core.db
         .get_cluster(cluster_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -768,7 +785,7 @@ async fn enroll_cluster(
     let dim = cluster.centroid_dim;
 
     state
-        .db
+        .core.db
         .insert_individual(&sitta_store::models::NewIndividual {
             id: &individual_id,
             scientific_name: &cluster.scientific_name,
@@ -783,14 +800,14 @@ async fn enroll_cluster(
 
     // Mark cluster as enrolled.
     state
-        .db
+        .core.db
         .enroll_cluster(cluster_id, &individual_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Link cluster member detections to the new individual.
     let detection_ids = state
-        .db
+        .core.db
         .cluster_detection_ids(cluster_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -799,14 +816,14 @@ async fn enroll_cluster(
             let match_id = uuid::Uuid::now_v7();
             // Use similarity 0.0 as a sentinel — these are founding members, not runtime matches.
             let _ = state
-                .db
+                .core.db
                 .insert_individual_match(&match_id, &individual_id, &det_uuid, 1.0, now_ms)
                 .await;
         }
     }
 
     // Reload matcher so future detections match against this individual.
-    if let Some(matcher) = &state.matcher
+    if let Some(matcher) = &state.inference.matcher
         && let Err(e) = matcher.reload().await
     {
         tracing::warn!(error = %e, "Failed to reload matcher after cluster enrollment");
@@ -835,7 +852,7 @@ async fn dismiss_cluster(
     Path(cluster_id): Path<i64>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let cluster = state
-        .db
+        .core.db
         .get_cluster(cluster_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -846,7 +863,7 @@ async fn dismiss_cluster(
     }
 
     state
-        .db
+        .core.db
         .dismiss_cluster(cluster_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -879,8 +896,8 @@ struct ClusterEnrollRequest {
 async fn get_mqtt_config(
     State(state): State<ApiState>,
 ) -> Json<serde_json::Value> {
-    let mut mqtt = serde_json::to_value(settings::read_mqtt_from_toml(&state.config_path)).unwrap();
-    let running = if let Some(ref ctrl) = state.mqtt_control {
+    let mut mqtt = serde_json::to_value(settings::read_mqtt_from_toml(&state.core.config_path)).unwrap();
+    let running = if let Some(ref ctrl) = state.integrations.mqtt_control {
         ctrl.is_running().await
     } else {
         false
@@ -894,11 +911,11 @@ async fn put_mqtt_config(
     Json(mqtt): Json<settings::MqttSettings>,
 ) -> Result<Json<settings::MqttSettings>, (StatusCode, String)> {
     // Persist to config.toml.
-    settings::persist_mqtt_to_toml(&state.config_path, &mqtt)
+    settings::persist_mqtt_to_toml(&state.core.config_path, &mqtt)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     // Dynamically start or stop the MQTT publisher.
-    if let Some(ref ctrl) = state.mqtt_control {
+    if let Some(ref ctrl) = state.integrations.mqtt_control {
         if mqtt.enabled && !mqtt.host.is_empty() {
             ctrl.start(&mqtt).await;
         } else {
@@ -914,7 +931,7 @@ async fn put_mqtt_config(
 async fn list_sources(
     State(state): State<ApiState>,
 ) -> Json<Vec<SourceSummary>> {
-    let configs = state.source_manager.list().await;
+    let configs = state.audio.source_manager.list().await;
     let summaries = configs
         .into_iter()
         .map(|c| {
@@ -947,14 +964,14 @@ async fn add_source(
     };
 
     state
-        .source_manager
+        .audio.source_manager
         .add(config)
         .await
         .map_err(|e| (StatusCode::CONFLICT, e))?;
 
     // Persist to config.toml so sources survive restart.
-    let all_sources = state.source_manager.list().await;
-    if let Err(e) = settings::persist_sources_to_toml(&state.config_path, &all_sources) {
+    let all_sources = state.audio.source_manager.list().await;
+    if let Err(e) = settings::persist_sources_to_toml(&state.core.config_path, &all_sources) {
         tracing::warn!(error = %e, "Source added but failed to persist to config");
     }
 
@@ -970,13 +987,13 @@ async fn remove_source(
     Path(name): Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     state
-        .source_manager
+        .audio.source_manager
         .remove(&name)
         .await
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
 
-    let all_sources = state.source_manager.list().await;
-    if let Err(e) = settings::persist_sources_to_toml(&state.config_path, &all_sources) {
+    let all_sources = state.audio.source_manager.list().await;
+    if let Err(e) = settings::persist_sources_to_toml(&state.core.config_path, &all_sources) {
         tracing::warn!(error = %e, "Source removed but failed to persist to config");
     }
 
@@ -994,7 +1011,7 @@ struct SourceSummary {
 async fn audio_levels_handler(
     State(state): State<ApiState>,
 ) -> Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>> {
-    let mut rx = state.audio_tx.subscribe();
+    let mut rx = state.audio.audio_tx.subscribe();
     let stream = async_stream::stream! {
         loop {
             match rx.recv().await {
@@ -1027,7 +1044,7 @@ async fn audio_levels_handler(
 async fn list_audio_sources(
     State(state): State<ApiState>,
 ) -> Json<Vec<String>> {
-    Json(state.source_manager.names().await)
+    Json(state.audio.source_manager.names().await)
 }
 
 async fn audio_stream_handler(
@@ -1037,14 +1054,14 @@ async fn audio_stream_handler(
     use axum::body::Body;
     use axum::http::Response;
 
-    if !state.source_manager.contains(&source_name).await {
+    if !state.audio.source_manager.contains(&source_name).await {
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(Body::from(format!("unknown source: {source_name}")))
             .unwrap();
     }
 
-    let mut rx = state.audio_tx.subscribe();
+    let mut rx = state.audio.audio_tx.subscribe();
     let header_source = source_name.clone();
     let stream = async_stream::stream! {
         let mut header_sent = false;
@@ -1097,12 +1114,12 @@ async fn detection_audio_handler(
 ) -> Result<axum::response::Response, StatusCode> {
     use axum::body::Body;
 
-    let clip_dir = state.clip_dir.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    let clip_dir = state.integrations.clip_dir.as_ref().ok_or(StatusCode::NOT_FOUND)?;
     let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
     let id_bytes = uuid.as_bytes().as_slice();
 
     let row = state
-        .db
+        .core.db
         .get_detection(id_bytes)
         .await
         .map_err(|e| {
@@ -1144,12 +1161,12 @@ async fn detection_spectrogram_handler(
     use axum::body::Body;
     use sitta_audio::spectrogram::{generate_spectrogram, SpectrogramParams};
 
-    let clip_dir = state.clip_dir.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    let clip_dir = state.integrations.clip_dir.as_ref().ok_or(StatusCode::NOT_FOUND)?;
     let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
     let id_bytes = uuid.as_bytes().as_slice();
 
     let row = state
-        .db
+        .core.db
         .get_detection(id_bytes)
         .await
         .map_err(|e| {
@@ -1229,12 +1246,12 @@ async fn put_review(
     let id_bytes = uuid.as_bytes().as_slice();
 
     // Verify the detection exists.
-    state.db.get_detection(id_bytes).await
+    state.core.db.get_detection(id_bytes).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     let now = Utc::now();
-    state.db.upsert_review(id_bytes, &body.status, now.timestamp_millis(), body.comment.as_deref())
+    state.core.db.upsert_review(id_bytes, &body.status, now.timestamp_millis(), body.comment.as_deref())
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to save review");
@@ -1256,7 +1273,7 @@ async fn get_review(
     let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
     let id_bytes = uuid.as_bytes().as_slice();
 
-    let review = state.db.get_review(id_bytes).await
+    let review = state.core.db.get_review(id_bytes).await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to query review");
             StatusCode::INTERNAL_SERVER_ERROR
@@ -1281,7 +1298,7 @@ async fn delete_review(
     let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
     let id_bytes = uuid.as_bytes().as_slice();
 
-    let deleted = state.db.delete_review(id_bytes).await
+    let deleted = state.core.db.delete_review(id_bytes).await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to delete review");
             StatusCode::INTERNAL_SERVER_ERROR
@@ -1363,7 +1380,7 @@ fn millis_to_rfc3339(ms: i64) -> Option<String> {
 async fn dashboard_page(
     State(state): State<ApiState>,
 ) -> axum::response::Html<String> {
-    let s = state.settings.load();
+    let s = state.core.settings.load();
     let content = dashboard::dashboard_content(&s.station_name);
     dashboard::page("Dashboard", "dashboard", &content, &s.timezone)
 }
@@ -1371,7 +1388,7 @@ async fn dashboard_page(
 async fn species_page(
     State(state): State<ApiState>,
 ) -> axum::response::Html<String> {
-    let s = state.settings.load();
+    let s = state.core.settings.load();
     let content = dashboard::species_content();
     dashboard::page("Species", "species", &content, &s.timezone)
 }
@@ -1380,7 +1397,7 @@ async fn species_detail_page(
     State(state): State<ApiState>,
     Path(name): Path<String>,
 ) -> axum::response::Html<String> {
-    let s = state.settings.load();
+    let s = state.core.settings.load();
     let content = dashboard::species_detail_content(&name);
     dashboard::page(&format!("{name} — Species"), "species", &content, &s.timezone)
 }
@@ -1388,7 +1405,7 @@ async fn species_detail_page(
 async fn status_page(
     State(state): State<ApiState>,
 ) -> axum::response::Html<String> {
-    let s = state.settings.load();
+    let s = state.core.settings.load();
     let content = dashboard::status_content(&s.station_name);
     dashboard::page("Status", "status", &content, &s.timezone)
 }
@@ -1396,7 +1413,7 @@ async fn status_page(
 async fn individuals_page(
     State(state): State<ApiState>,
 ) -> axum::response::Html<String> {
-    let s = state.settings.load();
+    let s = state.core.settings.load();
     let content = dashboard::individuals_content();
     dashboard::page("Individuals", "individuals", &content, &s.timezone)
 }
@@ -1404,7 +1421,7 @@ async fn individuals_page(
 async fn settings_page(
     State(state): State<ApiState>,
 ) -> axum::response::Html<String> {
-    let s = state.settings.load();
-    let content = dashboard::settings_content(&s, &state.initial_config);
+    let s = state.core.settings.load();
+    let content = dashboard::settings_content(&s, &state.core.initial_config);
     dashboard::page("Settings", "settings", &content, &s.timezone)
 }

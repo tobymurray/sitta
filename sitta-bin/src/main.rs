@@ -190,22 +190,30 @@ async fn main() -> Result<()> {
     ));
 
     let api_state = ApiState {
-        db: db.clone(),
-        detection_tx: persist_ctx.detection_tx.clone(),
-        settings: settings.clone(),
-        settings_notify: Arc::new(settings_notify_tx),
-        config_path: std::path::PathBuf::from(&config_path),
-        initial_config,
-        metrics: metrics.clone(),
-        matcher: persist_ctx.matcher.clone(),
-        audio_tx: tx.clone(),
-        source_manager: source_manager.clone(),
-        clip_dir: if config.snippets.enabled {
-            Some(std::path::PathBuf::from(&config.snippets.clip_dir))
-        } else {
-            None
+        core: sitta_api::server::CoreState {
+            db: db.clone(),
+            settings: settings.clone(),
+            settings_notify: Arc::new(settings_notify_tx),
+            config_path: std::path::PathBuf::from(&config_path),
+            initial_config,
         },
-        mqtt_control: Some(mqtt_controller.clone()),
+        audio: sitta_api::server::AudioState {
+            audio_tx: tx.clone(),
+            source_manager: source_manager.clone(),
+        },
+        inference: sitta_api::server::InferenceState {
+            detection_tx: persist_ctx.detection_tx.clone(),
+            matcher: persist_ctx.matcher.clone(),
+            metrics: metrics.clone(),
+        },
+        integrations: sitta_api::server::IntegrationState {
+            mqtt_control: Some(mqtt_controller.clone()),
+            clip_dir: if config.snippets.enabled {
+                Some(std::path::PathBuf::from(&config.snippets.clip_dir))
+            } else {
+                None
+            },
+        },
     };
     tokio::spawn(server::serve(api_addr, api_state, shutdown.clone()));
 
