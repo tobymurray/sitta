@@ -9,7 +9,7 @@ chunk_seconds = 3
 
 [[audio.sources]]
 type = "rtsp"
-name = "nofth_feeder"
+name = "north_feeder"
 url = "rtsp://192.168.1.132:8554/north_feeder"
 transport = "tcp"
 # sample_rate = 48000

@@ -194,6 +194,28 @@ pub fn dashboard_content(station_name: &str) -> String {
   </div>
 </div>
 
+<!-- Audio sources -->
+<div id="audio-sources" class="mb-6"></div>
+
+<!-- Audio player modal -->
+<div id="audio-player" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+  <div class="bg-white dark:bg-plumage-900 rounded-t-xl sm:rounded-xl border border-stone-200 dark:border-plumage-800 shadow-xl w-full sm:max-w-sm p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h3 id="player-title" class="font-semibold text-sm"></h3>
+      <button onclick="stopPlayer()" class="text-stone-400 hover:text-stone-600 dark:text-plumage-500 dark:hover:text-plumage-300">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="flex items-center gap-3">
+      <div id="player-level" class="flex-1 h-3 bg-stone-100 dark:bg-plumage-800 rounded-full overflow-hidden">
+        <div id="player-bar" class="h-full bg-nuthatch-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+      </div>
+      <span id="player-dbfs" class="text-xs text-stone-400 dark:text-plumage-500 font-mono w-16 text-right">-- dBFS</span>
+    </div>
+    <p class="text-xs text-stone-400 dark:text-plumage-500 mt-2">Streaming live audio via Web Audio API</p>
+  </div>
+</div>
+
 <!-- Live detection feed -->
 <div class="flex items-center justify-between mb-4">
   <h2 class="text-lg font-semibold">Recent Detections</h2>
@@ -325,6 +347,143 @@ pub fn dashboard_content(station_name: &str) -> String {
   }});
   sse.onopen = () => setConnected(true);
   sse.onerror = () => setConnected(false);
+
+  // ── Audio sources: level meters ────────────────────────────────
+  const srcEl = document.getElementById('audio-sources');
+  const levels = {{}};
+  let activePlayer = null;
+  let audioCtx = null;
+
+  fetch('/api/v1/audio/sources')
+    .then(r => r.json())
+    .then(names => {{
+      if (names.length === 0) return;
+      srcEl.innerHTML = '<div class="grid gap-3 ' + (names.length > 1 ? 'sm:grid-cols-2' : '') + '">' +
+        names.map(n => `<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 px-4 py-3">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-sm font-medium truncate">${{n}}</span>
+            <button onclick="startPlayer('${{n}}')" class="text-xs text-nuthatch-600 dark:text-nuthatch-400 hover:underline flex items-center gap-1">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z"/></svg>
+              Listen
+            </button>
+          </div>
+          <div class="h-2 bg-stone-100 dark:bg-plumage-800 rounded-full overflow-hidden">
+            <div id="level-${{n}}" class="h-full bg-nuthatch-500 rounded-full transition-all duration-500" style="width:0%"></div>
+          </div>
+          <div class="flex justify-between mt-1">
+            <span id="dbfs-${{n}}" class="text-[10px] text-stone-400 dark:text-plumage-500 font-mono">-- dBFS</span>
+            <span id="peak-${{n}}" class="text-[10px] text-stone-400 dark:text-plumage-500 font-mono">pk --</span>
+          </div>
+        </div>`).join('') + '</div>';
+    }});
+
+  const levelSse = new EventSource('/api/v1/audio/levels');
+  window.addEventListener('beforeunload', () => levelSse.close());
+  levelSse.addEventListener('level', (e) => {{
+    const d = JSON.parse(e.data);
+    const bar = document.getElementById('level-' + d.source);
+    const dbfs = document.getElementById('dbfs-' + d.source);
+    const peak = document.getElementById('peak-' + d.source);
+    if (bar) {{
+      // Map dBFS to percentage: -60 dBFS = 0%, 0 dBFS = 100%
+      const pct = Math.max(0, Math.min(100, ((d.rms_dbfs + 60) / 60) * 100));
+      bar.style.width = pct + '%';
+      bar.className = bar.className.replace(/bg-\S+/, pct > 80 ? 'bg-red-500' : pct > 50 ? 'bg-nuthatch-500' : 'bg-plumage-500');
+    }}
+    if (dbfs) dbfs.textContent = (d.rms_dbfs > -100 ? d.rms_dbfs.toFixed(1) : '--') + ' dBFS';
+    if (peak) peak.textContent = 'pk ' + d.peak.toFixed(2);
+
+    // Update player level if playing this source
+    if (activePlayer === d.source) {{
+      const pb = document.getElementById('player-bar');
+      const pd = document.getElementById('player-dbfs');
+      if (pb) {{
+        const pct = Math.max(0, Math.min(100, ((d.rms_dbfs + 60) / 60) * 100));
+        pb.style.width = pct + '%';
+      }}
+      if (pd) pd.textContent = (d.rms_dbfs > -100 ? d.rms_dbfs.toFixed(1) : '--') + ' dBFS';
+    }}
+  }});
+
+  // ── Audio player via Web Audio API ─────────────────────────────
+  let playerAbort = null;
+
+  window.startPlayer = async function(source) {{
+    stopPlayer();
+    activePlayer = source;
+    document.getElementById('player-title').textContent = source;
+    document.getElementById('audio-player').classList.remove('hidden');
+
+    try {{
+      playerAbort = new AbortController();
+      const resp = await fetch('/api/v1/audio/stream/' + encodeURIComponent(source), {{ signal: playerAbort.signal }});
+      const reader = resp.body.getReader();
+
+      // Read 20-byte header
+      let hdrBuf = new Uint8Array(0);
+      while (hdrBuf.length < 20) {{
+        const {{ done, value }} = await reader.read();
+        if (done) return;
+        const tmp = new Uint8Array(hdrBuf.length + value.length);
+        tmp.set(hdrBuf); tmp.set(value, hdrBuf.length);
+        hdrBuf = tmp;
+      }}
+      const hdr = new DataView(hdrBuf.buffer);
+      const sampleRate = hdr.getUint32(0, true);
+      const channels = hdr.getUint16(4, true);
+      const chunkSamples = hdr.getUint32(8, true);
+      const chunkBytes = chunkSamples * 4;
+
+      // Remaining bytes after header
+      let remainder = hdrBuf.slice(20);
+
+      if (!audioCtx || audioCtx.sampleRate !== sampleRate) {{
+        if (audioCtx) audioCtx.close();
+        audioCtx = new AudioContext({{ sampleRate: sampleRate }});
+      }}
+      if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+      let nextTime = audioCtx.currentTime + 0.1;
+      let buf = new Uint8Array(0);
+
+      // Prepend remainder
+      if (remainder.length > 0) {{
+        buf = remainder;
+      }}
+
+      while (true) {{
+        const {{ done, value }} = await reader.read();
+        if (done) break;
+        const tmp = new Uint8Array(buf.length + value.length);
+        tmp.set(buf); tmp.set(value, buf.length);
+        buf = tmp;
+
+        while (buf.length >= chunkBytes) {{
+          const samples = new Float32Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + chunkBytes));
+          buf = buf.slice(chunkBytes);
+
+          const audioBuf = audioCtx.createBuffer(channels || 1, chunkSamples, sampleRate);
+          audioBuf.getChannelData(0).set(samples);
+
+          const src = audioCtx.createBufferSource();
+          src.buffer = audioBuf;
+          src.connect(audioCtx.destination);
+
+          const startAt = Math.max(nextTime, audioCtx.currentTime);
+          src.start(startAt);
+          nextTime = startAt + audioBuf.duration;
+        }}
+      }}
+    }} catch (e) {{
+      if (e.name !== 'AbortError') console.error('Player error:', e);
+    }}
+  }};
+
+  window.stopPlayer = function() {{
+    if (playerAbort) {{ playerAbort.abort(); playerAbort = null; }}
+    activePlayer = null;
+    document.getElementById('audio-player').classList.add('hidden');
+  }};
 }})();
 </script>"##,
         station_name = station_name,

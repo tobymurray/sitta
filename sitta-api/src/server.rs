@@ -79,6 +79,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/v1/sources", get(list_sources).post(add_source))
         .route("/api/v1/sources/{name}", delete(remove_source))
         .route("/api/v1/audio/sources", get(list_audio_sources))
+        .route("/api/v1/audio/levels", get(audio_levels_handler))
         .route("/api/v1/audio/stream/{source_name}", get(audio_stream_handler))
         // Dashboard pages
         .route("/", get(dashboard_page))
@@ -591,6 +592,39 @@ struct SourceSummary {
     source_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<String>,
+}
+
+async fn audio_levels_handler(
+    State(state): State<ApiState>,
+) -> Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>> {
+    let mut rx = state.audio_tx.subscribe();
+    let stream = async_stream::stream! {
+        loop {
+            match rx.recv().await {
+                Ok(chunk) => {
+                    let rms = chunk.rms();
+                    let dbfs = chunk.rms_dbfs();
+                    let peak = chunk.peak();
+                    let json = serde_json::json!({
+                        "source": chunk.source_name,
+                        "rms": rms,
+                        "rms_dbfs": dbfs,
+                        "peak": peak,
+                        "sample_rate": chunk.sample_rate,
+                        "duration_secs": chunk.duration_secs(),
+                    });
+                    if let Ok(data) = serde_json::to_string(&json) {
+                        yield Ok::<_, Infallible>(
+                            Event::default().event("level").data(data)
+                        );
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    };
+    Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
 async fn list_audio_sources(
