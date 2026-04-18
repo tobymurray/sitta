@@ -262,6 +262,22 @@ pub fn activity_panel() -> String {
       stroke.setAttribute('stroke-opacity', (0.3 + 0.5 * (1 - i / Math.max(1, species.length - 1))).toFixed(2));
       g.appendChild(stroke);
 
+      // Detection dots — visible anchors for sparse species
+      const dots = [];
+      sp.hours.forEach((v, h) => {
+        if (v === 0) return;
+        const dot = document.createElementNS(ns, 'circle');
+        dot.setAttribute('cx', points[h].x.toFixed(1));
+        dot.setAttribute('cy', points[h].y.toFixed(1));
+        // Larger dots for sparse species, smaller for busy ones
+        const r = sp.total <= 5 ? 3 : sp.total <= 20 ? 2.5 : 2;
+        dot.setAttribute('r', r);
+        dot.setAttribute('fill', isDark ? '#e38a47' : '#d97226');
+        dot.setAttribute('fill-opacity', sp.total <= 5 ? '0.9' : '0.5');
+        dots.push(dot);
+        g.appendChild(dot);
+      });
+
       // Hit area (invisible wide strip for hover)
       const hit = document.createElementNS(ns, 'rect');
       hit.setAttribute('x', PAD.left);
@@ -276,11 +292,13 @@ pub fn activity_panel() -> String {
         stroke.setAttribute('stroke-width', '2.5');
         stroke.setAttribute('stroke-opacity', '1');
         area.style.filter = 'brightness(1.2)';
+        dots.forEach(d => { d.setAttribute('fill-opacity', '1'); d.setAttribute('r', parseFloat(d.getAttribute('r')) + 0.5); });
       });
       g.addEventListener('mouseleave', () => {
         stroke.setAttribute('stroke-width', '1.5');
         stroke.setAttribute('stroke-opacity', (0.3 + 0.5 * (1 - i / Math.max(1, species.length - 1))).toFixed(2));
         area.style.filter = '';
+        dots.forEach(d => { d.setAttribute('fill-opacity', sp.total <= 5 ? '0.9' : '0.5'); d.setAttribute('r', sp.total <= 5 ? 3 : sp.total <= 20 ? 2.5 : 2); });
         tip.classList.add('hidden');
       });
       g.addEventListener('mousemove', (e) => {
