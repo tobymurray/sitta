@@ -26,6 +26,13 @@ tailwind.config = {{
   theme: {{
     extend: {{
       fontFamily: {{ sans: ['Inter', 'system-ui', 'sans-serif'] }},
+      colors: {{
+        nuthatch: {{
+          50: '#faf7f2', 100: '#f3ede3', 200: '#e6d9c5', 300: '#d4bfa0',
+          400: '#c2a17a', 500: '#b5895e', 600: '#a87653', 700: '#8c5e45',
+          800: '#724d3c', 900: '#5e4133', 950: '#32211a',
+        }},
+      }},
     }},
   }},
 }}
@@ -35,16 +42,19 @@ tailwind.config = {{
   .slide-in {{ animation: slideIn 0.3s ease-out; }}
 </style>
 <script>
-  if (window.matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.classList.add('dark');
+  (function() {{
+    var s = localStorage.getItem('sitta-theme');
+    if (s === 'dark' || (!s && window.matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.classList.add('dark');
+  }})();
 </script>
 </head>
-<body class="h-full bg-gray-50 dark:bg-slate-950 font-sans text-gray-900 dark:text-slate-100">
+<body class="h-full bg-stone-50 dark:bg-slate-950 font-sans text-stone-900 dark:text-stone-100">
 <div class="flex h-full">
 
   <!-- Sidebar -->
-  <nav class="hidden lg:flex lg:flex-col lg:w-60 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800">
-    <div class="flex items-center gap-2.5 px-5 py-5 border-b border-gray-200 dark:border-slate-800">
-      <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
+  <nav class="hidden lg:flex lg:flex-col lg:w-60 bg-white dark:bg-slate-900 border-r border-stone-200 dark:border-slate-800">
+    <div class="flex items-center gap-2.5 px-5 py-5 border-b border-stone-200 dark:border-slate-800">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-slate-500 to-nuthatch-600 flex items-center justify-center">
         <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3c-1.5 0-3 .5-4 2-1.5 2-1 5 1 7l3 3 3-3c2-2 2.5-5 1-7-1-1.5-2.5-2-4-2z"/></svg>
       </div>
       <span class="text-lg font-bold tracking-tight">Sitta</span>
@@ -56,8 +66,13 @@ tailwind.config = {{
       {nav_individuals}
       {nav_settings}
     </div>
-    <div class="px-5 py-4 border-t border-gray-200 dark:border-slate-800 text-xs text-gray-400 dark:text-slate-600">
-      Sitta v0.1.0
+    <div class="px-5 py-3 border-t border-stone-200 dark:border-slate-800">
+      <button onclick="toggleTheme()" class="flex items-center gap-2 text-xs text-stone-400 dark:text-slate-500 hover:text-stone-600 dark:hover:text-slate-300 transition-colors">
+        <svg class="w-4 h-4 hidden dark:block" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z"/></svg>
+        <svg class="w-4 h-4 block dark:hidden" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z"/></svg>
+        <span class="dark:hidden">Dark mode</span><span class="hidden dark:inline">Light mode</span>
+      </button>
+      <p class="text-xs text-stone-400 dark:text-slate-600 mt-2">Sitta v0.1.0</p>
     </div>
   </nav>
 
@@ -65,8 +80,8 @@ tailwind.config = {{
   <div class="flex-1 flex flex-col min-w-0">
 
     <!-- Mobile header -->
-    <header class="lg:hidden flex items-center gap-3 px-4 py-3 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800">
-      <div class="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center">
+    <header class="lg:hidden flex items-center gap-3 px-4 py-3 bg-white dark:bg-slate-900 border-b border-stone-200 dark:border-slate-800">
+      <div class="w-7 h-7 rounded-md bg-gradient-to-br from-slate-500 to-nuthatch-600 flex items-center justify-center">
         <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3c-1.5 0-3 .5-4 2-1.5 2-1 5 1 7l3 3 3-3c2-2 2.5-5 1-7-1-1.5-2.5-2-4-2z"/></svg>
       </div>
       <span class="font-bold">Sitta</span>
@@ -87,6 +102,13 @@ tailwind.config = {{
     </main>
   </div>
 </div>
+<script>
+function toggleTheme() {{
+  var d = document.documentElement.classList;
+  if (d.contains('dark')) {{ d.remove('dark'); localStorage.setItem('sitta-theme','light'); }}
+  else {{ d.add('dark'); localStorage.setItem('sitta-theme','dark'); }}
+}}
+</script>
 </body>
 </html>"##,
         title = title,
@@ -101,19 +123,19 @@ tailwind.config = {{
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>"#),
         nav_settings = nav_item("Settings", "/settings", "settings", active,
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>"#),
-        mob_dashboard = if active == "dashboard" { "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium" } else { "text-gray-600 dark:text-slate-400" },
-        mob_species = if active == "species" { "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium" } else { "text-gray-600 dark:text-slate-400" },
-        mob_status = if active == "status" { "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium" } else { "text-gray-600 dark:text-slate-400" },
-        mob_individuals = if active == "individuals" { "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium" } else { "text-gray-600 dark:text-slate-400" },
-        mob_settings = if active == "settings" { "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium" } else { "text-gray-600 dark:text-slate-400" },
+        mob_dashboard = if active == "dashboard" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-slate-400" },
+        mob_species = if active == "species" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-slate-400" },
+        mob_status = if active == "status" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-slate-400" },
+        mob_individuals = if active == "individuals" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-slate-400" },
+        mob_settings = if active == "settings" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-slate-400" },
     ))
 }
 
 fn nav_item(label: &str, href: &str, key: &str, active: &str, icon_path: &str) -> String {
     let (bg, text) = if key == active {
-        ("bg-blue-50 dark:bg-blue-900/20", "text-blue-700 dark:text-blue-400 font-medium")
+        ("bg-nuthatch-50 dark:bg-nuthatch-900/20", "text-nuthatch-800 dark:text-nuthatch-400 font-medium")
     } else {
-        ("hover:bg-gray-100 dark:hover:bg-slate-800", "text-gray-700 dark:text-slate-300")
+        ("hover:bg-stone-100 dark:hover:bg-slate-800", "text-stone-700 dark:text-slate-300")
     };
     format!(
         r#"<a href="{href}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {bg} {text} transition-colors">
@@ -329,7 +351,7 @@ pub fn species_content() -> String {
             <p class="text-xs text-gray-400 dark:text-slate-500 italic">${s.scientific_name}</p>
           </td>
           <td class="px-4 py-3 text-right">
-            <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 text-sm font-semibold px-2 py-0.5">${s.detection_count}</span>
+            <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full bg-nuthatch-50 dark:bg-nuthatch-900/20 text-nuthatch-700 dark:text-nuthatch-400 text-sm font-semibold px-2 py-0.5">${s.detection_count}</span>
           </td>
           <td class="px-4 py-3 text-right hidden sm:table-cell">
             <span class="text-sm font-medium ${confClass}">${pct}%</span>
@@ -439,20 +461,20 @@ pub fn individuals_content() -> String {
       <div>
         <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Label</label>
         <input id="enroll-label" type="text" placeholder="e.g. Barn Owl #1"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 outline-none">
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Notes (optional)</label>
         <input id="enroll-notes" type="text" placeholder="e.g. First seen near north paddock"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 outline-none">
       </div>
     </div>
 
     <div class="flex justify-end gap-2 mt-4">
       <button onclick="document.getElementById('enroll-modal').classList.add('hidden')"
-        class="px-3 py-1.5 rounded-lg text-sm text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors">Cancel</button>
+        class="px-3 py-1.5 rounded-lg text-sm text-stone-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors">Cancel</button>
       <button id="enroll-btn" disabled
-        class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        class="px-3 py-1.5 rounded-lg bg-nuthatch-600 text-white text-sm font-medium hover:bg-nuthatch-700 disabled:opacity-50 transition-colors"
         onclick="submitEnroll()">Enroll</button>
     </div>
     <div id="enroll-status" class="mt-2 text-sm"></div>
@@ -491,7 +513,7 @@ pub fn individuals_content() -> String {
               <h3 class="font-semibold text-sm">${g.individuals[0].scientific_name}</h3>
               <p class="text-xs text-gray-400 dark:text-slate-500 italic">${g.scientific_name}</p>
             </div>
-            <span class="inline-flex items-center justify-center min-w-[1.5rem] rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 text-xs font-semibold px-2 py-0.5">${g.individuals.length}</span>
+            <span class="inline-flex items-center justify-center min-w-[1.5rem] rounded-full bg-nuthatch-50 dark:bg-nuthatch-900/20 text-nuthatch-700 dark:text-nuthatch-400 text-xs font-semibold px-2 py-0.5">${g.individuals.length}</span>
           </div>
           <div class="divide-y divide-gray-100 dark:divide-slate-800">`;
 
@@ -537,7 +559,7 @@ pub fn individuals_content() -> String {
           const time = new Date(d.detected_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
           const pct = Math.round(d.confidence * 100);
           return `<button onclick="selectDetection('${d.id}', '${d.species.common_name}', this)"
-            class="w-full text-left px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 transition-colors text-sm flex items-center justify-between">
+            class="w-full text-left px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 hover:border-nuthatch-400 dark:hover:border-nuthatch-500 transition-colors text-sm flex items-center justify-between">
             <div>
               <span class="font-medium">${d.species.common_name}</span>
               <span class="text-gray-400 dark:text-slate-500 ml-2">${time}</span>
@@ -556,8 +578,8 @@ function selectDetection(id, species, btn) {
   document.getElementById('enroll-btn').disabled = false;
   // Highlight selected.
   document.querySelectorAll('#enroll-detections button').forEach(b =>
-    b.classList.remove('border-blue-500', 'dark:border-blue-400', 'bg-blue-50', 'dark:bg-blue-900/20'));
-  btn.classList.add('border-blue-500', 'dark:border-blue-400', 'bg-blue-50', 'dark:bg-blue-900/20');
+    b.classList.remove('border-nuthatch-500', 'dark:border-nuthatch-400', 'bg-nuthatch-50', 'dark:bg-nuthatch-900/20'));
+  btn.classList.add('border-nuthatch-500', 'dark:border-nuthatch-400', 'bg-nuthatch-50', 'dark:bg-nuthatch-900/20');
 }
 
 function submitEnroll() {
@@ -627,18 +649,18 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
       <div>
         <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Name</label>
         <input name="station_name" type="text" value="{station_name}"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
       <div class="hidden sm:block"></div>
       <div>
         <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Latitude</label>
         <input name="station_latitude" type="number" step="any" value="{lat}" placeholder="e.g. 44.5868"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Longitude</label>
         <input name="station_longitude" type="number" step="any" value="{lon}" placeholder="e.g. -76.0283"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
     </div>
     <p class="mt-2 text-xs text-gray-400 dark:text-slate-500">Station ID <code class="bg-gray-100 dark:bg-slate-800 px-1 rounded">{station_id}</code> requires restart to change.</p>
@@ -651,7 +673,7 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
       <div>
         <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Min Confidence (UI)</label>
         <input name="display_min_confidence" type="number" step="0.01" min="0" max="1" value="{display_min_confidence}"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
     </div>
     <p class="mt-2 text-xs text-gray-400 dark:text-slate-500">Detections below this confidence are still captured in the database but hidden from the dashboard, SSE feed, and species summary. Lower this to see more detections; raise it to reduce noise.</p>
@@ -664,7 +686,7 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
   <!-- Actions -->
   <div class="flex items-center gap-3">
     <button type="submit" id="save-btn"
-      class="inline-flex items-center px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 transition-colors">
+      class="inline-flex items-center px-4 py-2 rounded-lg bg-nuthatch-600 text-white text-sm font-medium hover:bg-nuthatch-700 focus:ring-2 focus:ring-nuthatch-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 transition-colors">
       Save Changes
     </button>
     <span id="save-status" class="text-sm text-gray-400 dark:text-slate-500"></span>
@@ -750,22 +772,22 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
       <div>
         <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Min Confidence</label>
         <input name="birdnet_min_confidence" type="number" step="0.01" min="0" max="1" value="{birdnet_conf}"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Top K</label>
         <input name="birdnet_top_k" type="number" min="1" max="100" value="{birdnet_topk}"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Meta Threshold</label>
         <input name="birdnet_meta_threshold" type="number" step="0.001" min="0" max="1" value="{birdnet_meta}"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Force Allow (eBird codes)</label>
         <input name="birdnet_force_allow" type="text" value="{birdnet_allow}" placeholder="e.g. helgui1, redjun1"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
     </div>
     <p class="mt-2 text-xs text-gray-400 dark:text-slate-500">Model and labels paths require restart to change.</p>
@@ -782,12 +804,12 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
       <div>
         <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Min Confidence</label>
         <input name="perch_min_confidence" type="number" step="0.01" min="0" max="1" value="{perch_conf}"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Top K</label>
         <input name="perch_top_k" type="number" min="1" max="100" value="{perch_topk}"
-          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
     </div>
     <p class="mt-2 text-xs text-gray-400 dark:text-slate-500">Model and labels paths require restart to change.</p>
