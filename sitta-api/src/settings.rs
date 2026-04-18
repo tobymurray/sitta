@@ -222,6 +222,52 @@ pub fn persist_to_toml(path: &Path, settings: &RuntimeSettings) -> Result<(), St
     Ok(())
 }
 
+/// Persist audio sources to the TOML config file, replacing the [[audio.sources]] array.
+pub fn persist_sources_to_toml(
+    path: &Path,
+    sources: &[sitta_audio::source::SourceConfig],
+) -> Result<(), String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("failed to read config: {e}"))?;
+    let mut doc = content
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|e| format!("failed to parse config: {e}"))?;
+
+    if let Some(audio) = doc.get_mut("audio").and_then(|v| v.as_table_mut()) {
+        // Rebuild the sources array from scratch.
+        let mut arr = toml_edit::ArrayOfTables::new();
+        for source in sources {
+            let mut table = toml_edit::Table::new();
+            match source {
+                sitta_audio::source::SourceConfig::Rtsp(r) => {
+                    table["type"] = toml_edit::value("rtsp");
+                    table["name"] = toml_edit::value(&r.name);
+                    table["url"] = toml_edit::value(&r.url);
+                    table["transport"] = toml_edit::value(r.transport.as_str());
+                    table["sample_rate"] = toml_edit::value(r.sample_rate as i64);
+                    table["channels"] = toml_edit::value(r.channels as i64);
+                }
+                sitta_audio::source::SourceConfig::Local(l) => {
+                    table["type"] = toml_edit::value("local");
+                    table["name"] = toml_edit::value(&l.name);
+                    table["device"] = toml_edit::value(&l.device);
+                }
+                sitta_audio::source::SourceConfig::Remote(r) => {
+                    table["type"] = toml_edit::value("remote");
+                    table["name"] = toml_edit::value(&r.name);
+                    table["url"] = toml_edit::value(&r.url);
+                }
+            }
+            arr.push(table);
+        }
+        audio.insert("sources", toml_edit::Item::ArrayOfTables(arr));
+    }
+
+    std::fs::write(path, doc.to_string())
+        .map_err(|e| format!("failed to write config: {e}"))?;
+    Ok(())
+}
+
 /// Round to 4 decimal places (~11m precision, sufficient for station location).
 pub fn round4(v: f64) -> f64 {
     (v * 10_000.0).round() / 10_000.0

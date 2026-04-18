@@ -108,12 +108,125 @@ tailwind.config = {{
     </main>
   </div>
 </div>
+<!-- Audio player modal (global) -->
+<div id="audio-player" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+  <div class="bg-white dark:bg-plumage-900 rounded-t-xl sm:rounded-xl border border-stone-200 dark:border-plumage-800 shadow-xl w-full sm:max-w-sm p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h3 id="player-title" class="font-semibold text-sm"></h3>
+      <button onclick="stopPlayer()" class="text-stone-400 hover:text-stone-600 dark:text-plumage-500 dark:hover:text-plumage-300">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="flex items-center gap-3">
+      <div class="flex-1 h-3 bg-stone-100 dark:bg-plumage-800 rounded-full overflow-hidden">
+        <div id="player-bar" class="h-full bg-nuthatch-500 rounded-full transition-all duration-300" style="width:0%"></div>
+      </div>
+      <span id="player-dbfs" class="text-xs text-stone-400 dark:text-plumage-500 font-mono w-16 text-right">-- dBFS</span>
+    </div>
+    <p class="text-xs text-stone-400 dark:text-plumage-500 mt-2">Streaming live audio</p>
+  </div>
+</div>
 <script>
 function toggleTheme() {{
   var d = document.documentElement.classList;
   if (d.contains('dark')) {{ d.remove('dark'); localStorage.setItem('sitta-theme','light'); }}
   else {{ d.add('dark'); localStorage.setItem('sitta-theme','dark'); }}
 }}
+
+// ── Audio waveforms + player (global, runs on every page) ──────
+(function() {{
+  const srcEl = document.getElementById('audio-sources');
+  if (!srcEl) return;
+  const WAVE_COLS = 30;
+  const waveData = {{}};
+  let activePlayer = null, audioCtx = null, playerAbort = null;
+
+  fetch('/api/v1/sources').then(r => r.json()).then(sources => {{
+    if (sources.length === 0) return;
+    srcEl.innerHTML = sources.map(s => {{
+      waveData[s.name] = new Array(WAVE_COLS).fill(0);
+      return `<div class="mb-2">
+        <div class="flex items-center justify-between mb-0.5">
+          <button onclick="startPlayer('${{s.name}}')" title="Listen to ${{s.name}}"
+            class="flex items-center gap-1.5 text-[11px] text-stone-500 dark:text-plumage-400 hover:text-nuthatch-500 dark:hover:text-nuthatch-400 transition-colors truncate">
+            <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z"/></svg>
+            ${{s.name}}
+          </button>
+          <span id="dbfs-${{s.name}}" class="text-[9px] text-stone-400 dark:text-plumage-600 font-mono">--</span>
+        </div>
+        <canvas id="wave-${{s.name}}" height="16" class="w-full rounded-sm" style="image-rendering:pixelated"></canvas>
+      </div>`;
+    }}).join('');
+    sources.forEach(s => {{ const c=document.getElementById('wave-'+s.name); if(c) c.width=c.offsetWidth; drawWave(s.name); }});
+  }}).catch(() => {{}});
+
+  function drawWave(name) {{
+    const cvs = document.getElementById('wave-' + name);
+    if (!cvs) return;
+    const ctx = cvs.getContext('2d'), w = cvs.width, h = cvs.height, data = waveData[name];
+    if (!data) return;
+    const barW = Math.max(2, w / WAVE_COLS);
+    const isDark = document.documentElement.classList.contains('dark');
+    ctx.clearRect(0, 0, w, h);
+    for (let i = 0; i < WAVE_COLS; i++) {{
+      const val = Math.sqrt(data[i]);
+      const barH = Math.max(1, val * h * 0.95);
+      const opacity = 0.15 + 0.85 * (i + 1) / WAVE_COLS;
+      const r = isDark ? 227 : 217, g = isDark ? 138 : 114, b = isDark ? 71 : 38;
+      ctx.fillStyle = `rgba(${{r}},${{g}},${{b}},${{opacity}})`;
+      ctx.fillRect(i * barW, (h - barH) / 2, barW - 1, barH);
+    }}
+  }}
+
+  const lvl = new EventSource('/api/v1/audio/levels');
+  window.addEventListener('beforeunload', () => lvl.close());
+  lvl.addEventListener('level', (e) => {{
+    const d = JSON.parse(e.data);
+    const val = Math.max(0, Math.min(1, (d.rms_dbfs + 72) / 60));
+    if (waveData[d.source]) {{ waveData[d.source].shift(); waveData[d.source].push(val); drawWave(d.source); }}
+    const el = document.getElementById('dbfs-' + d.source);
+    if (el) el.textContent = d.rms_dbfs > -100 ? d.rms_dbfs.toFixed(0) + ' dB' : '--';
+    if (activePlayer === d.source) {{
+      const pb = document.getElementById('player-bar'), pd = document.getElementById('player-dbfs');
+      if (pb) pb.style.width = (val * 100) + '%';
+      if (pd) pd.textContent = (d.rms_dbfs > -100 ? d.rms_dbfs.toFixed(1) : '--') + ' dBFS';
+    }}
+  }});
+
+  window.startPlayer = async function(source) {{
+    stopPlayer(); activePlayer = source;
+    document.getElementById('player-title').textContent = source;
+    document.getElementById('audio-player').classList.remove('hidden');
+    try {{
+      playerAbort = new AbortController();
+      const resp = await fetch('/api/v1/audio/stream/' + encodeURIComponent(source), {{ signal: playerAbort.signal }});
+      const reader = resp.body.getReader();
+      let hdrBuf = new Uint8Array(0);
+      while (hdrBuf.length < 20) {{ const {{ done, value }} = await reader.read(); if (done) return; const t = new Uint8Array(hdrBuf.length + value.length); t.set(hdrBuf); t.set(value, hdrBuf.length); hdrBuf = t; }}
+      const hdr = new DataView(hdrBuf.buffer);
+      const sampleRate = hdr.getUint32(0, true), channels = hdr.getUint16(4, true), chunkSamples = hdr.getUint32(8, true), chunkBytes = chunkSamples * 4;
+      let remainder = hdrBuf.slice(20);
+      if (!audioCtx || audioCtx.sampleRate !== sampleRate) {{ if (audioCtx) audioCtx.close(); audioCtx = new AudioContext({{ sampleRate }}); }}
+      if (audioCtx.state === 'suspended') await audioCtx.resume();
+      let nextTime = audioCtx.currentTime + 0.1, buf = remainder;
+      while (true) {{
+        const {{ done, value }} = await reader.read(); if (done) break;
+        const t = new Uint8Array(buf.length + value.length); t.set(buf); t.set(value, buf.length); buf = t;
+        while (buf.length >= chunkBytes) {{
+          const samples = new Float32Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + chunkBytes)); buf = buf.slice(chunkBytes);
+          const ab = audioCtx.createBuffer(channels || 1, chunkSamples, sampleRate); ab.getChannelData(0).set(samples);
+          const s = audioCtx.createBufferSource(); s.buffer = ab; s.connect(audioCtx.destination);
+          const at = Math.max(nextTime, audioCtx.currentTime); s.start(at); nextTime = at + ab.duration;
+        }}
+      }}
+    }} catch (e) {{ if (e.name !== 'AbortError') console.error('Player error:', e); }}
+  }};
+  window.stopPlayer = function() {{
+    if (playerAbort) {{ playerAbort.abort(); playerAbort = null; }}
+    activePlayer = null;
+    document.getElementById('audio-player').classList.add('hidden');
+  }};
+}})();
 </script>
 </body>
 </html>"##,
@@ -192,25 +305,6 @@ pub fn dashboard_content(station_name: &str) -> String {
   <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 px-4 py-3 border-t-2 border-t-plumage-400">
     <p class="text-xs font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider">Avg Confidence</p>
     <p id="stat-conf" class="text-2xl font-bold mt-1">--</p>
-  </div>
-</div>
-
-<!-- Audio player modal -->
-<div id="audio-player" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
-  <div class="bg-white dark:bg-plumage-900 rounded-t-xl sm:rounded-xl border border-stone-200 dark:border-plumage-800 shadow-xl w-full sm:max-w-sm p-5">
-    <div class="flex items-center justify-between mb-3">
-      <h3 id="player-title" class="font-semibold text-sm"></h3>
-      <button onclick="stopPlayer()" class="text-stone-400 hover:text-stone-600 dark:text-plumage-500 dark:hover:text-plumage-300">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-      </button>
-    </div>
-    <div class="flex items-center gap-3">
-      <div id="player-level" class="flex-1 h-3 bg-stone-100 dark:bg-plumage-800 rounded-full overflow-hidden">
-        <div id="player-bar" class="h-full bg-nuthatch-500 rounded-full transition-all duration-300" style="width: 0%"></div>
-      </div>
-      <span id="player-dbfs" class="text-xs text-stone-400 dark:text-plumage-500 font-mono w-16 text-right">-- dBFS</span>
-    </div>
-    <p class="text-xs text-stone-400 dark:text-plumage-500 mt-2">Streaming live audio via Web Audio API</p>
   </div>
 </div>
 
@@ -345,169 +439,6 @@ pub fn dashboard_content(station_name: &str) -> String {
   }});
   sse.onopen = () => setConnected(true);
   sse.onerror = () => setConnected(false);
-
-  // ── Audio sources: scrolling waveform in sidebar ─────────────
-  const srcEl = document.getElementById('audio-sources');
-  let activePlayer = null;
-  let audioCtx = null;
-  const WAVE_COLS = 30;
-  const waveData = {{}};
-
-  fetch('/api/v1/sources')
-    .then(r => r.json())
-    .then(sources => {{
-      if (sources.length === 0) return;
-      srcEl.innerHTML = sources.map(s => {{
-        waveData[s.name] = new Array(WAVE_COLS).fill(0);
-        return `<div class="mb-2">
-          <div class="flex items-center justify-between mb-0.5">
-            <button onclick="startPlayer('${{s.name}}')" title="Listen to ${{s.name}}"
-              class="flex items-center gap-1.5 text-[11px] text-stone-500 dark:text-plumage-400 hover:text-nuthatch-500 dark:hover:text-nuthatch-400 transition-colors truncate">
-              <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z"/></svg>
-              ${{s.name}}
-            </button>
-            <span id="dbfs-${{s.name}}" class="text-[9px] text-stone-400 dark:text-plumage-600 font-mono">--</span>
-          </div>
-          <canvas id="wave-${{s.name}}" height="16" class="w-full rounded-sm" style="image-rendering:pixelated"></canvas>
-        </div>`;
-      }}).join('');
-      // Set canvas widths after layout
-      sources.forEach(s => {{
-        const c = document.getElementById('wave-' + s.name);
-        if (c) c.width = c.offsetWidth;
-        drawWave(s.name);
-      }});
-    }});
-
-  function drawWave(name) {{
-    const cvs = document.getElementById('wave-' + name);
-    if (!cvs) return;
-    const ctx = cvs.getContext('2d');
-    const w = cvs.width, h = cvs.height;
-    const data = waveData[name];
-    if (!data) return;
-    const barW = Math.max(2, w / WAVE_COLS);
-    const isDark = document.documentElement.classList.contains('dark');
-
-    ctx.clearRect(0, 0, w, h);
-    for (let i = 0; i < WAVE_COLS; i++) {{
-      const raw = data[i];
-      // Exaggerate: use a power curve so quiet signals are still visible.
-      // sqrt(x) maps 0.1 → 0.32, 0.25 → 0.5, 0.5 → 0.71
-      const val = Math.sqrt(raw);
-      const barH = Math.max(1, val * h * 0.95);
-      const opacity = 0.15 + 0.85 * (i + 1) / WAVE_COLS;
-      const r = isDark ? 227 : 217, g = isDark ? 138 : 114, b = isDark ? 71 : 38;
-      ctx.fillStyle = `rgba(${{r}},${{g}},${{b}},${{opacity}})`;
-      const x = i * barW;
-      const y = (h - barH) / 2;
-      ctx.fillRect(x, y, barW - 1, barH);
-    }}
-  }}
-
-  const levelSse = new EventSource('/api/v1/audio/levels');
-  window.addEventListener('beforeunload', () => levelSse.close());
-  levelSse.addEventListener('level', (e) => {{
-    const d = JSON.parse(e.data);
-    // Normalize: -72 dBFS → 0, -12 dBFS → 1 (covers ambient ~-65 to birdsong ~-20)
-    const val = Math.max(0, Math.min(1, (d.rms_dbfs + 72) / 60));
-
-    if (waveData[d.source]) {{
-      waveData[d.source].shift();
-      waveData[d.source].push(val);
-      drawWave(d.source);
-    }}
-
-    const dbfsEl = document.getElementById('dbfs-' + d.source);
-    if (dbfsEl) dbfsEl.textContent = (d.rms_dbfs > -100 ? d.rms_dbfs.toFixed(0) + ' dB' : '--');
-
-    if (activePlayer === d.source) {{
-      const pb = document.getElementById('player-bar');
-      const pd = document.getElementById('player-dbfs');
-      if (pb) pb.style.width = (val * 100) + '%';
-      if (pd) pd.textContent = (d.rms_dbfs > -100 ? d.rms_dbfs.toFixed(1) : '--') + ' dBFS';
-    }}
-  }});
-
-  // ── Audio player via Web Audio API ─────────────────────────────
-  let playerAbort = null;
-
-  window.startPlayer = async function(source) {{
-    stopPlayer();
-    activePlayer = source;
-    document.getElementById('player-title').textContent = source;
-    document.getElementById('audio-player').classList.remove('hidden');
-
-    try {{
-      playerAbort = new AbortController();
-      const resp = await fetch('/api/v1/audio/stream/' + encodeURIComponent(source), {{ signal: playerAbort.signal }});
-      const reader = resp.body.getReader();
-
-      // Read 20-byte header
-      let hdrBuf = new Uint8Array(0);
-      while (hdrBuf.length < 20) {{
-        const {{ done, value }} = await reader.read();
-        if (done) return;
-        const tmp = new Uint8Array(hdrBuf.length + value.length);
-        tmp.set(hdrBuf); tmp.set(value, hdrBuf.length);
-        hdrBuf = tmp;
-      }}
-      const hdr = new DataView(hdrBuf.buffer);
-      const sampleRate = hdr.getUint32(0, true);
-      const channels = hdr.getUint16(4, true);
-      const chunkSamples = hdr.getUint32(8, true);
-      const chunkBytes = chunkSamples * 4;
-
-      // Remaining bytes after header
-      let remainder = hdrBuf.slice(20);
-
-      if (!audioCtx || audioCtx.sampleRate !== sampleRate) {{
-        if (audioCtx) audioCtx.close();
-        audioCtx = new AudioContext({{ sampleRate: sampleRate }});
-      }}
-      if (audioCtx.state === 'suspended') await audioCtx.resume();
-
-      let nextTime = audioCtx.currentTime + 0.1;
-      let buf = new Uint8Array(0);
-
-      // Prepend remainder
-      if (remainder.length > 0) {{
-        buf = remainder;
-      }}
-
-      while (true) {{
-        const {{ done, value }} = await reader.read();
-        if (done) break;
-        const tmp = new Uint8Array(buf.length + value.length);
-        tmp.set(buf); tmp.set(value, buf.length);
-        buf = tmp;
-
-        while (buf.length >= chunkBytes) {{
-          const samples = new Float32Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + chunkBytes));
-          buf = buf.slice(chunkBytes);
-
-          const audioBuf = audioCtx.createBuffer(channels || 1, chunkSamples, sampleRate);
-          audioBuf.getChannelData(0).set(samples);
-
-          const src = audioCtx.createBufferSource();
-          src.buffer = audioBuf;
-          src.connect(audioCtx.destination);
-
-          const startAt = Math.max(nextTime, audioCtx.currentTime);
-          src.start(startAt);
-          nextTime = startAt + audioBuf.duration;
-        }}
-      }}
-    }} catch (e) {{
-      if (e.name !== 'AbortError') console.error('Player error:', e);
-    }}
-  }};
-
-  window.stopPlayer = function() {{
-    if (playerAbort) {{ playerAbort.abort(); playerAbort = null; }}
-    activePlayer = null;
-    document.getElementById('audio-player').classList.add('hidden');
-  }};
 }})();
 </script>"##,
         station_name = station_name,

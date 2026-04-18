@@ -569,6 +569,12 @@ async fn add_source(
         .await
         .map_err(|e| (StatusCode::CONFLICT, e))?;
 
+    // Persist to config.toml so sources survive restart.
+    let all_sources = state.source_manager.list().await;
+    if let Err(e) = settings::persist_sources_to_toml(&state.config_path, &all_sources) {
+        tracing::warn!(error = %e, "Source added but failed to persist to config");
+    }
+
     Ok(Json(SourceSummary {
         name,
         source_type: source_type.to_string(),
@@ -585,6 +591,12 @@ async fn remove_source(
         .remove(&name)
         .await
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+
+    let all_sources = state.source_manager.list().await;
+    if let Err(e) = settings::persist_sources_to_toml(&state.config_path, &all_sources) {
+        tracing::warn!(error = %e, "Source removed but failed to persist to config");
+    }
+
     Ok(StatusCode::NO_CONTENT)
 }
 

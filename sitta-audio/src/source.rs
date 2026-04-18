@@ -1,7 +1,7 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Configuration for a single audio source.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SourceConfig {
     /// RTSP stream captured via ffmpeg.
@@ -26,7 +26,7 @@ impl SourceConfig {
 }
 
 /// Remote audio source: connects to another Sitta instance's PCM stream.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemoteSourceConfig {
     /// Display name for this source.
     pub name: String,
@@ -39,7 +39,7 @@ pub struct RemoteSourceConfig {
 }
 
 /// RTSP stream configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RtspSourceConfig {
     /// Human-readable source name (e.g., "north_paddock").
     pub name: String,
@@ -63,7 +63,7 @@ pub struct RtspSourceConfig {
 }
 
 /// Local audio device configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalSourceConfig {
     /// Human-readable source name.
     pub name: String,
@@ -78,7 +78,7 @@ pub struct LocalSourceConfig {
 }
 
 /// RTSP transport protocol.
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Transport {
     #[default]
