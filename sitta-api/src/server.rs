@@ -347,7 +347,7 @@ async fn hourly_activity(
     }
 
     let mut species: Vec<SpeciesActivity> = species_map.into_values().collect();
-    species.sort_by(|a, b| b.total.cmp(&a.total));
+    species.sort_by_key(|s| std::cmp::Reverse(s.total));
 
     Ok(Json(HourlyActivityResponse { since, until, species }))
 }
