@@ -296,6 +296,7 @@ pub fn dashboard_content(station_name: &str) -> String {
 
   // SSE live feed
   const sse = new EventSource('/api/v1/stream/events');
+  window.addEventListener('beforeunload', () => sse.close());
   sse.addEventListener('detection', (e) => {{
     const d = JSON.parse(e.data);
     if (emptyState) emptyState.remove();
