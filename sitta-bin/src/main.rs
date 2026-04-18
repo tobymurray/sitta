@@ -3,6 +3,7 @@ mod consumers;
 mod models;
 mod persist;
 mod seed;
+mod snippets;
 
 use std::path::Path;
 use std::sync::atomic::Ordering;
@@ -100,7 +101,7 @@ async fn main() -> Result<()> {
     };
     let settings = Arc::new(ArcSwap::from_pointee(runtime_settings));
 
-    let persist_ctx = seed::seed_database(
+    let mut persist_ctx = seed::seed_database(
         &db,
         &config,
         &classifiers,
@@ -111,8 +112,30 @@ async fn main() -> Result<()> {
     .await
     .context("failed to seed database")?;
 
-    // ── API server ──────────────────────────────────────────────
+    // ── Snippet writer ──────────────────────────────────────────
     let shutdown = CancellationToken::new();
+
+    if config.snippets.enabled {
+        let writer = snippets::spawn_snippet_writer(
+            config.snippets.clone(),
+            db.clone(),
+            shutdown.clone(),
+        );
+        persist_ctx.snippet_writer = Some(writer);
+        snippets::spawn_retention_worker(
+            config.snippets.clone(),
+            db.clone(),
+            shutdown.clone(),
+        );
+        tracing::info!(
+            clip_dir = %config.snippets.clip_dir,
+            retention_days = config.snippets.retention_days,
+            max_disk_mb = config.snippets.max_disk_mb,
+            "Audio snippet saving enabled"
+        );
+    }
+
+    // ── API server ──────────────────────────────────────────────
     let metrics = Arc::new(PipelineMetrics::default());
     let (settings_notify_tx, _settings_notify_rx) = tokio::sync::watch::channel(());
 

@@ -13,6 +13,7 @@ use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use crate::seed::parse_model_name;
+use crate::snippets::SnippetWriter;
 
 /// Shared context for persisting detections from any consumer.
 #[derive(Clone)]
@@ -31,6 +32,8 @@ pub struct PersistCtx {
     pub matcher: Option<Arc<IndividualMatcher>>,
     /// Runtime settings (for display_min_confidence threshold).
     pub settings: Arc<ArcSwap<RuntimeSettings>>,
+    /// Audio snippet writer. None if snippet saving is disabled.
+    pub snippet_writer: Option<SnippetWriter>,
 }
 
 /// Persist a detection, its secondary predictions, optional embedding,
@@ -75,6 +78,17 @@ pub async fn persist_detections(
     {
         tracing::error!(error = %e, "Failed to persist detection");
         return;
+    }
+
+    // Submit audio clip for async saving.
+    if let Some(ref writer) = ctx.snippet_writer {
+        writer.submit(crate::snippets::SnippetJob {
+            detection_id,
+            detected_at: chunk.captured_at,
+            samples: chunk.samples.clone(),
+            sample_rate: chunk.sample_rate,
+            channels: chunk.channels,
+        });
     }
 
     // Secondary predictions (rank 1+).
@@ -159,6 +173,7 @@ pub async fn persist_detections(
         confidence: top.confidence,
         alternatives,
         has_embedding,
+        has_audio: ctx.snippet_writer.is_some(),
         individual: individual_match.map(|m| IndividualInfo {
             individual_id: m.individual_id.to_string(),
             label: m.individual_label,

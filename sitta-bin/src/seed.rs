@@ -102,6 +102,7 @@ pub async fn seed_database(
         detection_tx,
         matcher: Some(Arc::new(matcher)),
         settings,
+        snippet_writer: None, // set by main after spawning the writer
     })
 }
 

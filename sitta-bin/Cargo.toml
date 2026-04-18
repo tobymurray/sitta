@@ -25,6 +25,7 @@ rubato = { workspace = true }
 uuid = { workspace = true }
 arc-swap = { workspace = true }
 bytemuck = { workspace = true }
+chrono = { workspace = true }
 
 [dev-dependencies]
 sitta-taxonomy = { path = "../sitta-taxonomy", features = ["test-util"] }

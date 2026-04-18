@@ -31,6 +31,8 @@ pub struct DetectionEvent {
     pub alternatives: Vec<Alternative>,
     /// Whether an embedding vector was stored for this detection.
     pub has_embedding: bool,
+    /// Whether an audio clip is being saved for this detection.
+    pub has_audio: bool,
     /// Individual match info, if this detection matched a known individual.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub individual: Option<IndividualInfo>,
