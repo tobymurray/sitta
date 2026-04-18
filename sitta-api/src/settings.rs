@@ -45,6 +45,8 @@ pub struct SettingsUpdate {
 #[derive(Debug, Clone, Serialize)]
 pub struct InitialConfig {
     pub station_id: String,
+    pub mqtt_host: Option<String>,
+    pub mqtt_port: Option<u16>,
     pub birdnet_model_path: Option<String>,
     pub birdnet_labels_path: Option<String>,
     pub birdnet_meta_model_path: Option<String>,

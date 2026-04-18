@@ -1,6 +1,7 @@
 mod config;
 mod consumers;
 mod models;
+mod mqtt;
 mod persist;
 mod seed;
 mod snippets;
@@ -140,6 +141,8 @@ async fn main() -> Result<()> {
 
     let initial_config = Arc::new(InitialConfig {
         station_id: config.station.id.clone(),
+        mqtt_host: config.mqtt.as_ref().map(|m| m.host.clone()),
+        mqtt_port: config.mqtt.as_ref().map(|m| m.port),
         birdnet_model_path: config.inference.birdnet.as_ref().map(|b| b.model_path.clone()),
         birdnet_labels_path: config.inference.birdnet.as_ref().map(|b| b.labels_path.clone()),
         birdnet_meta_model_path: config
@@ -285,6 +288,25 @@ async fn main() -> Result<()> {
             }
         });
         tracing::info!("Background clustering task started (5-minute interval)");
+    }
+
+    // ── MQTT publisher ──────────────────────────────────────────
+    if let Some(ref mqtt_config) = config.mqtt {
+        let tz = &settings.load().timezone;
+        mqtt::spawn_mqtt_publisher(
+            mqtt_config,
+            &config.station.id,
+            &config.station.name,
+            tz,
+            &persist_ctx.detection_tx,
+            config.api.display_min_confidence,
+            shutdown.clone(),
+        );
+        tracing::info!(
+            host = %mqtt_config.host,
+            port = mqtt_config.port,
+            "MQTT publisher started"
+        );
     }
 
     // ── Shutdown ────────────────────────────────────────────────

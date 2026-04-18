@@ -365,8 +365,8 @@ mod tests {
         for i in 0..=100 {
             let t = i as f32 / 100.0;
             let (r, g, b) = viridis(t);
-            // Just verify no panics and values are in u8 range (guaranteed by type).
-            assert!(r <= 255 && g <= 255 && b <= 255);
+            // Just verify no panics and the function returns valid u8 values.
+            let _ = (r, g, b);
         }
     }
 

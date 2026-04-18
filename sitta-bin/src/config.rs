@@ -15,6 +15,8 @@ pub struct Config {
     #[serde(default)]
     pub inference: InferenceConfig,
     #[serde(default)]
+    pub mqtt: Option<MqttConfig>,
+    #[serde(default)]
     pub taxonomy: Option<TaxonomyConfig>,
 }
 
@@ -253,4 +255,42 @@ fn default_min_distinct_days() -> u32 {
 }
 fn default_candidate_retention_days() -> u32 {
     30
+}
+
+/// MQTT publishing configuration. When absent, MQTT is disabled.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MqttConfig {
+    /// Broker hostname or IP.
+    pub host: String,
+    /// Broker port. Default: 1883.
+    #[serde(default = "default_mqtt_port")]
+    pub port: u16,
+    /// Username for broker authentication.
+    pub username: Option<String>,
+    /// Password for broker authentication.
+    pub password: Option<String>,
+    /// MQTT client ID. Default: "sitta-{station_id}".
+    pub client_id: Option<String>,
+    /// Minimum confidence for first-of-day messages. Default: 0.75.
+    #[serde(default = "default_first_of_day_confidence")]
+    pub first_of_day_min_confidence: f32,
+    /// Enable Home Assistant MQTT auto-discovery. Default: true.
+    #[serde(default = "default_ha_discovery")]
+    pub homeassistant_discovery: bool,
+    /// Home Assistant discovery prefix. Default: "homeassistant".
+    #[serde(default = "default_ha_prefix")]
+    pub homeassistant_prefix: String,
+}
+
+fn default_mqtt_port() -> u16 {
+    1883
+}
+fn default_first_of_day_confidence() -> f32 {
+    0.75
+}
+fn default_ha_discovery() -> bool {
+    true
+}
+fn default_ha_prefix() -> String {
+    "homeassistant".into()
 }
