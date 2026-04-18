@@ -75,59 +75,59 @@ pub fn apply_update(current: &RuntimeSettings, update: &SettingsUpdate) -> (Runt
     let mut merged = current.clone();
     let mut changed = Vec::new();
 
-    if let Some(ref v) = update.station_name {
-        if *v != merged.station_name {
-            merged.station_name = v.clone();
-            changed.push("station_name");
-        }
+    if let Some(ref v) = update.station_name
+        && *v != merged.station_name
+    {
+        merged.station_name = v.clone();
+        changed.push("station_name");
     }
-    if let Some(v) = update.station_latitude {
-        if merged.station_latitude != Some(v) {
-            merged.station_latitude = Some(v);
-            changed.push("station_latitude");
-        }
+    if let Some(v) = update.station_latitude
+        && merged.station_latitude != Some(v)
+    {
+        merged.station_latitude = Some(v);
+        changed.push("station_latitude");
     }
-    if let Some(v) = update.station_longitude {
-        if merged.station_longitude != Some(v) {
-            merged.station_longitude = Some(v);
-            changed.push("station_longitude");
-        }
+    if let Some(v) = update.station_longitude
+        && merged.station_longitude != Some(v)
+    {
+        merged.station_longitude = Some(v);
+        changed.push("station_longitude");
     }
-    if let Some(v) = update.birdnet_min_confidence {
-        if merged.birdnet_min_confidence != Some(v) {
-            merged.birdnet_min_confidence = Some(v);
-            changed.push("birdnet_min_confidence");
-        }
+    if let Some(v) = update.birdnet_min_confidence
+        && merged.birdnet_min_confidence != Some(v)
+    {
+        merged.birdnet_min_confidence = Some(v);
+        changed.push("birdnet_min_confidence");
     }
-    if let Some(v) = update.birdnet_top_k {
-        if merged.birdnet_top_k != Some(v) {
-            merged.birdnet_top_k = Some(v);
-            changed.push("birdnet_top_k");
-        }
+    if let Some(v) = update.birdnet_top_k
+        && merged.birdnet_top_k != Some(v)
+    {
+        merged.birdnet_top_k = Some(v);
+        changed.push("birdnet_top_k");
     }
-    if let Some(v) = update.birdnet_meta_threshold {
-        if merged.birdnet_meta_threshold != Some(v) {
-            merged.birdnet_meta_threshold = Some(v);
-            changed.push("birdnet_meta_threshold");
-        }
+    if let Some(v) = update.birdnet_meta_threshold
+        && merged.birdnet_meta_threshold != Some(v)
+    {
+        merged.birdnet_meta_threshold = Some(v);
+        changed.push("birdnet_meta_threshold");
     }
-    if let Some(ref v) = update.birdnet_force_allow {
-        if merged.birdnet_force_allow.as_ref() != Some(v) {
-            merged.birdnet_force_allow = Some(v.clone());
-            changed.push("birdnet_force_allow");
-        }
+    if let Some(ref v) = update.birdnet_force_allow
+        && merged.birdnet_force_allow.as_ref() != Some(v)
+    {
+        merged.birdnet_force_allow = Some(v.clone());
+        changed.push("birdnet_force_allow");
     }
-    if let Some(v) = update.perch_min_confidence {
-        if merged.perch_min_confidence != Some(v) {
-            merged.perch_min_confidence = Some(v);
-            changed.push("perch_min_confidence");
-        }
+    if let Some(v) = update.perch_min_confidence
+        && merged.perch_min_confidence != Some(v)
+    {
+        merged.perch_min_confidence = Some(v);
+        changed.push("perch_min_confidence");
     }
-    if let Some(v) = update.perch_top_k {
-        if merged.perch_top_k != Some(v) {
-            merged.perch_top_k = Some(v);
-            changed.push("perch_top_k");
-        }
+    if let Some(v) = update.perch_top_k
+        && merged.perch_top_k != Some(v)
+    {
+        merged.perch_top_k = Some(v);
+        changed.push("perch_top_k");
     }
 
     (merged, changed)

@@ -268,7 +268,7 @@ async fn seed_database(
     }
 
     let mut model_ids: HashMap<String, i64> = HashMap::new();
-    for classifier in classifiers.iter().chain(perch.into_iter()) {
+    for classifier in classifiers.iter().chain(perch) {
         let model_id = seed_model(db, classifier.as_ref(), taxonomy).await?;
         model_ids.insert(classifier.name().to_string(), model_id);
     }
@@ -393,10 +393,12 @@ fn load_taxonomy(config: &Config) -> Result<Option<Arc<EbirdTaxonomy>>> {
     Ok(Some(Arc::new(taxonomy)))
 }
 
+type BirdnetLoadResult = (Option<Arc<dyn Classifier>>, Option<RangeFilter>);
+
 fn load_birdnet(
     config: &Config,
     taxonomy: Option<Arc<EbirdTaxonomy>>,
-) -> Result<(Option<Arc<dyn Classifier>>, Option<RangeFilter>)> {
+) -> Result<BirdnetLoadResult> {
     let Some(birdnet_config) = &config.inference.birdnet else {
         return Ok((None, None));
     };
@@ -530,10 +532,10 @@ async fn persist_detections(
 
     // Embedding (Perch path).
     let has_embedding = embeddings.is_some();
-    if let Some(emb) = embeddings {
-        if let Err(e) = ctx.db.insert_embedding(&detection_id, emb).await {
-            tracing::error!(error = %e, "Failed to persist embedding");
-        }
+    if let Some(emb) = embeddings
+        && let Err(e) = ctx.db.insert_embedding(&detection_id, emb).await
+    {
+        tracing::error!(error = %e, "Failed to persist embedding");
     }
 
     // Broadcast to live subscribers (SSE, MQTT).

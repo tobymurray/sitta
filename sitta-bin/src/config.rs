@@ -37,7 +37,7 @@ pub struct AudioConfig {
     pub sources: Vec<SourceConfig>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct InferenceConfig {
     #[serde(default)]
     pub birdnet: Option<BirdNetConfig>,
@@ -126,14 +126,7 @@ impl Default for ApiConfig {
     }
 }
 
-impl Default for InferenceConfig {
-    fn default() -> Self {
-        Self {
-            birdnet: None,
-            perch: None,
-        }
-    }
-}
+
 
 fn default_chunk_seconds() -> u32 {
     3

@@ -103,16 +103,16 @@ impl RangeFilter {
                 return true;
             }
             // Secondary check: force_allow by taxon code (requires taxonomy).
-            if let Some(code) = c.species.taxon_code.as_deref() {
-                if self.force_allow.contains(code) {
-                    tracing::debug!(
-                        species = %c.species.common_name,
-                        taxon_code = code,
-                        confidence = c.confidence,
-                        "Detection passed via force_allow"
-                    );
-                    return true;
-                }
+            if let Some(code) = c.species.taxon_code.as_deref()
+                && self.force_allow.contains(code)
+            {
+                tracing::debug!(
+                    species = %c.species.common_name,
+                    taxon_code = code,
+                    confidence = c.confidence,
+                    "Detection passed via force_allow"
+                );
+                return true;
             }
             false
         });
@@ -127,10 +127,10 @@ impl RangeFilter {
         // Fast path: cache hit — clone the Arc (pointer copy).
         {
             let guard = self.cache.lock().expect("range filter cache poisoned");
-            if let Some(c) = guard.as_ref() {
-                if c.date == today {
-                    return Ok(Arc::clone(&c.allowed));
-                }
+            if let Some(c) = guard.as_ref()
+                && c.date == today
+            {
+                return Ok(Arc::clone(&c.allowed));
             }
         }
 
