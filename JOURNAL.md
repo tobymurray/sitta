@@ -506,3 +506,24 @@ because SQLite technically allows NULL rowids in some edge cases. Fix with the
 `!` override in SELECT: `SELECT id AS "id!" FROM models`. This tells sqlx the
 value is guaranteed non-null. Affects the `models` and `labels` tables (both
 use INTEGER PK).
+
+### Bug: INSERT OR REPLACE orphans foreign key references
+
+`INSERT OR REPLACE` in SQLite works by DELETE + INSERT. If `PRAGMA
+foreign_keys` is not fully active (it defaults to OFF and must be set per
+connection before any transaction), the DELETE silently succeeds even when
+child rows reference the parent. The child rows are orphaned — still in the
+database but invisible to JOIN queries.
+
+This caused all historical detections to disappear on restart: the station
+row was deleted and re-inserted, orphaning every detection that referenced
+it. The detections were still in the `detections` table but the `JOIN
+stations` in every query excluded them.
+
+**Fix:** Replace `INSERT OR REPLACE` with `INSERT ... ON CONFLICT(id) DO
+UPDATE SET ...` which updates in place without ever deleting. This is the
+correct upsert pattern for SQLite when foreign key relationships exist.
+
+**Lesson:** Never use `INSERT OR REPLACE` on tables that are referenced by
+foreign keys. It's a well-documented SQLite footgun — the DELETE step can
+cascade or orphan depending on FK enforcement state.

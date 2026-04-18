@@ -64,7 +64,8 @@ impl Database {
     pub async fn upsert_station(&self, station: &NewStation<'_>) -> Result<(), crate::StoreError> {
         let id = uuid_bytes(station.id);
         sqlx::query!(
-            "INSERT OR REPLACE INTO stations (id, name, latitude, longitude) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO stations (id, name, latitude, longitude) VALUES ($1, $2, $3, $4)
+             ON CONFLICT(id) DO UPDATE SET name = $2, latitude = $3, longitude = $4",
             id,
             station.name,
             station.latitude,
@@ -83,8 +84,9 @@ impl Database {
         let id = uuid_bytes(source.id);
         let station_id = uuid_bytes(source.station_id);
         sqlx::query!(
-            "INSERT OR REPLACE INTO audio_sources (id, station_id, name, source_type, uri, sample_rate, channels)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            "INSERT INTO audio_sources (id, station_id, name, source_type, uri, sample_rate, channels)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT(id) DO UPDATE SET name = $3, source_type = $4, uri = $5, sample_rate = $6, channels = $7",
             id,
             station_id,
             source.name,

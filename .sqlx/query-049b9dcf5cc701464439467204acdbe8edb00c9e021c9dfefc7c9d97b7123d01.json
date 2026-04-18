@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO audio_sources (id, station_id, name, source_type, uri, sample_rate, channels)\n             VALUES ($1, $2, $3, $4, $5, $6, $7)\n             ON CONFLICT(id) DO UPDATE SET name = $3, source_type = $4, uri = $5, sample_rate = $6, channels = $7",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "049b9dcf5cc701464439467204acdbe8edb00c9e021c9dfefc7c9d97b7123d01"
+}

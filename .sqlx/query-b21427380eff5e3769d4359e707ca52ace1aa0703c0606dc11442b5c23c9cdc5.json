@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO stations (id, name, latitude, longitude) VALUES ($1, $2, $3, $4)\n             ON CONFLICT(id) DO UPDATE SET name = $2, latitude = $3, longitude = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "b21427380eff5e3769d4359e707ca52ace1aa0703c0606dc11442b5c23c9cdc5"
+}
