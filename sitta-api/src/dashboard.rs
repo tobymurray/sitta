@@ -9,7 +9,7 @@ use axum::response::Html;
 use crate::settings::{InitialConfig, RuntimeSettings};
 
 /// Render a full HTML page with the shared shell.
-pub fn page(title: &str, active: &str, content: &str) -> Html<String> {
+pub fn page(title: &str, active: &str, content: &str, timezone: &str) -> Html<String> {
     Html(format!(
         r##"<!DOCTYPE html>
 <html lang="en" class="h-full">
@@ -48,7 +48,7 @@ tailwind.config = {{
   }})();
 </script>
 </head>
-<body class="h-full bg-stone-50 dark:bg-slate-950 font-sans text-stone-900 dark:text-stone-100">
+<body class="h-full bg-stone-50 dark:bg-slate-950 font-sans text-stone-900 dark:text-stone-100" data-tz="{timezone}">
 <div class="flex h-full">
 
   <!-- Sidebar -->
@@ -113,6 +113,7 @@ function toggleTheme() {{
 </html>"##,
         title = title,
         content = content,
+        timezone = timezone,
         nav_dashboard = nav_item("Dashboard", "/", "dashboard", active,
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/>"#),
         nav_species = nav_item("Species", "/species", "species", active,
@@ -212,12 +213,15 @@ pub fn dashboard_content(station_name: &str) -> String {
     return ['text-red-700 bg-red-50 ring-red-600/20 dark:text-red-400 dark:bg-red-900/30 dark:ring-red-400/20', 'bg-red-500'];
   }}
 
+  const _tz = document.body.dataset.tz || 'UTC';
+  const _tf = {{ hour: '2-digit', minute: '2-digit', hour12: false, timeZone: _tz }};
+
   function timeAgo(iso) {{
     const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
     if (s < 5) return 'just now';
     if (s < 60) return s + 's ago';
     if (s < 3600) return Math.floor(s/60) + 'm ago';
-    return new Date(iso).toLocaleTimeString([], {{hour:'2-digit', minute:'2-digit'}});
+    return new Date(iso).toLocaleTimeString('en-GB', _tf);
   }}
 
   function createCard(d) {{
@@ -345,7 +349,8 @@ pub fn species_content() -> String {
         const bg = i % 2 === 0 ? '' : 'bg-gray-50 dark:bg-slate-800/50';
         const pct = Math.round(s.avg_confidence * 100);
         const confClass = pct >= 80 ? 'text-emerald-600 dark:text-emerald-400' : pct >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400';
-        const time = new Date(s.last_detected_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+        const _tz = document.body.dataset.tz || 'UTC';
+        const time = new Date(s.last_detected_at).toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', hour12: false, timeZone: _tz});
         html += `<tr class="${bg} border-b border-gray-100 dark:border-slate-800/50 last:border-0">
           <td class="px-4 py-3">
             <p class="font-medium text-sm">${s.common_name}</p>
@@ -519,7 +524,8 @@ pub fn individuals_content() -> String {
           <div class="divide-y divide-gray-100 dark:divide-slate-800">`;
 
         g.individuals.forEach(ind => {
-          const enrolled = new Date(ind.enrolled_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+          const _tz = document.body.dataset.tz || 'UTC';
+          const enrolled = new Date(ind.enrolled_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric', year: 'numeric', timeZone: _tz });
           html += `<div class="px-5 py-3 flex items-center justify-between">
             <div>
               <p class="font-medium text-sm">${ind.label}</p>
@@ -557,7 +563,8 @@ pub fn individuals_content() -> String {
           return;
         }
         el.innerHTML = withEmb.map(d => {
-          const time = new Date(d.detected_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+          const _tz = document.body.dataset.tz || 'UTC';
+          const time = new Date(d.detected_at).toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', hour12: false, timeZone: _tz});
           const pct = Math.round(d.confidence * 100);
           return `<button onclick="selectDetection('${d.id}', '${d.species.common_name}', this)"
             class="w-full text-left px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 hover:border-nuthatch-400 dark:hover:border-nuthatch-500 transition-colors text-sm flex items-center justify-between">
@@ -664,7 +671,15 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
           class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
       </div>
     </div>
-    <p class="mt-2 text-xs text-gray-400 dark:text-slate-500">Station ID <code class="bg-gray-100 dark:bg-slate-800 px-1 rounded">{station_id}</code> requires restart to change.</p>
+    <div class="sm:col-span-2">
+        <label class="block text-sm font-medium text-stone-700 dark:text-slate-300 mb-1">Timezone</label>
+        <input name="timezone" type="text" value="{timezone}"
+          class="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none"
+          placeholder="e.g. America/Toronto">
+        <p class="mt-1 text-xs text-stone-400 dark:text-slate-500">IANA timezone. Derived from coordinates if empty.</p>
+      </div>
+    </div>
+    <p class="mt-2 text-xs text-stone-400 dark:text-slate-500">Station ID <code class="bg-stone-100 dark:bg-slate-800 px-1 rounded">{station_id}</code> requires restart to change.</p>
   </div>
 
   <!-- Display -->
@@ -765,6 +780,7 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
         lat = lat,
         lon = lon,
         station_id = initial.station_id,
+        timezone = settings.timezone,
         display_min_confidence = display_min_confidence,
         birdnet_section = if has_birdnet {{ format!(
             r#"<div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">

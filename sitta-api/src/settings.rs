@@ -11,6 +11,8 @@ pub struct RuntimeSettings {
     pub station_name: String,
     pub station_latitude: Option<f64>,
     pub station_longitude: Option<f64>,
+    /// IANA timezone (e.g., "America/Toronto"). Derived from lat/lon if not set.
+    pub timezone: String,
     /// Minimum confidence for displaying detections in the UI and SSE feed.
     /// Detections below this are still captured in the database.
     pub display_min_confidence: f32,
@@ -29,6 +31,7 @@ pub struct SettingsUpdate {
     pub station_name: Option<String>,
     pub station_latitude: Option<f64>,
     pub station_longitude: Option<f64>,
+    pub timezone: Option<String>,
     pub display_min_confidence: Option<f32>,
     pub birdnet_min_confidence: Option<f32>,
     pub birdnet_top_k: Option<usize>,
@@ -97,6 +100,12 @@ pub fn apply_update(current: &RuntimeSettings, update: &SettingsUpdate) -> (Runt
         merged.station_longitude = Some(v);
         changed.push("station_longitude");
     }
+    if let Some(ref v) = update.timezone
+        && *v != merged.timezone
+    {
+        merged.timezone = v.clone();
+        changed.push("timezone");
+    }
     if let Some(v) = update.display_min_confidence
         && (merged.display_min_confidence - v).abs() > f32::EPSILON
     {
@@ -156,10 +165,13 @@ pub fn persist_to_toml(path: &Path, settings: &RuntimeSettings) -> Result<(), St
     if let Some(station) = doc.get_mut("station").and_then(|v| v.as_table_mut()) {
         station["name"] = toml_edit::value(&settings.station_name);
         if let Some(lat) = settings.station_latitude {
-            station["latitude"] = toml_edit::value(lat);
+            station["latitude"] = toml_edit::value(round4(lat));
         }
         if let Some(lon) = settings.station_longitude {
-            station["longitude"] = toml_edit::value(lon);
+            station["longitude"] = toml_edit::value(round4(lon));
+        }
+        if !settings.timezone.is_empty() {
+            station["timezone"] = toml_edit::value(&settings.timezone);
         }
     }
 
@@ -208,4 +220,25 @@ pub fn persist_to_toml(path: &Path, settings: &RuntimeSettings) -> Result<(), St
     std::fs::write(path, doc.to_string())
         .map_err(|e| format!("failed to write config: {e}"))?;
     Ok(())
+}
+
+/// Round to 4 decimal places (~11m precision, sufficient for station location).
+pub fn round4(v: f64) -> f64 {
+    (v * 10_000.0).round() / 10_000.0
+}
+
+/// Derive an IANA timezone from latitude/longitude using a simple offset heuristic.
+/// Returns a fixed-offset timezone string like "Etc/GMT+5". For proper timezone
+/// resolution (daylight saving, political boundaries), a timezone database lookup
+/// would be needed, but this is a reasonable default.
+pub fn timezone_from_coords(lat: f64, lon: f64) -> String {
+    // Rough timezone from longitude: every 15 degrees = 1 hour offset.
+    let _ = lat; // latitude doesn't affect timezone offset significantly
+    let offset_hours = (lon / 15.0).round() as i32;
+    // Etc/GMT signs are inverted: Etc/GMT-5 means UTC+5
+    if offset_hours >= 0 {
+        format!("Etc/GMT-{offset_hours}")
+    } else {
+        format!("Etc/GMT+{}", -offset_hours)
+    }
 }

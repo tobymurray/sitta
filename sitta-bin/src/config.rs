@@ -26,6 +26,9 @@ pub struct StationConfig {
     pub latitude: Option<f32>,
     /// Station longitude in decimal degrees (-180 to 180). Required for the range filter.
     pub longitude: Option<f32>,
+    /// IANA timezone (e.g., "America/Toronto"). Derived from longitude if not set.
+    #[serde(default)]
+    pub timezone: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

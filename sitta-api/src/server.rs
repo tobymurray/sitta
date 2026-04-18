@@ -586,14 +586,15 @@ async fn dashboard_page(
 ) -> axum::response::Html<String> {
     let s = state.settings.load();
     let content = dashboard::dashboard_content(&s.station_name);
-    dashboard::page("Dashboard", "dashboard", &content)
+    dashboard::page("Dashboard", "dashboard", &content, &s.timezone)
 }
 
 async fn species_page(
-    State(_state): State<ApiState>,
+    State(state): State<ApiState>,
 ) -> axum::response::Html<String> {
+    let s = state.settings.load();
     let content = dashboard::species_content();
-    dashboard::page("Species", "species", &content)
+    dashboard::page("Species", "species", &content, &s.timezone)
 }
 
 async fn status_page(
@@ -601,14 +602,15 @@ async fn status_page(
 ) -> axum::response::Html<String> {
     let s = state.settings.load();
     let content = dashboard::status_content(&s.station_name);
-    dashboard::page("Status", "status", &content)
+    dashboard::page("Status", "status", &content, &s.timezone)
 }
 
 async fn individuals_page(
-    State(_state): State<ApiState>,
+    State(state): State<ApiState>,
 ) -> axum::response::Html<String> {
+    let s = state.settings.load();
     let content = dashboard::individuals_content();
-    dashboard::page("Individuals", "individuals", &content)
+    dashboard::page("Individuals", "individuals", &content, &s.timezone)
 }
 
 async fn settings_page(
@@ -616,5 +618,5 @@ async fn settings_page(
 ) -> axum::response::Html<String> {
     let s = state.settings.load();
     let content = dashboard::settings_content(&s, &state.initial_config);
-    dashboard::page("Settings", "settings", &content)
+    dashboard::page("Settings", "settings", &content, &s.timezone)
 }
