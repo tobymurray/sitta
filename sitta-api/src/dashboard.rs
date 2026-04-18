@@ -583,6 +583,8 @@ pub fn species_detail_content(scientific_name: &str) -> String {
   <p class="text-sm text-gray-500 dark:text-plumage-400 italic mt-0.5">{scientific_name}</p>
 </div>
 
+<div id="species-insights" class="mb-6"></div>
+
 <div id="species-detections" class="space-y-3">
   <div class="text-center py-12 text-gray-400 dark:text-plumage-500 text-sm">Loading detections...</div>
 </div>
@@ -606,6 +608,150 @@ pub fn species_detail_content(scientific_name: &str) -> String {
     clipAudio.onended = () => {{ clipAudio = null; btn.classList.remove('clip-playing'); btn.innerHTML = playSvg + ' Play'; }};
   }};
 
+  // ── Behavioral insights ────────────────────────────────────────
+  fetch('/api/v1/species/' + encodeURIComponent(sciName) + '/insights')
+    .then(r => r.json())
+    .then(ins => {{
+      const el = document.getElementById('species-insights');
+      const lines = buildInsights(ins, _tz);
+      if (lines.length === 0) return;
+      el.innerHTML = `<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4">
+        <div class="flex items-start gap-3">
+          <svg class="w-5 h-5 text-nuthatch-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18"/>
+          </svg>
+          <div class="text-sm text-gray-600 dark:text-plumage-300 space-y-1">
+            ${{lines.map(l => '<p>' + l + '</p>').join('')}}
+          </div>
+        </div>
+      </div>`;
+    }})
+    .catch(() => {{}});
+
+  function buildInsights(data, tz) {{
+    if (data.total_detections < 5) {{
+      return ['Not enough detections to suggest habits. Check back after more observations.'];
+    }}
+
+    const insights = [];
+    const hours = data.hourly_distribution;
+    const total = hours.reduce((a, b) => a + b, 0);
+
+    // Shift UTC hours to local timezone
+    const tzOffsetHrs = getTimezoneOffsetHours(tz);
+    const localHours = new Array(24).fill(0);
+    for (let h = 0; h < 24; h++) {{
+      const localH = ((h + Math.round(tzOffsetHrs)) % 24 + 24) % 24;
+      localHours[localH] += hours[h];
+    }}
+
+    // Find active window (contiguous hours containing 80% of detections)
+    const threshold = total * 0.8;
+    let bestStart = 0, bestLen = 24;
+    for (let start = 0; start < 24; start++) {{
+      let sum = 0, len = 0;
+      for (let j = 0; j < 24; j++) {{
+        sum += localHours[(start + j) % 24];
+        len = j + 1;
+        if (sum >= threshold) break;
+      }}
+      if (sum >= threshold && len < bestLen) {{ bestStart = start; bestLen = len; }}
+    }}
+    const peakStart = bestStart;
+    const peakEnd = (bestStart + bestLen - 1) % 24;
+
+    // Compute sunrise/sunset if we have coordinates
+    let sunrise = null, sunset = null;
+    if (data.station_latitude != null && data.station_longitude != null) {{
+      const sun = computeSunTimes(data.station_latitude, data.station_longitude, new Date(), tzOffsetHrs);
+      if (sun) {{ sunrise = sun.sunrise; sunset = sun.sunset; }}
+    }}
+
+    // Time description
+    const fmt = h => h.toString().padStart(2, '0') + ':00';
+    if (bestLen <= 6) {{
+      let desc = 'Most active between ' + fmt(peakStart) + ' and ' + fmt((peakEnd + 1) % 24) + '.';
+      if (sunrise !== null) {{
+        const relStart = ((peakStart - sunrise) + 24) % 24;
+        const relEnd = ((peakEnd - sunrise) + 24) % 24;
+        if (relStart <= 1 && relEnd <= 4) {{
+          desc = 'Most active in the first few hours after sunrise (' + fmt(peakStart) + '\u2013' + fmt((peakEnd + 1) % 24) + ').';
+        }} else if (peakStart >= sunrise - 1 && peakStart <= sunrise + 1) {{
+          desc = 'Most active around sunrise (' + fmt(peakStart) + '\u2013' + fmt((peakEnd + 1) % 24) + ').';
+        }} else if (sunset !== null && peakStart >= sunset - 2 && peakEnd <= sunset + 1) {{
+          desc = 'Most active around dusk (' + fmt(peakStart) + '\u2013' + fmt((peakEnd + 1) % 24) + ').';
+        }}
+      }}
+      insights.push(desc);
+    }} else if (bestLen <= 14) {{
+      insights.push('Active across a broad window, roughly ' + fmt(peakStart) + ' to ' + fmt((peakEnd + 1) % 24) + '.');
+    }} else {{
+      insights.push('Detected throughout the day with no strong time-of-day preference.');
+    }}
+
+    // Dawn/dusk bimodal check
+    if (sunrise !== null && sunset !== null) {{
+      const dawnHrs = [sunrise, (sunrise + 1) % 24, (sunrise + 2) % 24];
+      const duskHrs = [(sunset - 1 + 24) % 24, sunset, (sunset + 1) % 24];
+      const dawnPct = dawnHrs.reduce((s, h) => s + localHours[h], 0) / total;
+      const duskPct = duskHrs.reduce((s, h) => s + localHours[h], 0) / total;
+      if (dawnPct > 0.2 && duskPct > 0.2 && dawnPct + duskPct > 0.5) {{
+        insights.push('Shows a dawn-and-dusk pattern \u2014 more active near sunrise and sunset.');
+      }}
+    }}
+
+    // Consistency
+    const firstMs = new Date(data.first_detected_at).getTime();
+    const lastMs = new Date(data.last_detected_at).getTime();
+    const totalDaysInRange = Math.max(1, Math.ceil((lastMs - firstMs) / 86400000));
+    const ratio = data.days_detected / totalDaysInRange;
+    if (totalDaysInRange >= 5) {{
+      if (ratio >= 0.85) {{
+        insights.push('Reliably present \u2014 detected on ' + data.days_detected + ' of the last ' + totalDaysInRange + ' days.');
+      }} else if (ratio >= 0.5) {{
+        insights.push('Regularly seen \u2014 detected on about ' + Math.round(ratio * 100) + '% of days.');
+      }} else if (ratio < 0.25) {{
+        insights.push('Uncommon visitor \u2014 detected on only ' + data.days_detected + ' of ' + totalDaysInRange + ' days.');
+      }}
+    }}
+
+    // Confidence
+    const avgPct = Math.round(data.avg_confidence * 100);
+    if (avgPct < 50) {{
+      insights.push('Detections tend to be low confidence (avg ' + avgPct + '%) \u2014 worth reviewing for false positives.');
+    }}
+
+    return insights;
+  }}
+
+  function getTimezoneOffsetHours(tz) {{
+    try {{
+      const now = new Date();
+      const utcStr = now.toLocaleString('en-US', {{ timeZone: 'UTC', hour12: false }});
+      const tzStr = now.toLocaleString('en-US', {{ timeZone: tz, hour12: false }});
+      return (new Date(tzStr).getTime() - new Date(utcStr).getTime()) / 3600000;
+    }} catch (e) {{ return 0; }}
+  }}
+
+  function computeSunTimes(lat, lon, date, tzOffsetHrs) {{
+    const dayOfYear = Math.floor((date - new Date(date.getFullYear(), 0, 0)) / 86400000);
+    const decl = -23.45 * Math.cos(2 * Math.PI / 365 * (dayOfYear + 10));
+    const decRad = decl * Math.PI / 180;
+    const latRad = lat * Math.PI / 180;
+    const cosH = (Math.cos(90.833 * Math.PI / 180) - Math.sin(latRad) * Math.sin(decRad))
+                 / (Math.cos(latRad) * Math.cos(decRad));
+    if (cosH > 1 || cosH < -1) return null;
+    const H = Math.acos(cosH) * 180 / Math.PI;
+    const solarNoon = 12 - lon / 15;
+    const riseUtc = solarNoon - H / 15;
+    const setUtc = solarNoon + H / 15;
+    return {{
+      sunrise: Math.round(((riseUtc + tzOffsetHrs) % 24 + 24) % 24),
+      sunset: Math.round(((setUtc + tzOffsetHrs) % 24 + 24) % 24),
+    }};
+  }}
+
+  // ── Detection list ────────────────────────────────────────────
   fetch('/api/v1/detections?species=' + encodeURIComponent(sciName) + '&limit=100')
     .then(r => r.json())
     .then(data => {{

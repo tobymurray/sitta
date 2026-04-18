@@ -175,6 +175,22 @@ pub struct ClusterRow {
     pub individual_id: Option<Vec<u8>>,
 }
 
+/// Hourly detection count for a species across all time (UTC hour bucket).
+pub struct SpeciesHourlyProfileRow {
+    pub hour_utc: i64,
+    pub count: i64,
+}
+
+/// Aggregate stats for a single species across all detections.
+pub struct SpeciesStatsRow {
+    pub common_name: String,
+    pub total: i64,
+    pub first_detected_at: i64,
+    pub last_detected_at: i64,
+    pub avg_confidence: f64,
+    pub distinct_days: i64,
+}
+
 /// Aggregated species summary for a date range.
 pub struct SpeciesSummaryRow {
     pub scientific_name: Option<String>,

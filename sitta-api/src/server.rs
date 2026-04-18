@@ -86,6 +86,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/v1/detections/{id}", get(get_detection))
         .route("/api/v1/species", get(list_species))
         .route("/api/v1/activity/hourly", get(hourly_activity))
+        .route("/api/v1/species/{name}/insights", get(species_insights))
         .route("/api/v1/status", get(status_handler))
         .route("/api/v1/settings", get(get_settings).put(update_settings))
         .route("/api/v1/individuals", get(list_individuals).post(enroll_individual).delete(delete_all_individuals))
@@ -382,6 +383,76 @@ struct SpeciesActivity {
     taxon_code: Option<String>,
     total: i64,
     hours: Vec<i64>,
+}
+
+// ── REST: species insights ──────────────────────────────────────
+
+async fn species_insights(
+    State(state): State<ApiState>,
+    Path(name): Path<String>,
+) -> Result<Json<SpeciesInsightsResponse>, StatusCode> {
+    let display_conf = f64::from(state.settings.load().display_min_confidence);
+
+    let stats = state
+        .db
+        .species_stats(&name, Some(display_conf))
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to query species stats");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let profile_rows = state
+        .db
+        .species_hourly_profile(&name, Some(display_conf))
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to query species hourly profile");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    // Build a full 24-element array from sparse rows.
+    let mut hourly_distribution = vec![0i64; 24];
+    for row in profile_rows {
+        let h = row.hour_utc as usize;
+        if h < 24 {
+            hourly_distribution[h] = row.count;
+        }
+    }
+
+    let s = state.settings.load();
+
+    Ok(Json(SpeciesInsightsResponse {
+        scientific_name: name,
+        common_name: stats.common_name,
+        total_detections: stats.total,
+        first_detected_at: millis_to_rfc3339(stats.first_detected_at).unwrap_or_default(),
+        last_detected_at: millis_to_rfc3339(stats.last_detected_at).unwrap_or_default(),
+        days_detected: stats.distinct_days,
+        avg_confidence: stats.avg_confidence,
+        hourly_distribution,
+        station_latitude: s.station_latitude,
+        station_longitude: s.station_longitude,
+    }))
+}
+
+#[derive(Serialize)]
+struct SpeciesInsightsResponse {
+    scientific_name: String,
+    common_name: String,
+    total_detections: i64,
+    first_detected_at: String,
+    last_detected_at: String,
+    days_detected: i64,
+    avg_confidence: f64,
+    /// 24 elements, indexed by UTC hour (0-23).
+    hourly_distribution: Vec<i64>,
+    /// Station coordinates for sunrise/sunset calculation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    station_latitude: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    station_longitude: Option<f64>,
 }
 
 // ── REST: status ────────────────────────────────────────────────

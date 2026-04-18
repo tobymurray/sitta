@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT CAST((d.detected_at / 3600000) % 24 AS INTEGER) AS \"hour_utc!: i64\",\n                      COUNT(*) AS \"count!: i64\"\n               FROM detections d\n               JOIN labels l ON l.id = d.label_id\n               WHERE l.scientific_name = $1\n                 AND d.confidence >= $2\n                 AND l.label_type = 'species'\n               GROUP BY CAST((d.detected_at / 3600000) % 24 AS INTEGER)\n               ORDER BY 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "hour_utc!: i64",
+        "ordinal": 0,
+        "type_info": "Null"
+      },
+      {
+        "name": "count!: i64",
+        "ordinal": 1,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "1ece6130dac6f30da1bbee11abf36c1b74ffa249334ccd41b238619bb74ffaa6"
+}

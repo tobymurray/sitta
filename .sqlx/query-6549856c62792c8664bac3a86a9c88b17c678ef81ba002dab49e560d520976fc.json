@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT l.common_name AS \"common_name!\",\n                      COUNT(*) AS \"total!: i64\",\n                      MIN(d.detected_at) AS \"first_detected_at!: i64\",\n                      MAX(d.detected_at) AS \"last_detected_at!: i64\",\n                      AVG(d.confidence) AS \"avg_confidence!: f64\",\n                      COUNT(DISTINCT CAST(d.detected_at / 86400000 AS INTEGER)) AS \"distinct_days!: i64\"\n               FROM detections d\n               JOIN labels l ON l.id = d.label_id\n               WHERE l.scientific_name = $1\n                 AND d.confidence >= $2\n                 AND l.label_type = 'species'",
+  "describe": {
+    "columns": [
+      {
+        "name": "common_name!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "total!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "first_detected_at!: i64",
+        "ordinal": 2,
+        "type_info": "Null"
+      },
+      {
+        "name": "last_detected_at!: i64",
+        "ordinal": 3,
+        "type_info": "Null"
+      },
+      {
+        "name": "avg_confidence!: f64",
+        "ordinal": 4,
+        "type_info": "Null"
+      },
+      {
+        "name": "distinct_days!: i64",
+        "ordinal": 5,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "6549856c62792c8664bac3a86a9c88b17c678ef81ba002dab49e560d520976fc"
+}
