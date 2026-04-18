@@ -348,59 +348,78 @@ pub fn dashboard_content(station_name: &str) -> String {
   sse.onopen = () => setConnected(true);
   sse.onerror = () => setConnected(false);
 
-  // ── Audio sources: level meters ────────────────────────────────
+  // ── Audio sources: scrolling waveform level meters ──────────────
   const srcEl = document.getElementById('audio-sources');
-  const levels = {{}};
   let activePlayer = null;
   let audioCtx = null;
+  const WAVE_COLS = 40;  // number of historical bars in the waveform
+  const waveData = {{}};  // source_name -> array of 0..1 values
 
-  fetch('/api/v1/audio/sources')
+  fetch('/api/v1/sources')
     .then(r => r.json())
-    .then(names => {{
-      if (names.length === 0) return;
-      srcEl.innerHTML = '<div class="grid gap-3 ' + (names.length > 1 ? 'sm:grid-cols-2' : '') + '">' +
-        names.map(n => `<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 px-4 py-3">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-sm font-medium truncate">${{n}}</span>
-            <button onclick="startPlayer('${{n}}')" class="text-xs text-nuthatch-600 dark:text-nuthatch-400 hover:underline flex items-center gap-1">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z"/></svg>
-              Listen
+    .then(sources => {{
+      if (sources.length === 0) return;
+      srcEl.innerHTML = '<div class="flex flex-wrap gap-x-4 gap-y-2">' +
+        sources.map(s => {{
+          waveData[s.name] = new Array(WAVE_COLS).fill(0);
+          return `<div class="flex items-center gap-2 group">
+            <button onclick="startPlayer('${{s.name}}')" title="Listen to ${{s.name}}" class="text-stone-400 dark:text-plumage-500 hover:text-nuthatch-500 dark:hover:text-nuthatch-400 transition-colors">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z"/></svg>
             </button>
-          </div>
-          <div class="h-2 bg-stone-100 dark:bg-plumage-800 rounded-full overflow-hidden">
-            <div id="level-${{n}}" class="h-full bg-nuthatch-500 rounded-full transition-all duration-500" style="width:0%"></div>
-          </div>
-          <div class="flex justify-between mt-1">
-            <span id="dbfs-${{n}}" class="text-[10px] text-stone-400 dark:text-plumage-500 font-mono">-- dBFS</span>
-            <span id="peak-${{n}}" class="text-[10px] text-stone-400 dark:text-plumage-500 font-mono">pk --</span>
-          </div>
-        </div>`).join('') + '</div>';
+            <canvas id="wave-${{s.name}}" width="${{WAVE_COLS * 3}}" height="20" class="rounded" style="image-rendering:pixelated"></canvas>
+            <span class="text-[11px] text-stone-500 dark:text-plumage-400 font-medium truncate max-w-[8rem]">${{s.name}}</span>
+            <span id="dbfs-${{s.name}}" class="text-[10px] text-stone-400 dark:text-plumage-500 font-mono w-14 text-right">--</span>
+          </div>`;
+        }}).join('') + '</div>';
+      // Initial draw
+      sources.forEach(s => drawWave(s.name));
     }});
+
+  function drawWave(name) {{
+    const cvs = document.getElementById('wave-' + name);
+    if (!cvs) return;
+    const ctx = cvs.getContext('2d');
+    const w = cvs.width, h = cvs.height;
+    const data = waveData[name];
+    if (!data) return;
+    const barW = w / WAVE_COLS;
+    const isDark = document.documentElement.classList.contains('dark');
+
+    ctx.clearRect(0, 0, w, h);
+    for (let i = 0; i < WAVE_COLS; i++) {{
+      const val = data[i];
+      const barH = Math.max(1, val * h);
+      const opacity = (i + 1) / WAVE_COLS;  // left=faint, right=opaque
+      // Color: nuthatch-500 (#d97226) in light, nuthatch-400 (#e38a47) in dark
+      const r = isDark ? 227 : 217, g = isDark ? 138 : 114, b = isDark ? 71 : 38;
+      ctx.fillStyle = `rgba(${{r}},${{g}},${{b}},${{opacity}})`;
+      const x = i * barW;
+      const y = (h - barH) / 2;
+      ctx.fillRect(x, y, barW - 0.5, barH);
+    }}
+  }}
 
   const levelSse = new EventSource('/api/v1/audio/levels');
   window.addEventListener('beforeunload', () => levelSse.close());
   levelSse.addEventListener('level', (e) => {{
     const d = JSON.parse(e.data);
-    const bar = document.getElementById('level-' + d.source);
-    const dbfs = document.getElementById('dbfs-' + d.source);
-    const peak = document.getElementById('peak-' + d.source);
-    if (bar) {{
-      // Map dBFS to percentage: -60 dBFS = 0%, 0 dBFS = 100%
-      const pct = Math.max(0, Math.min(100, ((d.rms_dbfs + 60) / 60) * 100));
-      bar.style.width = pct + '%';
-      bar.className = bar.className.replace(/bg-\S+/, pct > 80 ? 'bg-red-500' : pct > 50 ? 'bg-nuthatch-500' : 'bg-plumage-500');
+    // Normalize: -60 dBFS → 0, 0 dBFS → 1
+    const val = Math.max(0, Math.min(1, (d.rms_dbfs + 60) / 60));
+
+    if (waveData[d.source]) {{
+      waveData[d.source].shift();
+      waveData[d.source].push(val);
+      drawWave(d.source);
     }}
-    if (dbfs) dbfs.textContent = (d.rms_dbfs > -100 ? d.rms_dbfs.toFixed(1) : '--') + ' dBFS';
-    if (peak) peak.textContent = 'pk ' + d.peak.toFixed(2);
+
+    const dbfsEl = document.getElementById('dbfs-' + d.source);
+    if (dbfsEl) dbfsEl.textContent = (d.rms_dbfs > -100 ? d.rms_dbfs.toFixed(0) + ' dB' : '--');
 
     // Update player level if playing this source
     if (activePlayer === d.source) {{
       const pb = document.getElementById('player-bar');
       const pd = document.getElementById('player-dbfs');
-      if (pb) {{
-        const pct = Math.max(0, Math.min(100, ((d.rms_dbfs + 60) / 60) * 100));
-        pb.style.width = pct + '%';
-      }}
+      if (pb) pb.style.width = (val * 100) + '%';
       if (pd) pd.textContent = (d.rms_dbfs > -100 ? d.rms_dbfs.toFixed(1) : '--') + ' dBFS';
     }}
   }});
