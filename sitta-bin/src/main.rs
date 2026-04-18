@@ -175,6 +175,11 @@ async fn main() -> Result<()> {
         matcher: persist_ctx.matcher.clone(),
         audio_tx: tx.clone(),
         source_manager: source_manager.clone(),
+        clip_dir: if config.snippets.enabled {
+            Some(std::path::PathBuf::from(&config.snippets.clip_dir))
+        } else {
+            None
+        },
     };
     tokio::spawn(server::serve(api_addr, api_state, shutdown.clone()));
 

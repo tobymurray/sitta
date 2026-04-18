@@ -52,6 +52,8 @@ pub struct ApiState {
     pub audio_tx: broadcast::Sender<Arc<sitta_audio::chunk::AudioChunk>>,
     /// Dynamic source manager for add/remove at runtime.
     pub source_manager: sitta_audio::manager::SourceManager,
+    /// Base directory for audio clips. None if snippet saving is disabled.
+    pub clip_dir: Option<PathBuf>,
 }
 
 /// Pipeline metrics tracked via atomic counters.
@@ -78,6 +80,8 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/v1/individuals/{id}", get(get_individual))
         .route("/api/v1/sources", get(list_sources).post(add_source))
         .route("/api/v1/sources/{name}", delete(remove_source))
+        .route("/api/v1/detections/{id}/audio", get(detection_audio_handler))
+        .route("/api/v1/detections/{id}/review", get(get_review).put(put_review).delete(delete_review))
         .route("/api/v1/audio/sources", get(list_audio_sources))
         .route("/api/v1/audio/levels", get(audio_levels_handler))
         .route("/api/v1/audio/stream/{source_name}", get(audio_stream_handler))
@@ -705,6 +709,143 @@ async fn audio_stream_handler(
         .header("x-sitta-source", &header_source)
         .body(Body::from_stream(stream))
         .unwrap()
+}
+
+// ── Audio clip serving ──────────────────────────────────────────
+
+async fn detection_audio_handler(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> Result<axum::response::Response, StatusCode> {
+    use axum::body::Body;
+
+    let clip_dir = state.clip_dir.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let id_bytes = uuid.as_bytes().as_slice();
+
+    let row = state
+        .db
+        .get_detection(id_bytes)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to query detection for audio");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let rel_path = row.snippet_path.ok_or(StatusCode::NOT_FOUND)?;
+    let full_path = clip_dir.join(&rel_path);
+
+    // If a .tmp file exists, the clip is still being written.
+    let tmp_path = full_path.with_extension("wav.tmp");
+    if tokio::fs::try_exists(&tmp_path).await.unwrap_or(false) {
+        return Ok(axum::response::Response::builder()
+            .status(StatusCode::SERVICE_UNAVAILABLE)
+            .header("retry-after", "1")
+            .body(Body::empty())
+            .unwrap());
+    }
+
+    let data = tokio::fs::read(&full_path).await.map_err(|_| StatusCode::NOT_FOUND)?;
+    Ok(axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "audio/wav")
+        .header("accept-ranges", "bytes")
+        .header("content-disposition", "inline")
+        .header("cache-control", "public, max-age=31536000, immutable")
+        .body(Body::from(data))
+        .unwrap())
+}
+
+// ── Detection review ───────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ReviewRequest {
+    status: String,
+    #[serde(default)]
+    comment: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ReviewResponse {
+    detection_id: String,
+    status: String,
+    reviewed_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    comment: Option<String>,
+}
+
+async fn put_review(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    Json(body): Json<ReviewRequest>,
+) -> Result<Json<ReviewResponse>, StatusCode> {
+    if body.status != "correct" && body.status != "false_positive" {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let id_bytes = uuid.as_bytes().as_slice();
+
+    // Verify the detection exists.
+    state.db.get_detection(id_bytes).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let now = Utc::now();
+    state.db.upsert_review(id_bytes, &body.status, now.timestamp_millis(), body.comment.as_deref())
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to save review");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    Ok(Json(ReviewResponse {
+        detection_id: uuid.to_string(),
+        status: body.status,
+        reviewed_at: now.to_rfc3339(),
+        comment: body.comment,
+    }))
+}
+
+async fn get_review(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> Result<Json<ReviewResponse>, StatusCode> {
+    let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let id_bytes = uuid.as_bytes().as_slice();
+
+    let review = state.db.get_review(id_bytes).await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to query review");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let det_uuid = sitta_store::models::uuid_from_blob(review.detection_id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ReviewResponse {
+        detection_id: det_uuid.to_string(),
+        status: review.status,
+        reviewed_at: millis_to_rfc3339(review.reviewed_at).unwrap_or_default(),
+        comment: review.comment,
+    }))
+}
+
+async fn delete_review(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let id_bytes = uuid.as_bytes().as_slice();
+
+    let deleted = state.db.delete_review(id_bytes).await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to delete review");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    if deleted { Ok(StatusCode::NO_CONTENT) } else { Err(StatusCode::NOT_FOUND) }
 }
 
 // ── Response types ──────────────────────────────────────────────
