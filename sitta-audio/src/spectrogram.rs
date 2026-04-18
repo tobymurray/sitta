@@ -173,7 +173,7 @@ pub fn generate_spectrogram(
         std::fs::create_dir_all(parent)?;
     }
     img.save(output_path)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        .map_err(io::Error::other)?;
     Ok(())
 }
 

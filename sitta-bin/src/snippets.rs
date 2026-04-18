@@ -296,13 +296,11 @@ async fn cleanup_empty_dirs(clip_dir: &Path) {
         let Ok(meta) = entry.metadata().await else {
             continue;
         };
-        if meta.is_dir() {
-            // Check if directory is empty.
-            if let Ok(mut sub) = tokio::fs::read_dir(entry.path()).await {
-                if sub.next_entry().await.ok().flatten().is_none() {
-                    let _ = tokio::fs::remove_dir(entry.path()).await;
-                }
-            }
+        if meta.is_dir()
+            && let Ok(mut sub) = tokio::fs::read_dir(entry.path()).await
+            && sub.next_entry().await.ok().flatten().is_none()
+        {
+            let _ = tokio::fs::remove_dir(entry.path()).await;
         }
     }
 }

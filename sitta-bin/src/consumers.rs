@@ -165,6 +165,12 @@ pub fn spawn_perch_consumer(
     });
 }
 
+/// Configuration for the BirdNET sliding-window consumer.
+pub struct BirdnetConsumerConfig {
+    pub window_samples: usize,
+    pub stride_samples: usize,
+}
+
 /// Spawn a background task that buffers audio chunks and runs BirdNET
 /// inference on sliding windows with configurable stride.
 ///
@@ -178,9 +184,10 @@ pub fn spawn_birdnet_consumer(
     shutdown: CancellationToken,
     persist: PersistCtx,
     metrics: Arc<PipelineMetrics>,
-    window_samples: usize,
-    stride_samples: usize,
+    config: BirdnetConsumerConfig,
 ) {
+    let window_samples = config.window_samples;
+    let stride_samples = config.stride_samples;
     tokio::spawn(async move {
         let mut buf: Vec<f32> = Vec::with_capacity(window_samples * 2);
         #[allow(unused_assignments)]

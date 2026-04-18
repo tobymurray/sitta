@@ -217,8 +217,10 @@ async fn main() -> Result<()> {
         shutdown.clone(),
         persist_ctx.clone(),
         metrics.clone(),
-        window_samples,
-        stride_samples,
+        consumers::BirdnetConsumerConfig {
+            window_samples,
+            stride_samples,
+        },
     );
 
     // ── Shutdown ────────────────────────────────────────────────
