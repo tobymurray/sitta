@@ -16,6 +16,8 @@ bytemuck = { workspace = true }
 reqwest = { workspace = true }
 bytes = { workspace = true }
 futures-util = "0.3"
+rustfft = { workspace = true }
+image = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

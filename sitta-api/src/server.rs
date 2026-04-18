@@ -81,6 +81,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/v1/sources", get(list_sources).post(add_source))
         .route("/api/v1/sources/{name}", delete(remove_source))
         .route("/api/v1/detections/{id}/audio", get(detection_audio_handler))
+        .route("/api/v1/detections/{id}/spectrogram", get(detection_spectrogram_handler))
         .route("/api/v1/detections/{id}/review", get(get_review).put(put_review).delete(delete_review))
         .route("/api/v1/audio/sources", get(list_audio_sources))
         .route("/api/v1/audio/levels", get(audio_levels_handler))
@@ -752,6 +753,70 @@ async fn detection_audio_handler(
         .header("content-type", "audio/wav")
         .header("accept-ranges", "bytes")
         .header("content-disposition", "inline")
+        .header("cache-control", "public, max-age=31536000, immutable")
+        .body(Body::from(data))
+        .unwrap())
+}
+
+// ── Spectrogram serving (on-demand with disk cache) ────────────
+
+async fn detection_spectrogram_handler(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> Result<axum::response::Response, StatusCode> {
+    use axum::body::Body;
+    use sitta_audio::spectrogram::{generate_spectrogram, SpectrogramParams};
+
+    let clip_dir = state.clip_dir.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let id_bytes = uuid.as_bytes().as_slice();
+
+    let row = state
+        .db
+        .get_detection(id_bytes)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to query detection for spectrogram");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let rel_path = row.snippet_path.ok_or(StatusCode::NOT_FOUND)?;
+    let wav_path = clip_dir.join(&rel_path);
+    let png_path = wav_path.with_extension("png");
+
+    // Serve cached PNG if it exists.
+    if let Ok(data) = tokio::fs::read(&png_path).await {
+        return Ok(axum::response::Response::builder()
+            .status(StatusCode::OK)
+            .header("content-type", "image/png")
+            .header("cache-control", "public, max-age=31536000, immutable")
+            .body(Body::from(data))
+            .unwrap());
+    }
+
+    // Generate on demand: read WAV, render spectrogram, cache PNG.
+    let png_path_clone = png_path.clone();
+    let data = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, std::io::Error> {
+        let (samples, sample_rate, _channels) = sitta_audio::wav::read_wav(&wav_path)?;
+        let params = SpectrogramParams {
+            width: 800,
+            height: 200,
+            ..Default::default()
+        };
+        generate_spectrogram(&samples, sample_rate, &params, &png_path_clone)?;
+        std::fs::read(&png_path_clone)
+    })
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .map_err(|e| {
+        tracing::error!(error = %e, "Failed to generate spectrogram");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    Ok(axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "image/png")
         .header("cache-control", "public, max-age=31536000, immutable")
         .body(Body::from(data))
         .unwrap())
