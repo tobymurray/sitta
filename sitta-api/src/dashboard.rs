@@ -7,6 +7,7 @@
 use axum::response::Html;
 
 use crate::settings::{InitialConfig, RuntimeSettings};
+use crate::visualization;
 
 /// Render a full HTML page with the shared shell.
 pub fn page(title: &str, active: &str, content: &str, timezone: &str) -> Html<String> {
@@ -308,6 +309,8 @@ pub fn dashboard_content(station_name: &str) -> String {
   </div>
 </div>
 
+ACTIVITY_PANEL_PLACEHOLDER
+
 <!-- Live detection feed -->
 <div class="flex items-center justify-between mb-4">
   <h2 class="text-lg font-semibold">Recent Detections</h2>
@@ -508,6 +511,7 @@ pub fn dashboard_content(station_name: &str) -> String {
 </script>"##,
         station_name = station_name,
     )
+    .replace("ACTIVITY_PANEL_PLACEHOLDER", &visualization::activity_panel())
 }
 
 pub fn species_content() -> String {

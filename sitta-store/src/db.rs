@@ -6,8 +6,9 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::models::{
-    uuid_bytes, DetectionRow, IndividualRow, NewAudioSource, NewDetection, NewIndividual, NewLabel,
-    NewModel, NewPrediction, NewStation, PredictionRow, ReviewRow, SpeciesSummaryRow,
+    uuid_bytes, DetectionRow, HourlyActivityRow, IndividualRow, NewAudioSource, NewDetection,
+    NewIndividual, NewLabel, NewModel, NewPrediction, NewStation, PredictionRow, ReviewRow,
+    SpeciesSummaryRow,
 };
 
 /// Connection to the Sitta SQLite database.
@@ -411,6 +412,51 @@ impl Database {
                 detection_count: r.detection_count,
                 last_detected_at: r.last_detected_at,
                 avg_confidence: r.avg_confidence,
+            })
+            .collect())
+    }
+
+    /// Hourly detection counts per species over a date range.
+    ///
+    /// `since` is the epoch-ms start of the window (e.g. local midnight);
+    /// the hour bucket is computed as `(detected_at - since) / 3_600_000`.
+    /// Callers should set `until = since + 86_400_000` for a full day.
+    pub async fn hourly_activity(
+        &self,
+        since: i64,
+        until: i64,
+        min_confidence: Option<f64>,
+    ) -> Result<Vec<HourlyActivityRow>, crate::StoreError> {
+        let conf_floor = min_confidence.unwrap_or(0.0);
+        let rows = sqlx::query!(
+            r#"SELECT l.common_name AS "common_name!",
+                      l.scientific_name,
+                      l.taxon_code,
+                      CAST((d.detected_at - $1) / 3600000 AS INTEGER) AS "hour_bucket!: i64",
+                      COUNT(*) AS "count!: i64"
+               FROM detections d
+               JOIN labels l ON l.id = d.label_id
+               WHERE d.detected_at >= $1 AND d.detected_at < $2
+                 AND d.confidence >= $3
+                 AND l.label_type = 'species'
+               GROUP BY l.scientific_name, l.common_name, l.taxon_code,
+                        CAST((d.detected_at - $1) / 3600000 AS INTEGER)
+               ORDER BY COUNT(*) DESC"#,
+            since,
+            until,
+            conf_floor,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| HourlyActivityRow {
+                common_name: r.common_name,
+                scientific_name: r.scientific_name,
+                taxon_code: r.taxon_code,
+                hour_bucket: r.hour_bucket,
+                count: r.count,
             })
             .collect())
     }

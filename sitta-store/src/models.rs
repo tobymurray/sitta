@@ -132,6 +132,15 @@ pub struct ReviewRow {
     pub comment: Option<String>,
 }
 
+/// Hourly detection count for a single species in a single hour bucket.
+pub struct HourlyActivityRow {
+    pub common_name: String,
+    pub scientific_name: Option<String>,
+    pub taxon_code: Option<String>,
+    pub hour_bucket: i64,
+    pub count: i64,
+}
+
 /// Aggregated species summary for a date range.
 pub struct SpeciesSummaryRow {
     pub scientific_name: Option<String>,

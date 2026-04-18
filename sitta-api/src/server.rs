@@ -74,6 +74,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/v1/detections", get(list_detections))
         .route("/api/v1/detections/{id}", get(get_detection))
         .route("/api/v1/species", get(list_species))
+        .route("/api/v1/activity/hourly", get(hourly_activity))
         .route("/api/v1/status", get(status_handler))
         .route("/api/v1/settings", get(get_settings).put(update_settings))
         .route("/api/v1/individuals", get(list_individuals).post(enroll_individual))
@@ -289,6 +290,83 @@ async fn list_species(
     }).collect();
 
     Ok(Json(species))
+}
+
+// ── REST: hourly activity ───────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ActivityParams {
+    /// Start of window (Unix ms). Default: start of today in UTC.
+    since: Option<i64>,
+    /// End of window (Unix ms). Default: since + 24h.
+    until: Option<i64>,
+}
+
+async fn hourly_activity(
+    State(state): State<ApiState>,
+    Query(params): Query<ActivityParams>,
+) -> Result<Json<HourlyActivityResponse>, StatusCode> {
+    let now = Utc::now();
+    let since = params.since.unwrap_or_else(|| {
+        now.date_naive()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp_millis()
+    });
+    let until = params.until.unwrap_or(since + 86_400_000);
+
+    let display_conf = f64::from(state.settings.load().display_min_confidence);
+    let rows = state
+        .db
+        .hourly_activity(since, until, Some(display_conf))
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to query hourly activity");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    // Group flat rows into per-species hour arrays.
+    let mut species_map: std::collections::BTreeMap<String, SpeciesActivity> =
+        std::collections::BTreeMap::new();
+
+    for row in rows {
+        let key = row.scientific_name.clone().unwrap_or_default();
+        let entry = species_map.entry(key).or_insert_with(|| SpeciesActivity {
+            common_name: row.common_name.clone(),
+            scientific_name: row.scientific_name.clone().unwrap_or_default(),
+            taxon_code: row.taxon_code.clone(),
+            total: 0,
+            hours: vec![0; 24],
+        });
+        let h = row.hour_bucket as usize;
+        if h < 24 {
+            entry.hours[h] = row.count;
+            entry.total += row.count;
+        }
+    }
+
+    let mut species: Vec<SpeciesActivity> = species_map.into_values().collect();
+    species.sort_by(|a, b| b.total.cmp(&a.total));
+
+    Ok(Json(HourlyActivityResponse { since, until, species }))
+}
+
+#[derive(Serialize)]
+struct HourlyActivityResponse {
+    since: i64,
+    until: i64,
+    species: Vec<SpeciesActivity>,
+}
+
+#[derive(Serialize)]
+struct SpeciesActivity {
+    common_name: String,
+    scientific_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    taxon_code: Option<String>,
+    total: i64,
+    hours: Vec<i64>,
 }
 
 // ── REST: status ────────────────────────────────────────────────
