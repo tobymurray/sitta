@@ -593,6 +593,19 @@ pub fn species_detail_content(scientific_name: &str) -> String {
   const _tz = document.body.dataset.tz || 'UTC';
   const _tf = {{ hour: '2-digit', minute: '2-digit', hour12: false, timeZone: _tz }};
 
+  const playSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/></svg>';
+  const stopSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><rect x="4" y="4" width="12" height="12" rx="1.5"/></svg>';
+  let clipAudio = null;
+
+  window.playClip = function(id, btn) {{
+    if (clipAudio) {{ clipAudio.pause(); clipAudio = null; document.querySelectorAll('.clip-playing').forEach(b => {{ b.classList.remove('clip-playing'); b.innerHTML = playSvg + ' Play'; }}); }}
+    clipAudio = new Audio('/api/v1/detections/' + id + '/audio');
+    clipAudio.play();
+    btn.classList.add('clip-playing');
+    btn.innerHTML = stopSvg + ' Stop';
+    clipAudio.onended = () => {{ clipAudio = null; btn.classList.remove('clip-playing'); btn.innerHTML = playSvg + ' Play'; }};
+  }};
+
   fetch('/api/v1/detections?species=' + encodeURIComponent(sciName) + '&limit=100')
     .then(r => r.json())
     .then(data => {{
@@ -613,19 +626,28 @@ pub fn species_detail_content(scientific_name: &str) -> String {
         const time = new Date(d.detected_at).toLocaleString('en-GB', {{
           month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: _tz
         }});
-        return `<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 px-4 py-3 flex items-center justify-between">
-          <div>
+        const hasAudio = d.has_audio || d.snippet_path;
+        return `<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4">
+          <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${{confClass}}">${{pct}}%</span>
               <span class="text-sm text-gray-500 dark:text-plumage-400">${{time}}</span>
             </div>
-            <div class="flex items-center gap-3 mt-1 text-xs text-gray-400 dark:text-plumage-500">
-              <span>${{d.model}} ${{d.model_version}}</span>
-              ${{d.source_name ? '<span class="before:content-[\\u00b7] before:mr-2">' + d.source_name + '</span>' : ''}}
-              ${{d.has_embedding ? '<span class="before:content-[\\u00b7] before:mr-2 text-plumage-500 dark:text-plumage-400">embedding</span>' : ''}}
-            </div>
+            <span class="text-xs text-gray-400 dark:text-plumage-600 font-mono">${{d.id.slice(0, 8)}}</span>
           </div>
-          <span class="text-xs text-gray-400 dark:text-plumage-600 font-mono">${{d.id.slice(0, 8)}}</span>
+          ${{hasAudio ? `<div class="mt-3">
+            <img src="/api/v1/detections/${{d.id}}/spectrogram" loading="lazy"
+                 class="w-full h-20 rounded-lg object-cover bg-gray-100 dark:bg-plumage-800"
+                 alt="spectrogram" onerror="this.style.display='none'"/>
+          </div>` : ''}}
+          <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800">
+            <div class="flex items-center gap-3">
+              ${{hasAudio ? `<button onclick="playClip('${{d.id}}', this)" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors">${{playSvg}} Play</button>` : ''}}
+              <span class="text-xs text-gray-400 dark:text-plumage-500">${{d.model}} ${{d.model_version}}</span>
+              ${{d.source_name ? '<span class="text-xs text-gray-400 dark:text-plumage-500 before:content-[\\u00b7] before:mr-2">' + d.source_name + '</span>' : ''}}
+            </div>
+            ${{d.has_embedding ? '<span class="text-xs text-plumage-500 dark:text-plumage-400">embedding</span>' : ''}}
+          </div>
         </div>`;
       }}).join('');
     }})
@@ -1029,6 +1051,12 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
 
   {perch_section}
 
+  <!-- MQTT -->
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-4">MQTT</h3>
+    {mqtt_section}
+  </div>
+
   <!-- Actions -->
   <div class="flex items-center gap-3">
     <button type="submit" id="save-btn"
@@ -1231,5 +1259,17 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
             perch_conf = perch_conf,
             perch_topk = perch_topk,
         )}} else { String::new() },
+        mqtt_section = if let (Some(host), Some(port)) = (&initial.mqtt_host, initial.mqtt_port) {
+            format!(
+                r#"<p class="text-sm text-stone-600 dark:text-plumage-300">Connected to <code class="bg-stone-100 dark:bg-plumage-800 px-1.5 py-0.5 rounded text-xs">{host}:{port}</code></p>
+    <p class="mt-1 text-xs text-stone-400 dark:text-plumage-500">Topics: <code>sitta/{station_id}/detection</code>, <code>sitta/{station_id}/first_today/*</code></p>
+    <p class="mt-1 text-xs text-stone-400 dark:text-plumage-500">Edit <code>[mqtt]</code> in config.toml to change connection settings (requires restart).</p>"#,
+                host = host,
+                port = port,
+                station_id = initial.station_id,
+            )
+        } else {
+            r#"<p class="text-sm text-stone-400 dark:text-plumage-500">Not configured. Add a <code class="bg-stone-100 dark:bg-plumage-800 px-1.5 py-0.5 rounded text-xs">[mqtt]</code> section to config.toml to enable.</p>"#.to_string()
+        },
     )
 }
