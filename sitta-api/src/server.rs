@@ -552,8 +552,10 @@ async fn list_sources(
 
 async fn add_source(
     State(state): State<ApiState>,
-    Json(config): Json<sitta_audio::source::SourceConfig>,
+    body: String,
 ) -> Result<Json<SourceSummary>, (StatusCode, String)> {
+    let config: sitta_audio::source::SourceConfig = serde_json::from_str(&body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("invalid source config: {e}")))?;
     let name = config.name().to_string();
     let (source_type, url) = match &config {
         sitta_audio::source::SourceConfig::Rtsp(r) => ("rtsp", Some(r.url.clone())),

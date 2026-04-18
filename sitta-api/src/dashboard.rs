@@ -957,6 +957,7 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
     for (const [k, v] of fd.entries()) {{
       if (v === '') continue;
       if (k === 'station_latitude' || k === 'station_longitude' ||
+          k === 'display_min_confidence' ||
           k === 'birdnet_min_confidence' || k === 'birdnet_meta_threshold' ||
           k === 'perch_min_confidence') {{
         body[k] = parseFloat(v);
@@ -1037,19 +1038,25 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
       ? {{ type: 'rtsp', name: n, url: u }}
       : {{ type: 'remote', name: n, url: u }};
 
+    st.textContent = 'Adding...';
     fetch('/api/v1/sources', {{
       method: 'POST',
       headers: {{ 'Content-Type': 'application/json' }},
       body: JSON.stringify(body),
     }})
-    .then(r => {{ if (!r.ok) return r.text().then(t => Promise.reject(t)); return r.json(); }})
+    .then(async r => {{
+      const text = await r.text();
+      if (!r.ok) throw new Error(text || r.statusText);
+      return text;
+    }})
     .then(() => {{
+      st.innerHTML = '<span class="text-emerald-500">Added</span>';
       document.getElementById('new-source-name').value = '';
       document.getElementById('new-source-url').value = '';
-      document.getElementById('add-source-form').classList.add('hidden');
+      setTimeout(() => document.getElementById('add-source-form').classList.add('hidden'), 500);
       loadSources();
     }})
-    .catch(e => {{ st.innerHTML = '<span class="text-red-500">' + e + '</span>'; }});
+    .catch(e => {{ st.innerHTML = '<span class="text-red-500">' + e.message + '</span>'; }});
   }};
 
   window.removeSource = function(name) {{
