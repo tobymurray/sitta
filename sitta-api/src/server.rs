@@ -3,6 +3,7 @@
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -41,6 +42,18 @@ pub struct ApiState {
     pub config_path: PathBuf,
     /// Read-only snapshot of restart-required values.
     pub initial_config: Arc<InitialConfig>,
+    /// Pipeline metrics (chunks processed/dropped per consumer).
+    pub metrics: Arc<PipelineMetrics>,
+}
+
+/// Pipeline metrics tracked via atomic counters.
+/// Shared between inference consumers and the API.
+#[derive(Default)]
+pub struct PipelineMetrics {
+    pub birdnet_chunks_processed: AtomicU64,
+    pub birdnet_chunks_dropped: AtomicU64,
+    pub perch_chunks_processed: AtomicU64,
+    pub perch_chunks_dropped: AtomicU64,
 }
 
 /// Build the axum router with all routes.
@@ -257,10 +270,17 @@ async fn list_species(
 async fn status_handler(State(state): State<ApiState>) -> Json<StatusResponse> {
     let detection_count = state.db.detection_count().await.unwrap_or(-1);
     let s = state.settings.load();
+    let m = &state.metrics;
     Json(StatusResponse {
         station_name: s.station_name.clone(),
         status: "running",
         detection_count,
+        pipeline: PipelineStatus {
+            birdnet_chunks_processed: m.birdnet_chunks_processed.load(Ordering::Relaxed),
+            birdnet_chunks_dropped: m.birdnet_chunks_dropped.load(Ordering::Relaxed),
+            perch_chunks_processed: m.perch_chunks_processed.load(Ordering::Relaxed),
+            perch_chunks_dropped: m.perch_chunks_dropped.load(Ordering::Relaxed),
+        },
     })
 }
 
@@ -384,6 +404,15 @@ struct StatusResponse {
     station_name: String,
     status: &'static str,
     detection_count: i64,
+    pipeline: PipelineStatus,
+}
+
+#[derive(Serialize)]
+struct PipelineStatus {
+    birdnet_chunks_processed: u64,
+    birdnet_chunks_dropped: u64,
+    perch_chunks_processed: u64,
+    perch_chunks_dropped: u64,
 }
 
 // ── Helpers ─────────────────────────────────────────────────────

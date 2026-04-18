@@ -2,6 +2,7 @@ mod config;
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -15,7 +16,7 @@ use sitta_inference::model::{Classification, Classifier};
 use sitta_inference::rangefilter::RangeFilter;
 use arc_swap::ArcSwap;
 use sitta_api::event::{Alternative, DetectionEvent, SpeciesInfo};
-use sitta_api::server::{self, ApiState};
+use sitta_api::server::{self, ApiState, PipelineMetrics};
 use sitta_api::settings::{InitialConfig, RuntimeSettings};
 use sitta_store::db::Database;
 use sitta_store::models::{
@@ -145,6 +146,8 @@ async fn main() -> Result<()> {
         .bind
         .parse()
         .with_context(|| format!("invalid api.bind address: {}", config.api.bind))?;
+    let metrics = Arc::new(PipelineMetrics::default());
+
     let api_state = ApiState {
         db: db.clone(),
         detection_tx: persist_ctx.detection_tx.clone(),
@@ -152,6 +155,7 @@ async fn main() -> Result<()> {
         settings_notify: Arc::new(settings_notify_tx),
         config_path: std::path::PathBuf::from(&config_path),
         initial_config,
+        metrics: metrics.clone(),
     };
     tokio::spawn(server::serve(api_addr, api_state, shutdown.clone()));
 
@@ -185,6 +189,7 @@ async fn main() -> Result<()> {
             tx.subscribe(),
             shutdown.clone(),
             persist_ctx.clone(),
+            metrics.clone(),
         );
     }
 
@@ -194,16 +199,19 @@ async fn main() -> Result<()> {
     let consumer_classifiers = classifiers.clone();
     let consumer_filter = range_filter.clone();
     let consumer_persist = persist_ctx.clone();
+    let consumer_metrics = metrics.clone();
     tokio::spawn(async move {
         loop {
             tokio::select! {
                 result = rx.recv() => {
                     match result {
                         Ok(chunk) => {
+                            consumer_metrics.birdnet_chunks_processed.fetch_add(1, Ordering::Relaxed);
                             handle_chunk(&chunk, &consumer_classifiers, consumer_filter.clone(), &consumer_persist).await;
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
-                            tracing::warn!(dropped = n, "Inference consumer lagged");
+                            consumer_metrics.birdnet_chunks_dropped.fetch_add(n, Ordering::Relaxed);
+                            tracing::warn!(dropped = n, total_dropped = consumer_metrics.birdnet_chunks_dropped.load(Ordering::Relaxed), "BirdNET consumer lagged");
                         }
                         Err(broadcast::error::RecvError::Closed) => break,
                     }
@@ -581,6 +589,7 @@ fn spawn_perch_consumer(
     mut rx: broadcast::Receiver<Arc<AudioChunk>>,
     shutdown: CancellationToken,
     persist: PersistCtx,
+    metrics: Arc<PipelineMetrics>,
 ) {
     const WINDOW_SAMPLES_IN: usize = 240_000;
     const STRIDE_SAMPLES: usize = 144_000;
@@ -603,6 +612,7 @@ fn spawn_perch_consumer(
                             buf.extend_from_slice(&chunk.samples);
 
                             while buf.len() >= WINDOW_SAMPLES_IN {
+                                metrics.perch_chunks_processed.fetch_add(1, Ordering::Relaxed);
                                 let window: Vec<f32> = buf[..WINDOW_SAMPLES_IN].to_vec();
 
                                 resampler.reset();
@@ -704,8 +714,10 @@ fn spawn_perch_consumer(
                             }
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
+                            metrics.perch_chunks_dropped.fetch_add(n, Ordering::Relaxed);
                             tracing::warn!(
                                 dropped = n,
+                                total_dropped = metrics.perch_chunks_dropped.load(Ordering::Relaxed),
                                 "Perch consumer lagged, clearing buffer"
                             );
                             buf.clear();
