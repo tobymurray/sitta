@@ -409,8 +409,8 @@ pub fn dashboard_content(station_name: &str) -> String {
   window.addEventListener('beforeunload', () => levelSse.close());
   levelSse.addEventListener('level', (e) => {{
     const d = JSON.parse(e.data);
-    // Normalize: -48 dBFS → 0, -6 dBFS → 1 (compress the useful range)
-    const val = Math.max(0, Math.min(1, (d.rms_dbfs + 48) / 42));
+    // Normalize: -72 dBFS → 0, -12 dBFS → 1 (covers ambient ~-65 to birdsong ~-20)
+    const val = Math.max(0, Math.min(1, (d.rms_dbfs + 72) / 60));
 
     if (waveData[d.source]) {{
       waveData[d.source].shift();
