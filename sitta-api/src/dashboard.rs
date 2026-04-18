@@ -1138,10 +1138,36 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
     </div>
     <div class="sm:col-span-2">
         <label class="block text-sm font-medium text-stone-700 dark:text-plumage-300 mb-1">Timezone</label>
-        <input name="timezone" type="text" value="{timezone}"
+        <input name="timezone" id="tz-input" type="text" list="tz-list" value="{timezone}"
           class="w-full rounded-lg border border-stone-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none"
-          placeholder="e.g. America/Toronto">
+          placeholder="Start typing to search...">
+        <datalist id="tz-list"></datalist>
         <p class="mt-1 text-xs text-stone-400 dark:text-plumage-500">IANA timezone. Derived from coordinates if empty.</p>
+        <script>
+        (function(){{
+          var dl = document.getElementById('tz-list');
+          try {{
+            Intl.supportedValuesOf('timeZone').forEach(function(tz) {{
+              var o = document.createElement('option');
+              o.value = tz;
+              dl.appendChild(o);
+            }});
+          }} catch(e) {{
+            // Fallback for older browsers: common timezones
+            ['UTC','America/New_York','America/Chicago','America/Denver','America/Los_Angeles',
+             'America/Toronto','America/Vancouver','America/Sao_Paulo','America/Argentina/Buenos_Aires',
+             'Europe/London','Europe/Berlin','Europe/Paris','Europe/Moscow',
+             'Asia/Tokyo','Asia/Shanghai','Asia/Kolkata','Asia/Dubai',
+             'Australia/Sydney','Australia/Melbourne','Australia/Perth',
+             'Pacific/Auckland','Africa/Johannesburg','Africa/Cairo'
+            ].forEach(function(tz) {{
+              var o = document.createElement('option');
+              o.value = tz;
+              dl.appendChild(o);
+            }});
+          }}
+        }})();
+        </script>
       </div>
     </div>
     <p class="mt-2 text-xs text-stone-400 dark:text-plumage-500">Station ID <code class="bg-stone-100 dark:bg-plumage-800 px-1 rounded">{station_id}</code> requires restart to change.</p>
