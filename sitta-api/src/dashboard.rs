@@ -53,6 +53,7 @@ tailwind.config = {{
       {nav_dashboard}
       {nav_species}
       {nav_status}
+      {nav_individuals}
       {nav_settings}
     </div>
     <div class="px-5 py-4 border-t border-gray-200 dark:border-slate-800 text-xs text-gray-400 dark:text-slate-600">
@@ -73,6 +74,7 @@ tailwind.config = {{
         <a href="/" class="px-2.5 py-1.5 text-sm rounded-md {mob_dashboard}">Live</a>
         <a href="/species" class="px-2.5 py-1.5 text-sm rounded-md {mob_species}">Species</a>
         <a href="/status" class="px-2.5 py-1.5 text-sm rounded-md {mob_status}">Status</a>
+        <a href="/individuals" class="px-2.5 py-1.5 text-sm rounded-md {mob_individuals}">Individuals</a>
         <a href="/settings" class="px-2.5 py-1.5 text-sm rounded-md {mob_settings}">Settings</a>
       </nav>
     </header>
@@ -95,11 +97,14 @@ tailwind.config = {{
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z"/>"#),
         nav_status = nav_item("Status", "/status", "status", active,
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M9.348 14.651a3.75 3.75 0 010-5.303m5.304 0a3.75 3.75 0 010 5.303m-7.425 2.122a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.788m13.788 0c3.808 3.808 3.808 9.98 0 13.788M12 12h.008v.008H12V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/>"#),
+        nav_individuals = nav_item("Individuals", "/individuals", "individuals", active,
+            r#"<path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>"#),
         nav_settings = nav_item("Settings", "/settings", "settings", active,
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>"#),
         mob_dashboard = if active == "dashboard" { "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium" } else { "text-gray-600 dark:text-slate-400" },
         mob_species = if active == "species" { "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium" } else { "text-gray-600 dark:text-slate-400" },
         mob_status = if active == "status" { "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium" } else { "text-gray-600 dark:text-slate-400" },
+        mob_individuals = if active == "individuals" { "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium" } else { "text-gray-600 dark:text-slate-400" },
         mob_settings = if active == "settings" { "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium" } else { "text-gray-600 dark:text-slate-400" },
     ))
 }
@@ -404,6 +409,196 @@ fetch('/api/v1/status')
 </script>"##,
         station_name = station_name,
     )
+}
+
+pub fn individuals_content() -> String {
+    r##"<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Individuals</h1>
+    <p class="text-sm text-gray-500 dark:text-slate-400 mt-0.5">Known animals identified by Perch embeddings</p>
+  </div>
+  <button onclick="document.getElementById('enroll-modal').classList.remove('hidden')"
+    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+    Enroll
+  </button>
+</div>
+
+<!-- Overview: species groups -->
+<div id="individuals-list">
+  <div class="text-center py-12 text-gray-400 dark:text-slate-500 text-sm">Loading...</div>
+</div>
+
+<!-- Enrollment modal -->
+<div id="enroll-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+  <div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 shadow-xl w-full max-w-md mx-4 p-6">
+    <h2 class="text-lg font-semibold mb-4">Enroll Individual</h2>
+    <p class="text-sm text-gray-500 dark:text-slate-400 mb-4">Select a recent Perch detection to use as the reference embedding.</p>
+
+    <div id="enroll-detections" class="space-y-2 max-h-48 overflow-y-auto mb-4">
+      <div class="text-sm text-gray-400 dark:text-slate-500">Loading recent detections...</div>
+    </div>
+
+    <div id="enroll-form" class="hidden space-y-3">
+      <input type="hidden" id="enroll-detection-id">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Label</label>
+        <input id="enroll-label" type="text" placeholder="e.g. Barn Owl #1"
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Notes (optional)</label>
+        <input id="enroll-notes" type="text" placeholder="e.g. First seen near north paddock"
+          class="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+      </div>
+    </div>
+
+    <div class="flex justify-end gap-2 mt-4">
+      <button onclick="document.getElementById('enroll-modal').classList.add('hidden')"
+        class="px-3 py-1.5 rounded-lg text-sm text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors">Cancel</button>
+      <button id="enroll-btn" disabled
+        class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        onclick="submitEnroll()">Enroll</button>
+    </div>
+    <div id="enroll-status" class="mt-2 text-sm"></div>
+  </div>
+</div>
+
+<script>
+(function() {
+  // Load individuals grouped by species.
+  fetch('/api/v1/individuals')
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('individuals-list');
+      if (data.length === 0) {
+        el.innerHTML = `<div class="text-center py-16 text-gray-400 dark:text-slate-500">
+          <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg>
+          <p class="text-sm">No individuals enrolled yet</p>
+          <p class="text-xs mt-1">Click "Enroll" to identify an individual from a Perch detection</p>
+        </div>`;
+        return;
+      }
+
+      // Group by species.
+      const groups = {};
+      data.forEach(ind => {
+        const key = ind.scientific_name;
+        if (!groups[key]) groups[key] = { scientific_name: key, individuals: [] };
+        groups[key].individuals.push(ind);
+      });
+
+      let html = '<div class="space-y-6">';
+      Object.values(groups).forEach(g => {
+        html += `<div class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 overflow-hidden">
+          <div class="px-5 py-3 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between">
+            <div>
+              <h3 class="font-semibold text-sm">${g.individuals[0].scientific_name}</h3>
+              <p class="text-xs text-gray-400 dark:text-slate-500 italic">${g.scientific_name}</p>
+            </div>
+            <span class="inline-flex items-center justify-center min-w-[1.5rem] rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 text-xs font-semibold px-2 py-0.5">${g.individuals.length}</span>
+          </div>
+          <div class="divide-y divide-gray-100 dark:divide-slate-800">`;
+
+        g.individuals.forEach(ind => {
+          const enrolled = new Date(ind.enrolled_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+          html += `<div class="px-5 py-3 flex items-center justify-between">
+            <div>
+              <p class="font-medium text-sm">${ind.label}</p>
+              <p class="text-xs text-gray-400 dark:text-slate-500 mt-0.5">Enrolled ${enrolled}${ind.notes ? ' — ' + ind.notes : ''}</p>
+            </div>
+            <span class="text-xs text-gray-400 dark:text-slate-500 font-mono">${ind.id.slice(0, 8)}</span>
+          </div>`;
+        });
+
+        html += '</div></div>';
+      });
+      html += '</div>';
+      el.innerHTML = html;
+    })
+    .catch(() => {
+      document.getElementById('individuals-list').innerHTML =
+        '<div class="text-center py-8 text-red-400 text-sm">Failed to load individuals</div>';
+    });
+
+  // Load recent Perch detections for enrollment picker.
+  document.getElementById('enroll-modal').addEventListener('transitionend', () => {});
+  const modal = document.getElementById('enroll-modal');
+  new MutationObserver(() => {
+    if (!modal.classList.contains('hidden')) loadEnrollDetections();
+  }).observe(modal, { attributes: true, attributeFilter: ['class'] });
+
+  function loadEnrollDetections() {
+    fetch('/api/v1/detections?limit=20')
+      .then(r => r.json())
+      .then(data => {
+        const withEmb = data.filter(d => d.has_embedding);
+        const el = document.getElementById('enroll-detections');
+        if (withEmb.length === 0) {
+          el.innerHTML = '<div class="text-sm text-gray-400 dark:text-slate-500">No Perch detections with embeddings found</div>';
+          return;
+        }
+        el.innerHTML = withEmb.map(d => {
+          const time = new Date(d.detected_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+          const pct = Math.round(d.confidence * 100);
+          return `<button onclick="selectDetection('${d.id}', '${d.species.common_name}', this)"
+            class="w-full text-left px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 transition-colors text-sm flex items-center justify-between">
+            <div>
+              <span class="font-medium">${d.species.common_name}</span>
+              <span class="text-gray-400 dark:text-slate-500 ml-2">${time}</span>
+            </div>
+            <span class="text-xs text-gray-400">${pct}%</span>
+          </button>`;
+        }).join('');
+      });
+  }
+})();
+
+function selectDetection(id, species, btn) {
+  document.getElementById('enroll-detection-id').value = id;
+  document.getElementById('enroll-label').placeholder = species + ' #1';
+  document.getElementById('enroll-form').classList.remove('hidden');
+  document.getElementById('enroll-btn').disabled = false;
+  // Highlight selected.
+  document.querySelectorAll('#enroll-detections button').forEach(b =>
+    b.classList.remove('border-blue-500', 'dark:border-blue-400', 'bg-blue-50', 'dark:bg-blue-900/20'));
+  btn.classList.add('border-blue-500', 'dark:border-blue-400', 'bg-blue-50', 'dark:bg-blue-900/20');
+}
+
+function submitEnroll() {
+  const detId = document.getElementById('enroll-detection-id').value;
+  const label = document.getElementById('enroll-label').value;
+  const notes = document.getElementById('enroll-notes').value;
+  const status = document.getElementById('enroll-status');
+
+  if (!label.trim()) {
+    status.innerHTML = '<span class="text-amber-500">Please enter a label</span>';
+    return;
+  }
+
+  document.getElementById('enroll-btn').disabled = true;
+  status.textContent = 'Enrolling...';
+
+  fetch('/api/v1/individuals', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ detection_id: detId, label: label.trim(), notes: notes.trim() || undefined }),
+  })
+  .then(r => {
+    if (!r.ok) return r.json().then(d => Promise.reject(d));
+    return r.json();
+  })
+  .then(data => {
+    document.getElementById('enroll-modal').classList.add('hidden');
+    location.reload();
+  })
+  .catch(e => {
+    status.innerHTML = '<span class="text-red-500">Error: ' + (typeof e === 'string' ? e : JSON.stringify(e)) + '</span>';
+    document.getElementById('enroll-btn').disabled = false;
+  });
+}
+</script>"##
+    .to_string()
 }
 
 pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> String {

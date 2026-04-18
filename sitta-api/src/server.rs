@@ -74,6 +74,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/", get(dashboard_page))
         .route("/species", get(species_page))
         .route("/status", get(status_page))
+        .route("/individuals", get(individuals_page))
         .route("/settings", get(settings_page))
         .with_state(state)
 }
@@ -597,6 +598,13 @@ async fn status_page(
     let s = state.settings.load();
     let content = dashboard::status_content(&s.station_name);
     dashboard::page("Status", "status", &content)
+}
+
+async fn individuals_page(
+    State(_state): State<ApiState>,
+) -> axum::response::Html<String> {
+    let content = dashboard::individuals_content();
+    dashboard::page("Individuals", "individuals", &content)
 }
 
 async fn settings_page(
