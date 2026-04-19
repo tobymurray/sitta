@@ -410,6 +410,60 @@ impl Database {
             .collect())
     }
 
+    /// Find detections from other models within ±5 seconds of a given timestamp.
+    /// Used to show what other models detected for the same audio moment.
+    pub async fn correlated_detections(
+        &self,
+        detection_id: &[u8],
+        timestamp_ms: i64,
+        limit: i64,
+    ) -> Result<Vec<DetectionRow>, crate::StoreError> {
+        let window_start = timestamp_ms - 5000;
+        let window_end = timestamp_ms + 5000;
+        let rows = sqlx::query!(
+            r#"SELECT d.id, d.detected_at, d.confidence AS "confidence!: f64",
+                      d.snippet_path, d.metadata,
+                      l.scientific_name, l.common_name AS "common_name!",
+                      l.taxon_code,
+                      m.name AS "model_name!", m.version AS "model_version!",
+                      s.name AS "source_name?",
+                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS "has_embedding!: bool"
+               FROM detections d
+               JOIN labels l ON l.id = d.label_id
+               JOIN models m ON m.id = d.model_id
+               LEFT JOIN audio_sources s ON s.id = d.source_id
+               WHERE d.detected_at >= $1 AND d.detected_at <= $2
+                 AND d.id != $3
+               ORDER BY ABS(d.detected_at - $4) ASC
+               LIMIT $5"#,
+            window_start,
+            window_end,
+            detection_id,
+            timestamp_ms,
+            limit,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| DetectionRow {
+                id: r.id,
+                detected_at: r.detected_at,
+                confidence: r.confidence,
+                snippet_path: r.snippet_path,
+                metadata: r.metadata,
+                scientific_name: r.scientific_name,
+                common_name: r.common_name,
+                taxon_code: r.taxon_code,
+                model_name: r.model_name,
+                model_version: r.model_version,
+                source_name: r.source_name,
+                has_embedding: r.has_embedding,
+            })
+            .collect())
+    }
+
     /// Species summary aggregated over a date range.
     pub async fn species_summary(
         &self,

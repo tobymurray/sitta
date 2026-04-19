@@ -126,6 +126,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/v1/audio/stream/{source_name}", get(audio_stream_handler))
         // Dashboard pages
         .route("/", get(dashboard_page))
+        .route("/detections/{id}", get(detection_detail_page))
         .route("/species", get(species_page))
         .route("/species/{name}", get(species_detail_page))
         .route("/status", get(status_page))
@@ -269,6 +270,40 @@ async fn get_detection(
         })
         .collect();
 
+    // Fetch review status.
+    let review = state.core.db.get_review(id_bytes).await
+        .ok()
+        .flatten()
+        .map(|r| ReviewInfo {
+            status: r.status,
+            reviewed_at: millis_to_rfc3339(r.reviewed_at).unwrap_or_default(),
+            comment: r.comment,
+        });
+
+    // Fetch correlated detections (other models, ±5s window).
+    let correlated_rows = state.core.db
+        .correlated_detections(id_bytes, row.detected_at, 10)
+        .await
+        .unwrap_or_default();
+
+    let correlated: Vec<CorrelatedDetection> = correlated_rows
+        .into_iter()
+        .filter_map(|r| {
+            Some(CorrelatedDetection {
+                id: uuid_from_blob(r.id).ok()?.to_string(),
+                model: r.model_name,
+                model_version: r.model_version,
+                species: SpeciesInfo {
+                    scientific_name: r.scientific_name.unwrap_or_default(),
+                    common_name: r.common_name,
+                    taxon_code: r.taxon_code,
+                },
+                confidence: r.confidence as f32,
+                has_audio: r.snippet_path.is_some(),
+            })
+        })
+        .collect();
+
     let detail = DetectionDetail {
         id: uuid.to_string(),
         detected_at: millis_to_rfc3339(row.detected_at).unwrap_or_default(),
@@ -282,8 +317,11 @@ async fn get_detection(
         },
         confidence: row.confidence as f32,
         alternatives,
+        has_audio: row.snippet_path.is_some(),
         snippet_path: row.snippet_path,
         metadata: row.metadata,
+        review,
+        correlated,
     };
 
     Ok(Json(detail))
@@ -1368,10 +1406,34 @@ struct DetectionDetail {
     confidence: f32,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     alternatives: Vec<Alternative>,
+    has_audio: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     snippet_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     metadata: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    review: Option<ReviewInfo>,
+    /// Detections from other models within ±5 seconds of this detection.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    correlated: Vec<CorrelatedDetection>,
+}
+
+#[derive(Serialize)]
+struct ReviewInfo {
+    status: String,
+    reviewed_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    comment: Option<String>,
+}
+
+#[derive(Serialize)]
+struct CorrelatedDetection {
+    id: String,
+    model: String,
+    model_version: String,
+    species: SpeciesInfo,
+    confidence: f32,
+    has_audio: bool,
 }
 
 #[derive(Serialize)]
@@ -1423,6 +1485,15 @@ async fn species_page(
     let s = state.core.settings.load();
     let content = dashboard::species_content();
     dashboard::page("Species", "species", &content, &s.timezone)
+}
+
+async fn detection_detail_page(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> axum::response::Html<String> {
+    let s = state.core.settings.load();
+    let content = dashboard::detection_detail_content(&id);
+    dashboard::page("Detection", "dashboard", &content, &s.timezone)
 }
 
 async fn species_detail_page(

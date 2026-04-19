@@ -441,7 +441,7 @@ ACTIVITY_PANEL_PLACEHOLDER
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2 flex-wrap">
-            <h3 class="font-semibold text-base truncate">${{d.species.common_name}}</h3>
+            <a href="/detections/${{d.id}}" class="font-semibold text-base truncate hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${{d.species.common_name}}</a>
             <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${{badge}}">${{pct}}%</span>
           </div>
           <p class="text-sm text-gray-500 dark:text-plumage-400 italic mt-0.5">${{d.species.scientific_name}}</p>
@@ -614,6 +614,179 @@ pub fn species_content() -> String {
 })();
 </script>"##
         .to_string()
+}
+
+pub fn detection_detail_content(detection_id: &str) -> String {
+    format!(
+        r##"<div id="detail-loading" class="text-center py-16 text-gray-400 dark:text-plumage-500">Loading...</div>
+<div id="detail-content" class="hidden">
+
+  <!-- Header -->
+  <div class="flex items-center gap-2 mb-1">
+    <a href="/" class="text-sm text-gray-400 dark:text-plumage-500 hover:text-gray-600 dark:hover:text-plumage-300">&larr; Dashboard</a>
+  </div>
+  <div class="flex items-start justify-between gap-4 mb-6">
+    <div>
+      <h1 id="det-common" class="text-2xl font-bold tracking-tight"></h1>
+      <p id="det-scientific" class="text-sm text-gray-500 dark:text-plumage-400 italic mt-0.5"></p>
+    </div>
+    <div class="flex items-center gap-3 flex-shrink-0">
+      <span id="det-badge" class="inline-flex items-center rounded-md px-2.5 py-1 text-sm font-medium ring-1 ring-inset"></span>
+    </div>
+  </div>
+  <div id="det-meta" class="flex items-center gap-3 text-sm text-gray-500 dark:text-plumage-400 mb-6"></div>
+
+  <!-- Review strip -->
+  <div id="det-review" class="mb-6 flex items-center gap-3"></div>
+
+  <!-- Spectrogram + Audio -->
+  <div id="det-audio-section" class="mb-6 hidden">
+    <img id="det-spectrogram" loading="lazy" class="w-full h-48 rounded-xl object-cover bg-gray-100 dark:bg-plumage-800" alt="spectrogram"/>
+    <div class="mt-3 flex items-center gap-3">
+      <button id="det-play-btn" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors">
+        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/></svg>
+        Play clip
+      </button>
+      <button onclick="reviewThis('correct')" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-900/30 transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg> Correct
+      </button>
+      <button onclick="reviewThis('false_positive')" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30 transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg> False positive
+      </button>
+    </div>
+  </div>
+
+  <!-- Predictions (full top_k) -->
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5 mb-6">
+    <h2 class="text-base font-semibold mb-4">Model Predictions</h2>
+    <div id="det-predictions" class="space-y-2"></div>
+  </div>
+
+  <!-- Correlated detections -->
+  <div id="det-correlated-section" class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5 mb-6 hidden">
+    <h2 class="text-base font-semibold mb-4">Other Models (same audio moment)</h2>
+    <div id="det-correlated" class="space-y-3"></div>
+  </div>
+
+</div>
+
+<script>
+(function() {{
+  const ID = '{detection_id}';
+  const _tz = document.body.dataset.tz || 'UTC';
+
+  fetch('/api/v1/detections/' + ID)
+    .then(r => {{ if (!r.ok) throw new Error(r.status); return r.json(); }})
+    .then(d => {{
+      document.getElementById('detail-loading').classList.add('hidden');
+      document.getElementById('detail-content').classList.remove('hidden');
+
+      // Header
+      document.getElementById('det-common').textContent = d.species.common_name;
+      document.getElementById('det-scientific').textContent = d.species.scientific_name;
+      const pct = Math.round(d.confidence * 100);
+      const badge = document.getElementById('det-badge');
+      badge.textContent = pct + '%';
+      if (d.confidence >= 0.8) badge.className = 'inline-flex items-center rounded-md px-2.5 py-1 text-sm font-medium ring-1 ring-inset text-emerald-700 bg-emerald-50 ring-emerald-600/20 dark:text-emerald-400 dark:bg-emerald-900/30 dark:ring-emerald-400/20';
+      else if (d.confidence >= 0.5) badge.className = 'inline-flex items-center rounded-md px-2.5 py-1 text-sm font-medium ring-1 ring-inset text-amber-700 bg-amber-50 ring-amber-600/20 dark:text-amber-400 dark:bg-amber-900/30 dark:ring-amber-400/20';
+      else badge.className = 'inline-flex items-center rounded-md px-2.5 py-1 text-sm font-medium ring-1 ring-inset text-red-700 bg-red-50 ring-red-600/20 dark:text-red-400 dark:bg-red-900/30 dark:ring-red-400/20';
+
+      // Meta
+      const dt = new Date(d.detected_at);
+      const timeStr = dt.toLocaleString('en-GB', {{ dateStyle: 'medium', timeStyle: 'medium', timeZone: _tz }});
+      let meta = `<span>${{d.model}} ${{d.model_version}}</span>`;
+      if (d.source_name) meta += `<span class="before:content-['\\u00b7'] before:mr-3">${{d.source_name}}</span>`;
+      meta += `<span class="before:content-['\\u00b7'] before:mr-3">${{timeStr}}</span>`;
+      document.getElementById('det-meta').innerHTML = meta;
+
+      // Review
+      if (d.review) {{
+        const rv = document.getElementById('det-review');
+        if (d.review.status === 'correct') rv.innerHTML = '<span class="text-sm text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>Reviewed: Correct</span>';
+        else rv.innerHTML = '<span class="text-sm text-red-500 dark:text-red-400 font-medium">Reviewed: False positive</span>';
+      }}
+
+      // Audio + spectrogram
+      if (d.has_audio) {{
+        const sec = document.getElementById('det-audio-section');
+        sec.classList.remove('hidden');
+        document.getElementById('det-spectrogram').src = '/api/v1/detections/' + ID + '/spectrogram';
+        const playBtn = document.getElementById('det-play-btn');
+        let audio = null;
+        playBtn.onclick = function() {{
+          if (audio) {{ audio.pause(); audio = null; playBtn.querySelector('svg').innerHTML = '<path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/>'; return; }}
+          audio = new Audio('/api/v1/detections/' + ID + '/audio');
+          audio.play();
+          playBtn.querySelector('svg').innerHTML = '<rect x="4" y="4" width="12" height="12" rx="1.5"/>';
+          audio.onended = function() {{ audio = null; playBtn.querySelector('svg').innerHTML = '<path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/>'; }};
+        }};
+      }}
+
+      // Predictions — top-1 + all alternatives as horizontal bars
+      const predsDiv = document.getElementById('det-predictions');
+      const allPreds = [{{ common_name: d.species.common_name, scientific_name: d.species.scientific_name, confidence: d.confidence, rank: 0 }}]
+        .concat((d.alternatives || []).map(a => ({{ common_name: a.common_name, scientific_name: a.scientific_name, confidence: a.confidence, rank: a.rank }})));
+      const maxConf = Math.max(...allPreds.map(p => p.confidence));
+      allPreds.forEach((p, i) => {{
+        const barPct = Math.round((p.confidence / maxConf) * 100);
+        const confPct = Math.round(p.confidence * 100);
+        const isTop = i === 0;
+        predsDiv.innerHTML += `
+          <div class="flex items-center gap-3">
+            <div class="w-48 flex-shrink-0 text-right">
+              <span class="text-sm ${{isTop ? 'font-semibold' : 'text-gray-600 dark:text-plumage-300'}}">${{p.common_name}}</span>
+            </div>
+            <div class="flex-1 h-6 bg-gray-100 dark:bg-plumage-800 rounded overflow-hidden">
+              <div class="h-full rounded ${{isTop ? 'bg-nuthatch-500' : 'bg-plumage-400 dark:bg-plumage-600'}}" style="width:${{barPct}}%"></div>
+            </div>
+            <span class="w-12 text-right text-sm font-mono ${{isTop ? 'font-bold' : 'text-gray-500 dark:text-plumage-400'}}">${{confPct}}%</span>
+          </div>`;
+      }});
+
+      // Correlated detections
+      if (d.correlated && d.correlated.length > 0) {{
+        const sec = document.getElementById('det-correlated-section');
+        sec.classList.remove('hidden');
+        const div = document.getElementById('det-correlated');
+        d.correlated.forEach(c => {{
+          const cpct = Math.round(c.confidence * 100);
+          const sameSpecies = c.species.scientific_name === d.species.scientific_name;
+          div.innerHTML += `
+            <a href="/detections/${{c.id}}" class="block p-3 rounded-lg border border-gray-100 dark:border-plumage-800 hover:bg-gray-50 dark:hover:bg-plumage-800/50 transition-colors">
+              <div class="flex items-center justify-between">
+                <div>
+                  <span class="text-sm font-medium">${{c.species.common_name}}</span>
+                  ${{!sameSpecies ? '<span class="ml-2 text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">different species</span>' : '<span class="ml-2 text-xs px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">agrees</span>'}}
+                </div>
+                <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-plumage-400">
+                  <span>${{c.model}} ${{c.model_version}}</span>
+                  <span class="font-mono">${{cpct}}%</span>
+                </div>
+              </div>
+            </a>`;
+        }});
+      }}
+    }})
+    .catch(e => {{
+      document.getElementById('detail-loading').innerHTML = '<p class="text-red-500">Detection not found</p>';
+    }});
+
+  window.reviewThis = function(status) {{
+    fetch('/api/v1/detections/' + ID + '/review', {{
+      method: 'PUT',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ status }})
+    }}).then(r => {{
+      if (!r.ok) return;
+      const rv = document.getElementById('det-review');
+      if (status === 'correct') rv.innerHTML = '<span class="text-sm text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>Reviewed: Correct</span>';
+      else rv.innerHTML = '<span class="text-sm text-red-500 dark:text-red-400 font-medium">Reviewed: False positive</span>';
+    }});
+  }};
+}})();
+</script>"##,
+        detection_id = detection_id,
+    )
 }
 
 pub fn species_detail_content(scientific_name: &str) -> String {
