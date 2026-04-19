@@ -358,18 +358,55 @@ ACTIVITY_PANEL_PLACEHOLDER
     return new Date(iso).toLocaleTimeString('en-GB', _tf);
   }}
 
-  // Audio playback for detection clips.
-  let clipAudio = null;
+  // Audio playback for detection clips with spectrogram sync.
+  let clipAudio = null, clipId = null, animFrame = null;
+  const playSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/></svg>';
+  const stopSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><rect x="4" y="4" width="12" height="12" rx="1.5"/></svg>';
+
+  function stopClip() {{
+    if (animFrame) {{ cancelAnimationFrame(animFrame); animFrame = null; }}
+    if (clipAudio) {{ clipAudio.pause(); clipAudio = null; }}
+    document.querySelectorAll('.clip-btn-playing').forEach(b => {{ b.classList.remove('clip-btn-playing'); b.innerHTML = playSvg; }});
+    document.querySelectorAll('.playhead').forEach(ph => ph.style.display = 'none');
+    clipId = null;
+  }}
+  function animatePlayhead() {{
+    if (!clipAudio || clipAudio.paused) return;
+    const ph = document.querySelector('#spect-' + CSS.escape(clipId) + ' .playhead');
+    if (ph && clipAudio.duration) {{ ph.style.left = (clipAudio.currentTime / clipAudio.duration * 100) + '%'; ph.style.display = ''; }}
+    animFrame = requestAnimationFrame(animatePlayhead);
+  }}
   window.playClip = function(id, btn) {{
-    if (clipAudio) {{ clipAudio.pause(); clipAudio = null; document.querySelectorAll('.clip-btn-playing').forEach(b => {{ b.classList.remove('clip-btn-playing'); b.innerHTML = playSvg; }}); }}
+    if (clipId === id && clipAudio && !clipAudio.paused) {{ stopClip(); return; }}
+    stopClip();
+    clipId = id;
     clipAudio = new Audio('/api/v1/detections/' + id + '/audio');
     clipAudio.play();
     btn.classList.add('clip-btn-playing');
     btn.innerHTML = stopSvg;
-    clipAudio.onended = () => {{ clipAudio = null; btn.classList.remove('clip-btn-playing'); btn.innerHTML = playSvg; }};
-  }}
-  const playSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/></svg>';
-  const stopSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><rect x="4" y="4" width="12" height="12" rx="1.5"/></svg>';
+    animatePlayhead();
+    clipAudio.onended = () => stopClip();
+  }};
+  window.seekSpectrogram = function(event, id) {{
+    const rect = event.currentTarget.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    if (clipId === id && clipAudio) {{
+      clipAudio.currentTime = pct * clipAudio.duration;
+      if (clipAudio.paused) clipAudio.play();
+    }} else {{
+      stopClip();
+      clipId = id;
+      clipAudio = new Audio('/api/v1/detections/' + id + '/audio');
+      clipAudio.addEventListener('loadedmetadata', () => {{
+        clipAudio.currentTime = pct * clipAudio.duration;
+        clipAudio.play();
+        animatePlayhead();
+      }});
+      const btn = event.currentTarget.parentElement.querySelector('[onclick*="playClip"]');
+      if (btn) {{ btn.classList.add('clip-btn-playing'); btn.innerHTML = stopSvg; }}
+      clipAudio.onended = () => stopClip();
+    }}
+  }};
 
   // Review detection.
   window.reviewDetection = function(id, status, card) {{
@@ -428,10 +465,12 @@ ACTIVITY_PANEL_PLACEHOLDER
         </div>
       </div>
       ${{d.has_audio || d.snippet_path ? `
-        <div class="mt-3">
+        <div class="mt-3 relative cursor-pointer group" id="spect-${{d.id}}" onclick="seekSpectrogram(event, '${{d.id}}')">
           <img src="/api/v1/detections/${{d.id}}/spectrogram" loading="lazy"
                class="w-full h-16 rounded-lg object-cover bg-gray-100 dark:bg-plumage-800"
-               alt="spectrogram" onerror="this.style.display='none'"/>
+               alt="spectrogram" onerror="this.parentElement.style.display='none'"/>
+          <div class="playhead absolute top-0 bottom-0 w-0.5 bg-white/80 dark:bg-nuthatch-400/80 pointer-events-none transition-none" style="left:0%;display:none"></div>
+          <div class="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/5 dark:group-hover:bg-white/5 transition-colors pointer-events-none"></div>
         </div>` : ''}}
       <div class="mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800 flex items-center justify-between">
         <div class="flex items-center gap-2">
@@ -661,14 +700,67 @@ pub fn species_detail_content(scientific_name: &str) -> String {
   const playSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/></svg>';
   const stopSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><rect x="4" y="4" width="12" height="12" rx="1.5"/></svg>';
   let clipAudio = null;
+  let clipId = null;
+  let animFrame = null;
+
+  function stopClip() {{
+    if (animFrame) {{ cancelAnimationFrame(animFrame); animFrame = null; }}
+    if (clipAudio) {{ clipAudio.pause(); clipAudio = null; }}
+    document.querySelectorAll('.clip-playing').forEach(b => {{ b.classList.remove('clip-playing'); b.innerHTML = playSvg + ' Play'; }});
+    // Hide all playheads
+    document.querySelectorAll('.playhead').forEach(ph => ph.style.display = 'none');
+    clipId = null;
+  }}
+
+  function animatePlayhead() {{
+    if (!clipAudio || clipAudio.paused) return;
+    const ph = document.querySelector('#spect-' + CSS.escape(clipId) + ' .playhead');
+    if (ph && clipAudio.duration) {{
+      const pct = (clipAudio.currentTime / clipAudio.duration) * 100;
+      ph.style.left = pct + '%';
+      ph.style.display = '';
+    }}
+    animFrame = requestAnimationFrame(animatePlayhead);
+  }}
 
   window.playClip = function(id, btn) {{
-    if (clipAudio) {{ clipAudio.pause(); clipAudio = null; document.querySelectorAll('.clip-playing').forEach(b => {{ b.classList.remove('clip-playing'); b.innerHTML = playSvg + ' Play'; }}); }}
+    if (clipId === id && clipAudio && !clipAudio.paused) {{
+      stopClip();
+      return;
+    }}
+    stopClip();
+    clipId = id;
     clipAudio = new Audio('/api/v1/detections/' + id + '/audio');
     clipAudio.play();
     btn.classList.add('clip-playing');
     btn.innerHTML = stopSvg + ' Stop';
-    clipAudio.onended = () => {{ clipAudio = null; btn.classList.remove('clip-playing'); btn.innerHTML = playSvg + ' Play'; }};
+    animatePlayhead();
+    clipAudio.onended = () => stopClip();
+  }};
+
+  window.seekSpectrogram = function(event, id) {{
+    const rect = event.currentTarget.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+
+    if (clipId === id && clipAudio) {{
+      // Already playing this clip — just seek
+      clipAudio.currentTime = pct * clipAudio.duration;
+      if (clipAudio.paused) clipAudio.play();
+    }} else {{
+      // Start playing from this position
+      stopClip();
+      clipId = id;
+      clipAudio = new Audio('/api/v1/detections/' + id + '/audio');
+      clipAudio.addEventListener('loadedmetadata', () => {{
+        clipAudio.currentTime = pct * clipAudio.duration;
+        clipAudio.play();
+        animatePlayhead();
+      }});
+      // Update button state
+      const btn = event.currentTarget.parentElement.querySelector('[onclick*="playClip"]');
+      if (btn) {{ btn.classList.add('clip-playing'); btn.innerHTML = stopSvg + ' Stop'; }}
+      clipAudio.onended = () => stopClip();
+    }}
   }};
 
   // ── Behavioral insights ────────────────────────────────────────
@@ -844,10 +936,12 @@ pub fn species_detail_content(scientific_name: &str) -> String {
             </div>
             <span class="text-xs text-gray-400 dark:text-plumage-600 font-mono">${{d.id.slice(0, 8)}}</span>
           </div>
-          ${{hasAudio ? `<div class="mt-3">
+          ${{hasAudio ? `<div class="mt-3 relative cursor-pointer group" id="spect-${{d.id}}" onclick="seekSpectrogram(event, '${{d.id}}')">
             <img src="/api/v1/detections/${{d.id}}/spectrogram" loading="lazy"
                  class="w-full h-20 rounded-lg object-cover bg-gray-100 dark:bg-plumage-800"
-                 alt="spectrogram" onerror="this.style.display='none'"/>
+                 alt="spectrogram" onerror="this.parentElement.style.display='none'"/>
+            <div class="playhead absolute top-0 bottom-0 w-0.5 bg-white/80 dark:bg-nuthatch-400/80 pointer-events-none transition-none" style="left:0%;display:none"></div>
+            <div class="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/5 dark:group-hover:bg-white/5 transition-colors pointer-events-none"></div>
           </div>` : ''}}
           <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800">
             <div class="flex items-center gap-3">
