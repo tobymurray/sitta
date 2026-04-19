@@ -91,6 +91,7 @@ async fn main() -> Result<()> {
         station_latitude: lat,
         station_longitude: lon,
         timezone,
+        species_image_url: None,
         display_min_confidence: config.api.display_min_confidence,
         birdnet_min_confidence: config.inference.birdnet.as_ref().map(|b| b.min_confidence),
         birdnet_top_k: config.inference.birdnet.as_ref().map(|b| b.top_k),

@@ -577,8 +577,17 @@ pub fn species_detail_content(scientific_name: &str) -> String {
   <div class="flex items-center gap-2 mb-1">
     <a href="/species" class="text-nuthatch-600 dark:text-nuthatch-400 hover:underline text-sm">&larr; All species</a>
   </div>
-  <h1 id="species-title" class="text-2xl font-bold tracking-tight">{scientific_name}</h1>
-  <p class="text-sm text-gray-500 dark:text-plumage-400 italic mt-0.5">{scientific_name}</p>
+  <div class="flex items-start gap-5">
+    <div class="flex-1">
+      <h1 id="species-title" class="text-2xl font-bold tracking-tight">{scientific_name}</h1>
+      <p class="text-sm text-gray-500 dark:text-plumage-400 italic mt-0.5">{scientific_name}</p>
+      <p id="species-wiki-extract" class="text-sm text-stone-600 dark:text-plumage-300 mt-2 line-clamp-3 hidden"></p>
+      <a id="species-wiki-link" class="text-xs text-nuthatch-600 dark:text-nuthatch-400 hover:underline mt-1 hidden" target="_blank" rel="noopener">Wikipedia &rarr;</a>
+    </div>
+    <div id="species-image-container" class="hidden flex-shrink-0">
+      <img id="species-image" class="w-32 h-32 sm:w-40 sm:h-40 rounded-xl object-cover shadow-sm" alt="">
+    </div>
+  </div>
 </div>
 
 <div id="species-insights" class="mb-6"></div>
@@ -592,6 +601,56 @@ pub fn species_detail_content(scientific_name: &str) -> String {
   const sciName = {sci_json};
   const _tz = document.body.dataset.tz || 'UTC';
   const _tf = {{ hour: '2-digit', minute: '2-digit', hour12: false, timeZone: _tz }};
+
+  // ── Species image: try custom URL, then Wikipedia ──────────────
+  (function() {{
+    const wikiName = sciName.replace(/ /g, '_');
+    // Check if a custom image base URL is configured via settings.
+    fetch('/api/v1/settings')
+      .then(r => r.json())
+      .then(s => {{
+        if (s.species_image_url) {{
+          // Custom source: {{url}}/{{Scientific_name}}.jpg
+          const customUrl = s.species_image_url.replace(/\/$/, '') + '/' + wikiName + '.jpg';
+          const img = new Image();
+          img.onload = function() {{ showImage(customUrl); }};
+          img.onerror = function() {{ loadFromWikipedia(); }};
+          img.src = customUrl;
+          return;
+        }}
+        loadFromWikipedia();
+      }})
+      .catch(() => loadFromWikipedia());
+
+    function loadFromWikipedia() {{
+      fetch('https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(wikiName))
+        .then(r => r.json())
+        .then(data => {{
+          if (data.thumbnail && data.thumbnail.source) {{
+            showImage(data.thumbnail.source);
+          }}
+          if (data.extract) {{
+            const el = document.getElementById('species-wiki-extract');
+            el.textContent = data.extract;
+            el.classList.remove('hidden');
+          }}
+          if (data.content_urls && data.content_urls.desktop) {{
+            const link = document.getElementById('species-wiki-link');
+            link.href = data.content_urls.desktop.page;
+            link.classList.remove('hidden');
+          }}
+        }})
+        .catch(() => {{}});
+    }}
+
+    function showImage(url) {{
+      const img = document.getElementById('species-image');
+      const container = document.getElementById('species-image-container');
+      img.src = url;
+      img.alt = sciName;
+      container.classList.remove('hidden');
+    }}
+  }})();
 
   const playSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/></svg>';
   const stopSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><rect x="4" y="4" width="12" height="12" rx="1.5"/></svg>';
@@ -1182,6 +1241,13 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
       </div>
     </div>
     <p class="mt-2 text-xs text-gray-400 dark:text-plumage-500">Detections below this confidence are still captured in the database but hidden from the dashboard, SSE feed, and species summary. Lower this to see more detections; raise it to reduce noise.</p>
+    <div class="mt-4">
+      <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Species Image URL (optional)</label>
+      <input name="species_image_url" type="text" value="{species_image_url}"
+        class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none"
+        placeholder="e.g. http://192.168.1.50/birds or https://my-cdn.com/species">
+      <p class="mt-1 text-xs text-gray-400 dark:text-plumage-500">Base URL for custom species images. The UI will try <code>{{url}}/{{Scientific_name}}.jpg</code> before falling back to Wikipedia. Leave empty to use Wikipedia only.</p>
+    </div>
   </div>
 
   <!-- Audio Sources -->
@@ -1511,6 +1577,7 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
         station_id = initial.station_id,
         timezone = settings.timezone,
         display_min_confidence = display_min_confidence,
+        species_image_url = settings.species_image_url.as_deref().unwrap_or(""),
         birdnet_section = if has_birdnet {{ format!(
             r#"<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
     <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-4">BirdNET</h3>

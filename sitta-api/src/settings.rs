@@ -13,6 +13,11 @@ pub struct RuntimeSettings {
     pub station_longitude: Option<f64>,
     /// IANA timezone (e.g., "America/Toronto"). Derived from lat/lon if not set.
     pub timezone: String,
+    /// Base URL for custom species images. If set, the UI tries
+    /// `{url}/{Scientific_name}.jpg` before falling back to Wikipedia.
+    /// Example: "http://localhost:8080/images" or "https://my-cdn.com/birds"
+    #[serde(default)]
+    pub species_image_url: Option<String>,
     /// Minimum confidence for displaying detections in the UI and SSE feed.
     /// Detections below this are still captured in the database.
     pub display_min_confidence: f32,
@@ -32,6 +37,7 @@ pub struct SettingsUpdate {
     pub station_latitude: Option<f64>,
     pub station_longitude: Option<f64>,
     pub timezone: Option<String>,
+    pub species_image_url: Option<String>,
     pub display_min_confidence: Option<f32>,
     pub birdnet_min_confidence: Option<f32>,
     pub birdnet_top_k: Option<usize>,
@@ -113,6 +119,12 @@ pub fn apply_update(current: &RuntimeSettings, update: &SettingsUpdate) -> (Runt
     {
         merged.timezone = v.clone();
         changed.push("timezone");
+    }
+    if let Some(ref v) = update.species_image_url
+        && merged.species_image_url.as_ref() != Some(v)
+    {
+        merged.species_image_url = Some(v.clone());
+        changed.push("species_image_url");
     }
     if let Some(v) = update.display_min_confidence
         && (merged.display_min_confidence - v).abs() > f32::EPSILON
