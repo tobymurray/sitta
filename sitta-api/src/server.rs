@@ -13,7 +13,7 @@ use arc_swap::ArcSwap;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::response::Json;
+use axum::response::{IntoResponse, Json};
 use axum::routing::{delete, get};
 use axum::Router;
 use chrono::{DateTime, Utc};
@@ -29,6 +29,62 @@ use crate::settings::{
 };
 use sitta_store::db::Database;
 use sitta_store::models::uuid_from_blob;
+
+/// Unified API error type. Logs the error and returns a JSON body.
+pub struct ApiError {
+    status: StatusCode,
+    message: String,
+}
+
+impl ApiError {
+    pub fn internal(e: impl std::fmt::Display) -> Self {
+        tracing::error!(error = %e, "API error");
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: e.to_string(),
+        }
+    }
+
+    pub fn not_found(msg: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            message: msg.into(),
+        }
+    }
+
+    pub fn bad_request(msg: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            message: msg.into(),
+        }
+    }
+
+    pub fn conflict(msg: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            message: msg.into(),
+        }
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> axum::response::Response {
+        let body = serde_json::json!({ "error": self.message });
+        (self.status, Json(body)).into_response()
+    }
+}
+
+impl From<sitta_store::StoreError> for ApiError {
+    fn from(e: sitta_store::StoreError) -> Self {
+        Self::internal(e)
+    }
+}
+
+impl From<std::io::Error> for ApiError {
+    fn from(e: std::io::Error) -> Self {
+        Self::internal(e)
+    }
+}
 
 /// Shared state for all axum handlers, grouped by concern.
 #[derive(Clone)]
@@ -196,7 +252,7 @@ struct ListParams {
 async fn list_detections(
     State(state): State<ApiState>,
     Query(params): Query<ListParams>,
-) -> Result<Json<Vec<DetectionSummary>>, StatusCode> {
+) -> Result<Json<Vec<DetectionSummary>>, ApiError> {
     let now = Utc::now().timestamp_millis();
     let since = params.since.unwrap_or(now - 86_400_000);
     let until = params.until.unwrap_or(now);
@@ -208,10 +264,7 @@ async fn list_detections(
         .core.db
         .recent_detections(since, until, limit, offset, params.species.as_deref(), Some(display_conf))
         .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to query detections");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        ?;
 
     let detections: Vec<DetectionSummary> = rows.into_iter().filter_map(|r| {
         Some(DetectionSummary {
@@ -237,28 +290,22 @@ async fn list_detections(
 async fn get_detection(
     State(state): State<ApiState>,
     Path(id): Path<String>,
-) -> Result<Json<DetectionDetail>, StatusCode> {
-    let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+) -> Result<Json<DetectionDetail>, ApiError> {
+    let uuid = id.parse::<uuid::Uuid>().map_err(|_| ApiError::bad_request("invalid id"))?;
     let id_bytes = uuid.as_bytes().as_slice();
 
     let row = state
         .core.db
         .get_detection(id_bytes)
         .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to query detection");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        ?
+        .ok_or(ApiError::not_found("not found"))?;
 
     let predictions = state
         .core.db
         .get_predictions(id_bytes)
         .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to query predictions");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        ?;
 
     let alternatives: Vec<Alternative> = predictions
         .into_iter()
@@ -338,7 +385,7 @@ struct SpeciesParams {
 async fn list_species(
     State(state): State<ApiState>,
     Query(params): Query<SpeciesParams>,
-) -> Result<Json<Vec<SpeciesSummary>>, StatusCode> {
+) -> Result<Json<Vec<SpeciesSummary>>, ApiError> {
     let now = Utc::now().timestamp_millis();
     let since = params.since.unwrap_or(now - 86_400_000);
     let until = params.until.unwrap_or(now);
@@ -348,10 +395,7 @@ async fn list_species(
         .core.db
         .species_summary(since, until, Some(display_conf))
         .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to query species summary");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        ?;
 
     let species: Vec<SpeciesSummary> = rows.into_iter().filter_map(|r| {
         Some(SpeciesSummary {
@@ -380,7 +424,7 @@ struct ActivityParams {
 async fn hourly_activity(
     State(state): State<ApiState>,
     Query(params): Query<ActivityParams>,
-) -> Result<Json<HourlyActivityResponse>, StatusCode> {
+) -> Result<Json<HourlyActivityResponse>, ApiError> {
     let now = Utc::now();
     let since = params.since.unwrap_or_else(|| {
         now.date_naive()
@@ -396,10 +440,7 @@ async fn hourly_activity(
         .core.db
         .hourly_activity(since, until, Some(display_conf))
         .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to query hourly activity");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        ?;
 
     // Group flat rows into per-species hour arrays.
     let mut species_map: std::collections::BTreeMap<String, SpeciesActivity> =
@@ -449,27 +490,21 @@ struct SpeciesActivity {
 async fn species_insights(
     State(state): State<ApiState>,
     Path(name): Path<String>,
-) -> Result<Json<SpeciesInsightsResponse>, StatusCode> {
+) -> Result<Json<SpeciesInsightsResponse>, ApiError> {
     let display_conf = f64::from(state.core.settings.load().display_min_confidence);
 
     let stats = state
         .core.db
         .species_stats(&name, Some(display_conf))
         .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to query species stats");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        ?
+        .ok_or(ApiError::not_found("not found"))?;
 
     let profile_rows = state
         .core.db
         .species_hourly_profile(&name, Some(display_conf))
         .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to query species hourly profile");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        ?;
 
     // Build a full 24-element array from sparse rows.
     let mut hourly_distribution = vec![0i64; 24];
@@ -547,7 +582,7 @@ async fn get_settings(State(state): State<ApiState>) -> Json<SettingsResponse> {
 async fn update_settings(
     State(state): State<ApiState>,
     Json(update): Json<SettingsUpdate>,
-) -> Result<Json<UpdateResponse>, (StatusCode, String)> {
+) -> Result<Json<UpdateResponse>, ApiError> {
     let current = state.core.settings.load();
     let (merged, changed) = settings::apply_update(&current, &update);
 
@@ -610,15 +645,12 @@ struct UpdateResponse {
 async fn list_individuals(
     State(state): State<ApiState>,
     Query(params): Query<IndividualParams>,
-) -> Result<Json<Vec<IndividualSummary>>, StatusCode> {
+) -> Result<Json<Vec<IndividualSummary>>, ApiError> {
     let rows = state
         .core.db
         .list_individuals(params.species.as_deref())
         .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to list individuals");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        ?;
 
     let individuals = rows
         .into_iter()
@@ -644,17 +676,14 @@ struct IndividualParams {
 async fn get_individual(
     State(state): State<ApiState>,
     Path(id): Path<String>,
-) -> Result<Json<IndividualSummary>, StatusCode> {
-    let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+) -> Result<Json<IndividualSummary>, ApiError> {
+    let uuid = id.parse::<uuid::Uuid>().map_err(|_| ApiError::bad_request("invalid id"))?;
     let row = state
         .core.db
         .get_individual(uuid.as_bytes().as_slice())
         .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to get individual");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        ?
+        .ok_or(ApiError::not_found("not found"))?;
 
     Ok(Json(IndividualSummary {
         id: uuid.to_string(),
@@ -667,11 +696,8 @@ async fn get_individual(
 
 async fn delete_all_individuals(
     State(state): State<ApiState>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    let deleted = state.core.db.delete_all_individuals().await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to delete all individuals");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let deleted = state.core.db.delete_all_individuals().await?;
 
     // Reload matcher to clear the in-memory cache.
     if let Some(matcher) = &state.inference.matcher
@@ -687,32 +713,27 @@ async fn delete_all_individuals(
 async fn enroll_individual(
     State(state): State<ApiState>,
     Json(req): Json<EnrollRequest>,
-) -> Result<Json<IndividualSummary>, (StatusCode, String)> {
+) -> Result<Json<IndividualSummary>, ApiError> {
     let det_uuid = req
         .detection_id
         .parse::<uuid::Uuid>()
-        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid detection_id".into()))?;
+        .map_err(|_| ApiError::bad_request("invalid detection_id"))?;
 
     // Fetch the detection to get the species.
     let det = state
         .core.db
         .get_detection(det_uuid.as_bytes().as_slice())
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "detection not found".into()))?;
+        .map_err(ApiError::internal)?
+        .ok_or(ApiError::not_found("detection not found"))?;
 
     // Fetch the embedding for this detection.
     let emb_blob = state
         .core.db
         .get_embedding_for_detection(det_uuid.as_bytes().as_slice())
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| {
-            (
-                StatusCode::BAD_REQUEST,
-                "detection has no embedding (only Perch detections have embeddings)".into(),
-            )
-        })?;
+        .map_err(ApiError::internal)?
+        .ok_or(ApiError::bad_request("detection has no embedding (only Perch detections have embeddings)"))?;
 
     let individual_id = uuid::Uuid::now_v7();
     let now_ms = chrono::Utc::now().timestamp_millis();
@@ -731,7 +752,7 @@ async fn enroll_individual(
             notes: req.notes.as_deref(),
         })
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(ApiError::internal)?;
 
     // Reload the matcher cache so future detections see this individual.
     if let Some(matcher) = &state.inference.matcher
@@ -777,7 +798,7 @@ struct IndividualSummary {
 
 async fn list_candidate_clusters(
     State(state): State<ApiState>,
-) -> Result<Json<Vec<CandidateClusterSummary>>, StatusCode> {
+) -> Result<Json<Vec<CandidateClusterSummary>>, ApiError> {
     let min_members = state.core.initial_config.min_cluster_size;
     let min_days = state.core.initial_config.min_distinct_days;
 
@@ -785,10 +806,7 @@ async fn list_candidate_clusters(
         .core.db
         .ready_clusters(min_members, min_days)
         .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to list candidate clusters");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        ?;
 
     let clusters = rows
         .into_iter()
@@ -809,16 +827,16 @@ async fn enroll_cluster(
     State(state): State<ApiState>,
     Path(cluster_id): Path<i64>,
     Json(req): Json<ClusterEnrollRequest>,
-) -> Result<Json<IndividualSummary>, (StatusCode, String)> {
+) -> Result<Json<IndividualSummary>, ApiError> {
     let cluster = state
         .core.db
         .get_cluster(cluster_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "cluster not found".into()))?;
+        .map_err(ApiError::internal)?
+        .ok_or(ApiError::not_found("cluster not found"))?;
 
     if cluster.status != "pending" {
-        return Err((StatusCode::CONFLICT, format!("cluster is already {}", cluster.status)));
+        return Err(ApiError::conflict(format!("cluster is already {}", cluster.status)));
     }
 
     // Create individual from cluster centroid.
@@ -838,21 +856,21 @@ async fn enroll_cluster(
             notes: req.notes.as_deref(),
         })
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(ApiError::internal)?;
 
     // Mark cluster as enrolled.
     state
         .core.db
         .enroll_cluster(cluster_id, &individual_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(ApiError::internal)?;
 
     // Link cluster member detections to the new individual.
     let detection_ids = state
         .core.db
         .cluster_detection_ids(cluster_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(ApiError::internal)?;
     for det_bytes in &detection_ids {
         if let Ok(det_uuid) = uuid_from_blob(det_bytes.clone()) {
             let match_id = uuid::Uuid::now_v7();
@@ -892,23 +910,23 @@ async fn enroll_cluster(
 async fn dismiss_cluster(
     State(state): State<ApiState>,
     Path(cluster_id): Path<i64>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<StatusCode, ApiError> {
     let cluster = state
         .core.db
         .get_cluster(cluster_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "cluster not found".into()))?;
+        .map_err(ApiError::internal)?
+        .ok_or(ApiError::not_found("cluster not found"))?;
 
     if cluster.status != "pending" {
-        return Err((StatusCode::CONFLICT, format!("cluster is already {}", cluster.status)));
+        return Err(ApiError::conflict(format!("cluster is already {}", cluster.status)));
     }
 
     state
         .core.db
         .dismiss_cluster(cluster_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(ApiError::internal)?;
 
     tracing::info!(cluster_id, species = %cluster.scientific_name, "Cluster dismissed");
 
@@ -951,10 +969,10 @@ async fn get_mqtt_config(
 async fn put_mqtt_config(
     State(state): State<ApiState>,
     Json(mqtt): Json<settings::MqttSettings>,
-) -> Result<Json<settings::MqttSettings>, (StatusCode, String)> {
+) -> Result<Json<settings::MqttSettings>, ApiError> {
     // Persist to config.toml.
     settings::persist_mqtt_to_toml(&state.core.config_path, &mqtt)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        .map_err(ApiError::internal)?;
 
     // Dynamically start or stop the MQTT publisher.
     if let Some(ref ctrl) = state.integrations.mqtt_control {
@@ -971,12 +989,12 @@ async fn put_mqtt_config(
 async fn test_mqtt_connection(
     State(state): State<ApiState>,
     Json(mqtt): Json<settings::MqttSettings>,
-) -> Result<Json<MqttTestResult>, (StatusCode, String)> {
+) -> Result<Json<MqttTestResult>, ApiError> {
     let ctrl = state
         .integrations
         .mqtt_control
         .as_ref()
-        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "MQTT controller not available".into()))?;
+        .ok_or(ApiError { status: StatusCode::SERVICE_UNAVAILABLE, message: "MQTT controller not available".into() })?;
 
     match ctrl.test_connection(&mqtt).await {
         Ok(()) => Ok(Json(MqttTestResult {
@@ -1023,9 +1041,9 @@ async fn list_sources(
 async fn add_source(
     State(state): State<ApiState>,
     body: String,
-) -> Result<Json<SourceSummary>, (StatusCode, String)> {
+) -> Result<Json<SourceSummary>, ApiError> {
     let config: sitta_audio::source::SourceConfig = serde_json::from_str(&body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("invalid source config: {e}")))?;
+        .map_err(|e| ApiError::bad_request(format!("invalid source config: {e}")))?;
     let name = config.name().to_string();
     let (source_type, url) = match &config {
         sitta_audio::source::SourceConfig::Rtsp(r) => ("rtsp", Some(r.url.clone())),
@@ -1037,7 +1055,7 @@ async fn add_source(
         .audio.source_manager
         .add(config)
         .await
-        .map_err(|e| (StatusCode::CONFLICT, e))?;
+        .map_err(ApiError::conflict)?;
 
     // Persist to config.toml so sources survive restart.
     let all_sources = state.audio.source_manager.list().await;
@@ -1055,12 +1073,12 @@ async fn add_source(
 async fn remove_source(
     State(state): State<ApiState>,
     Path(name): Path<String>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<StatusCode, ApiError> {
     state
         .audio.source_manager
         .remove(&name)
         .await
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+        .map_err(ApiError::not_found)?;
 
     let all_sources = state.audio.source_manager.list().await;
     if let Err(e) = settings::persist_sources_to_toml(&state.core.config_path, &all_sources) {
@@ -1181,24 +1199,21 @@ async fn audio_stream_handler(
 async fn detection_audio_handler(
     State(state): State<ApiState>,
     Path(id): Path<String>,
-) -> Result<axum::response::Response, StatusCode> {
+) -> Result<axum::response::Response, ApiError> {
     use axum::body::Body;
 
-    let clip_dir = state.integrations.clip_dir.as_ref().ok_or(StatusCode::NOT_FOUND)?;
-    let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let clip_dir = state.integrations.clip_dir.as_ref().ok_or(ApiError::not_found("not found"))?;
+    let uuid = id.parse::<uuid::Uuid>().map_err(|_| ApiError::bad_request("invalid id"))?;
     let id_bytes = uuid.as_bytes().as_slice();
 
     let row = state
         .core.db
         .get_detection(id_bytes)
         .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to query detection for audio");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        ?
+        .ok_or(ApiError::not_found("not found"))?;
 
-    let rel_path = row.snippet_path.ok_or(StatusCode::NOT_FOUND)?;
+    let rel_path = row.snippet_path.ok_or(ApiError::not_found("not found"))?;
     let full_path = clip_dir.join(&rel_path);
 
     // If a .tmp file exists, the clip is still being written.
@@ -1211,7 +1226,7 @@ async fn detection_audio_handler(
             .unwrap());
     }
 
-    let data = tokio::fs::read(&full_path).await.map_err(|_| StatusCode::NOT_FOUND)?;
+    let data = tokio::fs::read(&full_path).await.map_err(|_| ApiError::not_found("file not found"))?;
     Ok(axum::response::Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "audio/wav")
@@ -1227,25 +1242,22 @@ async fn detection_audio_handler(
 async fn detection_spectrogram_handler(
     State(state): State<ApiState>,
     Path(id): Path<String>,
-) -> Result<axum::response::Response, StatusCode> {
+) -> Result<axum::response::Response, ApiError> {
     use axum::body::Body;
     use sitta_audio::spectrogram::{generate_spectrogram, SpectrogramParams};
 
-    let clip_dir = state.integrations.clip_dir.as_ref().ok_or(StatusCode::NOT_FOUND)?;
-    let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let clip_dir = state.integrations.clip_dir.as_ref().ok_or(ApiError::not_found("not found"))?;
+    let uuid = id.parse::<uuid::Uuid>().map_err(|_| ApiError::bad_request("invalid id"))?;
     let id_bytes = uuid.as_bytes().as_slice();
 
     let row = state
         .core.db
         .get_detection(id_bytes)
         .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to query detection for spectrogram");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        ?
+        .ok_or(ApiError::not_found("not found"))?;
 
-    let rel_path = row.snippet_path.ok_or(StatusCode::NOT_FOUND)?;
+    let rel_path = row.snippet_path.ok_or(ApiError::not_found("not found"))?;
     let wav_path = clip_dir.join(&rel_path);
     let png_path = wav_path.with_extension("png");
 
@@ -1272,11 +1284,8 @@ async fn detection_spectrogram_handler(
         std::fs::read(&png_path_clone)
     })
     .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .map_err(|e| {
-        tracing::error!(error = %e, "Failed to generate spectrogram");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    .map_err(ApiError::internal)?
+    ?;
 
     Ok(axum::response::Response::builder()
         .status(StatusCode::OK)
@@ -1308,25 +1317,22 @@ async fn put_review(
     State(state): State<ApiState>,
     Path(id): Path<String>,
     Json(body): Json<ReviewRequest>,
-) -> Result<Json<ReviewResponse>, StatusCode> {
+) -> Result<Json<ReviewResponse>, ApiError> {
     if body.status != "correct" && body.status != "false_positive" {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("status must be 'correct' or 'false_positive'"));
     }
-    let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let uuid = id.parse::<uuid::Uuid>().map_err(|_| ApiError::bad_request("invalid id"))?;
     let id_bytes = uuid.as_bytes().as_slice();
 
     // Verify the detection exists.
     state.core.db.get_detection(id_bytes).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(ApiError::internal)?
+        .ok_or(ApiError::not_found("not found"))?;
 
     let now = Utc::now();
     state.core.db.upsert_review(id_bytes, &body.status, now.timestamp_millis(), body.comment.as_deref())
         .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to save review");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        ?;
 
     Ok(Json(ReviewResponse {
         detection_id: uuid.to_string(),
@@ -1339,19 +1345,16 @@ async fn put_review(
 async fn get_review(
     State(state): State<ApiState>,
     Path(id): Path<String>,
-) -> Result<Json<ReviewResponse>, StatusCode> {
-    let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+) -> Result<Json<ReviewResponse>, ApiError> {
+    let uuid = id.parse::<uuid::Uuid>().map_err(|_| ApiError::bad_request("invalid id"))?;
     let id_bytes = uuid.as_bytes().as_slice();
 
     let review = state.core.db.get_review(id_bytes).await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to query review");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        ?
+        .ok_or(ApiError::not_found("not found"))?;
 
     let det_uuid = sitta_store::models::uuid_from_blob(review.detection_id)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(ApiError::internal)?;
 
     Ok(Json(ReviewResponse {
         detection_id: det_uuid.to_string(),
@@ -1364,17 +1367,14 @@ async fn get_review(
 async fn delete_review(
     State(state): State<ApiState>,
     Path(id): Path<String>,
-) -> Result<StatusCode, StatusCode> {
-    let uuid = id.parse::<uuid::Uuid>().map_err(|_| StatusCode::BAD_REQUEST)?;
+) -> Result<StatusCode, ApiError> {
+    let uuid = id.parse::<uuid::Uuid>().map_err(|_| ApiError::bad_request("invalid id"))?;
     let id_bytes = uuid.as_bytes().as_slice();
 
     let deleted = state.core.db.delete_review(id_bytes).await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to delete review");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        ?;
 
-    if deleted { Ok(StatusCode::NO_CONTENT) } else { Err(StatusCode::NOT_FOUND) }
+    if deleted { Ok(StatusCode::NO_CONTENT) } else { Err(ApiError::not_found("review not found")) }
 }
 
 // ── Response types ──────────────────────────────────────────────
