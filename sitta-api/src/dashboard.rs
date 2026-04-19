@@ -942,22 +942,141 @@ pub fn species_detail_content(scientific_name: &str) -> String {
     .then(r => r.json())
     .then(ins => {{
       const el = document.getElementById('species-insights');
-      const lines = buildInsights(ins, _tz);
-      if (lines.length === 0) return;
-      el.innerHTML = `<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4">
-        <div class="flex items-start gap-3">
-          <svg class="w-5 h-5 text-nuthatch-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18"/>
-          </svg>
-          <div class="text-sm text-gray-600 dark:text-plumage-300 space-y-1">
-            ${{lines.map(l => '<p>' + l + '</p>').join('')}}
-          </div>
-        </div>
-      </div>`;
+      el.innerHTML = buildInsightsPanel(ins, _tz);
     }})
     .catch(() => {{}});
 
-  function buildInsights(data, tz) {{
+  function buildInsightsPanel(data, tz) {{
+    const parts = [];
+    const tzOff = getTimezoneOffsetHours(tz);
+
+    // ── Today likelihood badge ──────────────────────────────────
+    const pct = Math.round(data.today_likelihood * 100);
+    const likelyColor = pct >= 70 ? 'emerald' : pct >= 40 ? 'amber' : 'stone';
+    const likelyLabel = pct >= 70 ? 'Likely today' : pct >= 40 ? 'Possible today' : pct > 0 ? 'Unlikely today' : 'Insufficient data';
+    const rangeNote = data.range_score != null
+      ? `<span class="text-xs text-gray-400 dark:text-plumage-500 ml-2">Range model: ${{Math.round(data.range_score * 100)}}%</span>` : '';
+
+    parts.push(`<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-12 h-12 rounded-full bg-${{likelyColor}}-50 dark:bg-${{likelyColor}}-900/30">
+            <span class="text-lg font-bold text-${{likelyColor}}-700 dark:text-${{likelyColor}}-400">${{pct}}%</span>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-gray-900 dark:text-plumage-100">${{likelyLabel}}</div>
+            <div class="text-xs text-gray-500 dark:text-plumage-400">Chance of detection today${{rangeNote}}</div>
+          </div>
+        </div>
+        <div class="text-right text-xs text-gray-400 dark:text-plumage-500">
+          <div>${{data.total_detections.toLocaleString()}} total detections</div>
+          <div>${{data.days_detected}} days observed</div>
+        </div>
+      </div>
+    </div>`);
+
+    // ── Monthly activity chart ──────────────────────────────────
+    if (data.monthly_distribution) {{
+      const months = data.monthly_distribution;
+      const maxM = Math.max(...months, 1);
+      const mNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const now = new Date();
+      const thisMonth = now.getMonth();
+
+      let bars = '';
+      for (let i = 0; i < 12; i++) {{
+        const h = Math.max(2, Math.round((months[i] / maxM) * 48));
+        const isCurrent = i === thisMonth;
+        const barColor = isCurrent
+          ? 'bg-nuthatch-500 dark:bg-nuthatch-400'
+          : months[i] > 0
+            ? 'bg-plumage-300 dark:bg-plumage-600'
+            : 'bg-gray-100 dark:bg-plumage-800';
+        const label = months[i] > 0 ? months[i] : '';
+        bars += `<div class="flex flex-col items-center gap-1 flex-1">
+          <span class="text-[10px] text-gray-400 dark:text-plumage-500 h-4">${{label}}</span>
+          <div class="w-full rounded-sm ${{barColor}}" style="height:${{h}}px"></div>
+          <span class="text-[10px] ${{isCurrent ? 'font-bold text-nuthatch-600 dark:text-nuthatch-400' : 'text-gray-400 dark:text-plumage-500'}}">${{mNames[i]}}</span>
+        </div>`;
+      }}
+
+      // Seasonal insight text
+      const activeMonths = months.filter(m => m > 0).length;
+      const peakMonth = months.indexOf(maxM);
+      let seasonText = '';
+      if (activeMonths === 0) {{
+        seasonText = '';
+      }} else if (activeMonths <= 4) {{
+        seasonText = 'Seasonal visitor \u2014 detected mainly in ' + mNames[peakMonth] + ' and nearby months.';
+      }} else if (activeMonths <= 8) {{
+        seasonText = 'Present for much of the year, peaking in ' + mNames[peakMonth] + '.';
+      }} else {{
+        seasonText = 'Year-round resident \u2014 detected in ' + activeMonths + ' of 12 months.';
+      }}
+
+      parts.push(`<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4">
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-plumage-400 uppercase tracking-wider mb-3">Seasonal Pattern</h3>
+        <div class="flex items-end gap-0.5 h-16">${{bars}}</div>
+        ${{seasonText ? '<p class="text-sm text-gray-600 dark:text-plumage-300 mt-3">' + seasonText + '</p>' : ''}}
+      </div>`);
+    }}
+
+    // ── Behavioral insights (time of day) ───────────────────────
+    const lines = buildTimeInsights(data, tz, tzOff);
+    if (lines.length > 0) {{
+      parts.push(`<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4">
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-plumage-400 uppercase tracking-wider mb-2">Time of Day</h3>
+        <div class="text-sm text-gray-600 dark:text-plumage-300 space-y-1">
+          ${{lines.map(l => '<p>' + l + '</p>').join('')}}
+        </div>
+      </div>`);
+    }}
+
+    // ── Data sufficiency callouts ────────────────────────────────
+    if (data.data_sufficiency && data.data_sufficiency.gaps && data.data_sufficiency.gaps.length > 0) {{
+      const gapItems = data.data_sufficiency.gaps.map(g =>
+        `<li class="flex items-start gap-2">
+          <svg class="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+          </svg>
+          <span>${{g}}</span>
+        </li>`
+      ).join('');
+      parts.push(`<div class="bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800/50 p-4">
+        <h3 class="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-2">More Data Needed</h3>
+        <ul class="text-sm text-amber-800 dark:text-amber-300 space-y-2">${{gapItems}}</ul>
+      </div>`);
+    }}
+
+    // ── Notable detections ──────────────────────────────────────
+    if (data.notable_detections && data.notable_detections.length > 0) {{
+      const rows = data.notable_detections.map(n => {{
+        const time = new Date(n.detected_at).toLocaleString('en-GB', {{
+          month: 'short', day: 'numeric', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz
+        }});
+        const badges = [];
+        if (n.first_ever) badges.push('<span class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">First ever</span>');
+        else if (n.first_season) badges.push('<span class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">First of season</span>');
+        const scorePct = Math.round(n.rarity_score * 100);
+        return `<a href="/detections/${{n.detection_id}}" class="flex items-center justify-between py-1.5 hover:bg-gray-50 dark:hover:bg-plumage-800/50 -mx-1 px-1 rounded transition-colors">
+          <div class="flex items-center gap-2">
+            ${{badges.join('')}}
+            <span class="text-sm text-gray-600 dark:text-plumage-300">${{time}}</span>
+          </div>
+          <span class="text-xs font-medium text-nuthatch-600 dark:text-nuthatch-400">${{scorePct}}% rare</span>
+        </a>`;
+      }}).join('');
+      parts.push(`<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4">
+        <h3 class="text-xs font-semibold text-gray-500 dark:text-plumage-400 uppercase tracking-wider mb-2">Notable Detections</h3>
+        <div class="divide-y divide-gray-100 dark:divide-plumage-800">${{rows}}</div>
+      </div>`);
+    }}
+
+    return parts.join('');
+  }}
+
+  function buildTimeInsights(data, tz, tzOffsetHrs) {{
     if (data.total_detections < 5) {{
       return ['Not enough detections to suggest habits. Check back after more observations.'];
     }}
@@ -967,7 +1086,6 @@ pub fn species_detail_content(scientific_name: &str) -> String {
     const total = hours.reduce((a, b) => a + b, 0);
 
     // Shift UTC hours to local timezone
-    const tzOffsetHrs = getTimezoneOffsetHours(tz);
     const localHours = new Array(24).fill(0);
     for (let h = 0; h < 24; h++) {{
       const localH = ((h + Math.round(tzOffsetHrs)) % 24 + 24) % 24;
@@ -1103,10 +1221,30 @@ pub fn species_detail_content(scientific_name: &str) -> String {
           month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: _tz
         }});
         const hasAudio = d.has_audio || d.snippet_path;
+
+        // Rarity badges
+        let rarityBadge = '';
+        if (d.rarity) {{
+          const r = d.rarity;
+          if (r.first_ever) {{
+            rarityBadge = '<span class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-purple-100 text-purple-700 ring-1 ring-purple-600/20 dark:bg-purple-900/40 dark:text-purple-300 dark:ring-purple-400/20">First ever</span>';
+          }} else if (r.first_season) {{
+            rarityBadge = '<span class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-700 ring-1 ring-blue-600/20 dark:bg-blue-900/40 dark:text-blue-300 dark:ring-blue-400/20">First of season</span>';
+          }} else if (r.first_week) {{
+            rarityBadge = '<span class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-teal-100 text-teal-700 ring-1 ring-teal-600/20 dark:bg-teal-900/40 dark:text-teal-300 dark:ring-teal-400/20">First this week</span>';
+          }} else if (r.first_day) {{
+            rarityBadge = '<span class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-sky-100 text-sky-700 ring-1 ring-sky-600/20 dark:bg-sky-900/40 dark:text-sky-300 dark:ring-sky-400/20">First today</span>';
+          }}
+          if (r.score >= 0.6 && !r.first_ever) {{
+            rarityBadge += '<span class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700 ring-1 ring-amber-600/20 dark:bg-amber-900/40 dark:text-amber-300 dark:ring-amber-400/20">Rare</span>';
+          }}
+        }}
+
         return `<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${{confClass}}">${{pct}}%</span>
+              ${{rarityBadge}}
               <span class="text-sm text-gray-500 dark:text-plumage-400">${{time}}</span>
             </div>
             <span class="text-xs text-gray-400 dark:text-plumage-600 font-mono">${{d.id.slice(0, 8)}}</span>

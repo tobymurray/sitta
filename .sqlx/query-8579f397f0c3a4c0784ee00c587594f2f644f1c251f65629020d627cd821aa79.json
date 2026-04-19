@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT r.detection_id, d.detected_at, d.confidence AS \"confidence!: f64\",\n                      r.score AS \"score!: f64\",\n                      r.first_ever AS \"first_ever!: bool\",\n                      r.first_season AS \"first_season!: bool\",\n                      r.first_week AS \"first_week!: bool\",\n                      r.first_day AS \"first_day!: bool\"\n               FROM detection_rarity r\n               JOIN detections d ON d.id = r.detection_id\n               JOIN labels l ON l.id = d.label_id\n               WHERE l.scientific_name = $1\n                 AND d.confidence >= $2\n                 AND r.score > 0.3\n               ORDER BY r.score DESC, d.detected_at DESC\n               LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "name": "detection_id",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "detected_at",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "confidence!: f64",
+        "ordinal": 2,
+        "type_info": "Float"
+      },
+      {
+        "name": "score!: f64",
+        "ordinal": 3,
+        "type_info": "Float"
+      },
+      {
+        "name": "first_ever!: bool",
+        "ordinal": 4,
+        "type_info": "Bool"
+      },
+      {
+        "name": "first_season!: bool",
+        "ordinal": 5,
+        "type_info": "Bool"
+      },
+      {
+        "name": "first_week!: bool",
+        "ordinal": 6,
+        "type_info": "Bool"
+      },
+      {
+        "name": "first_day!: bool",
+        "ordinal": 7,
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8579f397f0c3a4c0784ee00c587594f2f644f1c251f65629020d627cd821aa79"
+}

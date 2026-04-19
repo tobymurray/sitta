@@ -262,8 +262,21 @@ Fields:
 
 - **`species`** -- classification result with model provenance
 - **`individual`** -- non-null when matched to a known individual via Perch embeddings
+- **`rarity`** -- how unusual this detection is (see below)
 - **`location`** -- non-null when TDOA triangulation is available (Phase 5)
 - **`metadata`** -- extensible key-value pairs for diagnostics
+
+### Rarity Scoring
+
+Every detection is scored along three axes to answer "how unusual is this?":
+
+| Axis | What it measures | Source |
+|------|-----------------|--------|
+| **Local** | First-ever, first-of-season, first-of-week, first-of-day at this station; days since last seen | Detection history in SQLite |
+| **Regional** | How expected the species is at this location + date | BirdNET meta-model location score (inverted) |
+| **Temporal** | How unusual the detection hour is for this species | Historical hourly profile |
+
+The composite score (0.0 = common, 1.0 = extremely rare) weights local 40%, regional 35%, temporal 25%. Rarity is computed at detection time and stored in a `detection_rarity` table. The full breakdown (flags + sub-scores) is included in API responses, SSE events, and MQTT payloads.
 
 ## ARM64 Hardware Considerations
 

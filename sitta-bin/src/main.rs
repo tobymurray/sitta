@@ -210,8 +210,7 @@ async fn main() -> Result<()> {
             matcher: persist_ctx.matcher.clone(),
             metrics: metrics.clone(),
             range_scorer: range_filter.clone().map(|rf| {
-                Arc::new(move |name: &str| rf.score_for(name))
-                    as Arc<dyn Fn(&str) -> Option<f32> + Send + Sync>
+                Arc::new(move |name: &str| rf.score_for(name)) as sitta_api::server::RangeScoreFn
             }),
         },
         integrations: sitta_api::server::IntegrationState {

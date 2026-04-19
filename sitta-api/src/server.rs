@@ -116,6 +116,9 @@ pub struct AudioState {
     pub source_manager: sitta_audio::manager::SourceManager,
 }
 
+/// Callback that looks up a species' location score from the BirdNET meta-model.
+pub type RangeScoreFn = Arc<dyn Fn(&str) -> Option<f32> + Send + Sync>;
+
 /// Inference pipeline: detections, matching, metrics.
 #[derive(Clone)]
 pub struct InferenceState {
@@ -124,7 +127,7 @@ pub struct InferenceState {
     pub metrics: Arc<PipelineMetrics>,
     /// Look up today's BirdNET meta-model location score for a species.
     /// None when no range filter is configured.
-    pub range_scorer: Option<Arc<dyn Fn(&str) -> Option<f32> + Send + Sync>>,
+    pub range_scorer: Option<RangeScoreFn>,
 }
 
 /// External integrations: MQTT, audio clips.
@@ -550,7 +553,7 @@ async fn species_insights(
     let mut monthly_distribution = vec![0i64; 12];
     for row in monthly_rows {
         let m = row.month as usize;
-        if m >= 1 && m <= 12 {
+        if (1..=12).contains(&m) {
             monthly_distribution[m - 1] = row.count;
         }
     }

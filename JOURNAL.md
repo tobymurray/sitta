@@ -630,3 +630,58 @@ bugs within hours and the maintainer shipped a P0 hotfix. Users do daily bulk fa
 triage by listening to clips — this is the primary workflow, not an optional extra.
 Spectrograms are a strong supporting feature (users develop visual pattern recognition),
 and the review workflow is what makes it actionable.
+
+---
+
+## 2026-04-19: Rarity Scoring
+
+### Decision: Three-axis rarity score computed at detection time
+
+Every detection now gets a rarity score breaking down three dimensions:
+
+1. **Local rarity** — novelty at this station: first-ever, first-of-season (meteorological,
+   hemisphere-aware), first-of-week, first-of-day, days since last detection, prior count.
+2. **Regional rarity** — inverted BirdNET meta-model location score. The range filter already
+   computes per-species occurrence probabilities for the station's lat/lon + today's date;
+   we now cache the raw scores alongside the allowed set and expose them for rarity.
+3. **Temporal rarity** — how unusual the detection hour is vs. the species' historical hourly
+   profile. A nocturnal detection of a diurnal species scores high.
+
+The composite score (0.0=common, 1.0=extremely rare) weights local 40%, regional 35%,
+temporal 25%. Stored in a new `detection_rarity` table, indexed by score for efficient
+"show me the most unusual detections" queries.
+
+### Decision: Score at insert time, not read time
+
+Rarity is computed during `persist_detections()` and stored alongside the detection. This
+keeps the read path trivial (one extra JOIN) and means the score reflects the state of knowledge
+*at the time of detection* — which is the semantically correct interpretation. If a species
+has never been seen and then appears, that first detection should always be scored as first-ever,
+even after hundreds more follow.
+
+### Decision: Extend RangeFilter to cache per-species scores
+
+The existing `RangeFilter` cached only a `HashSet<String>` of allowed species. Changed to
+also cache a `HashMap<String, f32>` of raw location scores. The new `score_for()` method
+lets any caller look up the meta-model's occurrence probability for a species. This is
+useful beyond rarity — it could feed into future confidence calibration or UI features.
+
+### Enhancement: Species detail page with seasonality and today-likelihood
+
+Extended the species insights API and detail page with:
+
+- **Monthly distribution** — 12-month bar chart showing seasonal patterns (year-round
+  resident vs seasonal visitor vs migrant).
+- **Today likelihood** — composite score combining range model probability, monthly
+  frequency, hourly activity, and detection consistency. Displayed as a prominent badge.
+- **Data sufficiency** — amber callout panel that tells users *what's missing*: "Only 3
+  of 12 months have data", "Observation window is only 12 days", etc. This guides users
+  toward collecting more useful data rather than hiding uncertainty.
+- **Notable detections** — panel highlighting the highest-rarity detections (first-ever,
+  first-of-season) with links to the detection detail page.
+- **Rarity badges** — detection cards now show "First ever", "First of season", "First
+  this week", "First today", and "Rare" badges derived from the per-detection rarity score.
+
+Weather/temperature correlation is a natural next step but requires an external data source
+(weather API or local sensor). Flagged as future work — the data sufficiency framework
+is already in place to add "Need weather data for correlation" once a source is available.
