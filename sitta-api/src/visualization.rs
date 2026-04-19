@@ -33,7 +33,7 @@ pub fn activity_panel() -> String {
       </select>
     </div>
   </div>
-  <div id="activity-panel" class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4 overflow-x-auto">
+  <div id="activity-panel" class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4 sm:p-4 p-2">
     <div class="text-center py-8 text-gray-400 dark:text-plumage-500 text-sm">Loading activity data...</div>
   </div>
   <div id="activity-tooltip" class="hidden fixed z-50 pointer-events-none bg-white dark:bg-plumage-800 border border-gray-200 dark:border-plumage-700 rounded-lg shadow-lg px-3 py-2 text-xs"></div>
@@ -163,11 +163,12 @@ pub fn activity_panel() -> String {
   function renderRidgePlot(container, data, tip) {
     const species = data.species;
     const isDark = document.documentElement.classList.contains('dark');
-    const LABEL_W = 130;
-    const ROW_H = 36;
-    const OVERLAP = 14;
-    const PAD = { top: 24, right: 16, bottom: 28, left: LABEL_W + 8 };
-    const W = Math.max(container.clientWidth - 32, 400);
+    const isMobile = container.clientWidth < 500;
+    const LABEL_W = isMobile ? 70 : 130;
+    const ROW_H = isMobile ? 28 : 36;
+    const OVERLAP = isMobile ? 10 : 14;
+    const PAD = { top: 20, right: isMobile ? 8 : 16, bottom: 24, left: LABEL_W + 8 };
+    const W = container.clientWidth - (isMobile ? 16 : 32);
     const H = PAD.top + PAD.bottom + Math.max(1, species.length) * (ROW_H - OVERLAP) + OVERLAP;
     const plotW = W - PAD.left - PAD.right;
 
@@ -177,10 +178,9 @@ pub fn activity_panel() -> String {
     const svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.setAttribute('class', 'w-full select-none');
-    svg.style.minWidth = '400px';
 
     // Hour grid lines + labels
-    const hourLabels = [0, 3, 6, 9, 12, 15, 18, 21];
+    const hourLabels = isMobile ? [0, 6, 12, 18] : [0, 3, 6, 9, 12, 15, 18, 21];
     hourLabels.forEach(h => {
       const x = PAD.left + (h / 23) * plotW;
       const line = document.createElementNS(ns, 'line');
@@ -192,11 +192,11 @@ pub fn activity_panel() -> String {
       svg.appendChild(line);
 
       const txt = document.createElementNS(ns, 'text');
-      txt.setAttribute('x', x); txt.setAttribute('y', H - PAD.bottom + 18);
+      txt.setAttribute('x', x); txt.setAttribute('y', H - PAD.bottom + 16);
       txt.setAttribute('text-anchor', 'middle');
       txt.setAttribute('class', 'fill-gray-400 dark:fill-plumage-500');
-      txt.style.fontSize = '10px';
-      txt.textContent = h.toString().padStart(2, '0') + ':00';
+      txt.style.fontSize = isMobile ? '8px' : '10px';
+      txt.textContent = isMobile ? h.toString().padStart(2, '0') : h.toString().padStart(2, '0') + ':00';
       svg.appendChild(txt);
     });
 
@@ -324,10 +324,11 @@ pub fn activity_panel() -> String {
       label.setAttribute('y', baseY - (ROW_H * 0.3));
       label.setAttribute('text-anchor', 'end');
       label.setAttribute('class', 'fill-gray-600 dark:fill-plumage-300');
-      label.style.fontSize = '11px';
+      label.style.fontSize = isMobile ? '9px' : '11px';
       label.style.cursor = 'pointer';
-      // Truncate long names
-      const name = sp.common_name.length > 18 ? sp.common_name.slice(0, 17) + '\u2026' : sp.common_name;
+      // Truncate long names (shorter on mobile)
+      const maxLen = isMobile ? 10 : 18;
+      const name = sp.common_name.length > maxLen ? sp.common_name.slice(0, maxLen - 1) + '\u2026' : sp.common_name;
       label.textContent = name;
       label.addEventListener('click', () => {
         location.href = '/species/' + encodeURIComponent(sp.scientific_name);
@@ -353,10 +354,11 @@ pub fn activity_panel() -> String {
   function renderDotMatrix(container, data, tip) {
     const species = data.species;
     const isDark = document.documentElement.classList.contains('dark');
-    const LABEL_W = 130;
-    const CELL = 20;
-    const GAP = 2;
-    const PAD = { top: 28, right: 16, bottom: 8, left: LABEL_W + 8 };
+    const isMob = container.clientWidth < 500;
+    const LABEL_W = isMob ? 70 : 130;
+    const CELL = isMob ? 10 : 20;
+    const GAP = isMob ? 1 : 2;
+    const PAD = { top: 24, right: isMob ? 8 : 16, bottom: 8, left: LABEL_W + 8 };
     const W = PAD.left + 24 * (CELL + GAP) + PAD.right;
     const H = PAD.top + species.length * (CELL + GAP) + PAD.bottom;
 
@@ -366,16 +368,16 @@ pub fn activity_panel() -> String {
     const svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.setAttribute('class', 'w-full select-none');
-    svg.style.minWidth = '400px';
 
     // Hour labels
-    for (let h = 0; h < 24; h += 3) {
+    const dotHourStep = isMob ? 6 : 3;
+    for (let h = 0; h < 24; h += dotHourStep) {
       const x = PAD.left + h * (CELL + GAP) + CELL / 2;
       const txt = document.createElementNS(ns, 'text');
-      txt.setAttribute('x', x); txt.setAttribute('y', PAD.top - 8);
+      txt.setAttribute('x', x); txt.setAttribute('y', PAD.top - 6);
       txt.setAttribute('text-anchor', 'middle');
       txt.setAttribute('class', 'fill-gray-400 dark:fill-plumage-500');
-      txt.style.fontSize = '10px';
+      txt.style.fontSize = isMob ? '8px' : '10px';
       txt.textContent = h.toString().padStart(2, '0');
       svg.appendChild(txt);
     }
@@ -389,9 +391,10 @@ pub fn activity_panel() -> String {
       label.setAttribute('y', y + 4);
       label.setAttribute('text-anchor', 'end');
       label.setAttribute('class', 'fill-gray-600 dark:fill-plumage-300');
-      label.style.fontSize = '11px';
+      label.style.fontSize = isMob ? '9px' : '11px';
       label.style.cursor = 'pointer';
-      const name = sp.common_name.length > 18 ? sp.common_name.slice(0, 17) + '\u2026' : sp.common_name;
+      const dotMaxLen = isMob ? 10 : 18;
+      const name = sp.common_name.length > dotMaxLen ? sp.common_name.slice(0, dotMaxLen - 1) + '\u2026' : sp.common_name;
       label.textContent = name;
       label.addEventListener('click', () => {
         location.href = '/species/' + encodeURIComponent(sp.scientific_name);
@@ -455,9 +458,11 @@ pub fn activity_panel() -> String {
 
       // Label
       const label = document.createElement('span');
-      label.className = 'text-xs text-gray-600 dark:text-plumage-300 truncate';
-      label.style.width = '130px';
+      const isMob = container.clientWidth < 500;
+      label.className = 'text-gray-600 dark:text-plumage-300 truncate';
+      label.style.width = isMob ? '70px' : '130px';
       label.style.flexShrink = '0';
+      label.style.fontSize = isMob ? '9px' : '12px';
       label.textContent = sp.common_name;
 
       // Sparkline SVG
@@ -466,7 +471,6 @@ pub fn activity_panel() -> String {
       const svg = document.createElementNS(ns, 'svg');
       svg.setAttribute('viewBox', `0 0 ${sparkW} ${sparkH}`);
       svg.setAttribute('class', 'flex-1');
-      svg.style.minWidth = '120px';
       svg.style.maxHeight = '24px';
 
       const pts = sp.hours.map((v, h) => ({
