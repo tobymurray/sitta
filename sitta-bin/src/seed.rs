@@ -101,9 +101,11 @@ pub async fn seed_database(
         station_id,
         detection_tx,
         matcher: Some(Arc::new(matcher)),
-        settings,
+        settings: settings.clone(),
         snippet_writer: None, // set by main after spawning the writer
         broadcast_dedup: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        range_filter: None,   // set by main after loading models
+        station_latitude: settings.load().station_latitude,
     })
 }
 

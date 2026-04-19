@@ -113,6 +113,9 @@ async fn main() -> Result<()> {
     .await
     .context("failed to seed database")?;
 
+    // Wire range filter into persist context for rarity scoring.
+    persist_ctx.range_filter = range_filter.clone();
+
     // ── Snippet writer ──────────────────────────────────────────
     let shutdown = CancellationToken::new();
 
@@ -206,6 +209,10 @@ async fn main() -> Result<()> {
             detection_tx: persist_ctx.detection_tx.clone(),
             matcher: persist_ctx.matcher.clone(),
             metrics: metrics.clone(),
+            range_scorer: range_filter.clone().map(|rf| {
+                Arc::new(move |name: &str| rf.score_for(name))
+                    as Arc<dyn Fn(&str) -> Option<f32> + Send + Sync>
+            }),
         },
         integrations: sitta_api::server::IntegrationState {
             mqtt_control: Some(mqtt_controller.clone()),

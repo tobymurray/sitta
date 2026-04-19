@@ -1,7 +1,8 @@
 //! Species summary, hourly activity, and per-species analytics.
 
 use crate::models::{
-    HourlyActivityRow, SpeciesHourlyProfileRow, SpeciesStatsRow, SpeciesSummaryRow,
+    HourlyActivityRow, SpeciesHourlyProfileRow, SpeciesMonthlyRow, SpeciesStatsRow,
+    SpeciesSummaryRow,
 };
 
 use super::Database;
@@ -116,6 +117,40 @@ impl Database {
             .into_iter()
             .map(|r| SpeciesHourlyProfileRow {
                 hour_utc: r.hour_utc,
+                count: r.count,
+            })
+            .collect())
+    }
+
+    /// Monthly detection distribution for a species across all time (12 calendar months).
+    pub async fn species_monthly_distribution(
+        &self,
+        scientific_name: &str,
+        min_confidence: Option<f64>,
+    ) -> Result<Vec<SpeciesMonthlyRow>, crate::StoreError> {
+        let conf_floor = min_confidence.unwrap_or(0.0);
+        // SQLite: extract month from Unix-ms timestamp.
+        // strftime('%m', ..., 'unixepoch') gives zero-padded month string.
+        let rows = sqlx::query!(
+            r#"SELECT CAST(strftime('%m', d.detected_at / 1000, 'unixepoch') AS INTEGER) AS "month!: i64",
+                      COUNT(*) AS "count!: i64"
+               FROM detections d
+               JOIN labels l ON l.id = d.label_id
+               WHERE l.scientific_name = $1
+                 AND d.confidence >= $2
+                 AND l.label_type = 'species'
+               GROUP BY CAST(strftime('%m', d.detected_at / 1000, 'unixepoch') AS INTEGER)
+               ORDER BY 1"#,
+            scientific_name,
+            conf_floor,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| SpeciesMonthlyRow {
+                month: r.month,
                 count: r.count,
             })
             .collect())

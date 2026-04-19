@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO detection_rarity\n                (detection_id, score, first_ever, first_season, first_week, first_day,\n                 days_since_last, local_count, range_score, temporal_score)\n             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": []
+  },
+  "hash": "7d23656ce7d0c5fd0b0a9aef594a3259d5fadb64955e45dbd6c9a91099fe8fa6"
+}

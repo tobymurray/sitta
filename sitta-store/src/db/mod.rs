@@ -4,6 +4,7 @@ mod candidates;
 mod clustering;
 mod detections;
 mod individuals;
+mod rarity;
 mod reviews;
 mod seeding;
 mod snippets;

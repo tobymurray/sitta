@@ -71,6 +71,15 @@ struct FirstOfDayPayload {
     detected_at: String,
     detection_id: String,
     day: String,
+    /// Rarity score (0.0 = common, 1.0 = very rare). None if scoring unavailable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rarity_score: Option<f32>,
+    /// Whether this is the first-ever detection of this species at the station.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    first_ever: Option<bool>,
+    /// Whether this is the first detection of the season for this species.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    first_season: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -321,6 +330,7 @@ fn spawn_mqtt_tasks(
                                 && tracker.is_first_today(&event.species.scientific_name)
                             {
                                 let sci_topic = topic_name(&event.species.scientific_name);
+                                let rarity = event.rarity.as_ref();
                                 let fod = FirstOfDayPayload {
                                     scientific_name: event.species.scientific_name.clone(),
                                     common_name: event.species.common_name.clone(),
@@ -329,6 +339,9 @@ fn spawn_mqtt_tasks(
                                     detected_at: event.detected_at.clone(),
                                     detection_id: event.id.clone(),
                                     day: tracker.date_string(),
+                                    rarity_score: rarity.map(|r| r.score),
+                                    first_ever: rarity.map(|r| r.first_ever),
+                                    first_season: rarity.map(|r| r.first_season),
                                 };
                                 if let Ok(payload) = serde_json::to_string(&fod) {
                                     let _ = client.publish(

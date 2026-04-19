@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -8,12 +8,18 @@ use chrono::{Datelike, NaiveDate, Utc};
 use crate::InferenceError;
 use crate::model::Classification;
 
+/// Allowed species set + per-species location scores for a single day.
+type DayScores = (Arc<HashSet<String>>, Arc<HashMap<String, f32>>);
+
 struct Cached {
     date: NaiveDate,
     // Lowercase scientific names expected at this location today.
     // Keyed by scientific name so the same filter works across models (BirdNET and Perch
     // have different label-index spaces but share scientific names via the taxonomy).
     allowed: Arc<HashSet<String>>,
+    // Per-species location score from the meta-model (0.0–1.0).
+    // Includes ALL species, not just those above threshold.
+    scores: Arc<HashMap<String, f32>>,
 }
 
 /// Location + date filter backed by the BirdNET species-occurrence meta-model.
@@ -120,42 +126,64 @@ impl RangeFilter {
         Ok(classifications)
     }
 
+    /// Look up the BirdNET meta-model location score for a species on today's date.
+    ///
+    /// Returns the raw probability (0.0–1.0) if the species is known to the meta-model,
+    /// or `None` if unknown (e.g. a Perch-only species with no BirdNET label).
+    pub fn score_for(&self, scientific_name: &str) -> Option<f32> {
+        let today = Utc::now().date_naive();
+        let (_, scores) = self.allowed_and_scores_for_today(today).ok()?;
+        scores.get(&scientific_name.to_lowercase()).copied()
+    }
+
     fn allowed_for_today(
         &self,
         today: NaiveDate,
     ) -> Result<Arc<HashSet<String>>, InferenceError> {
-        // Fast path: cache hit — clone the Arc (pointer copy).
+        self.allowed_and_scores_for_today(today)
+            .map(|(allowed, _)| allowed)
+    }
+
+    fn allowed_and_scores_for_today(
+        &self,
+        today: NaiveDate,
+    ) -> Result<DayScores, InferenceError> {
+        // Fast path: cache hit — clone the Arcs (pointer copy).
         {
             let guard = self.cache.lock().expect("range filter cache poisoned");
             if let Some(c) = guard.as_ref()
                 && c.date == today
             {
-                return Ok(Arc::clone(&c.allowed));
+                return Ok((Arc::clone(&c.allowed), Arc::clone(&c.scores)));
             }
         }
 
         // Cache miss: run meta-model inference, build scientific-name set, update cache.
         let month = today.month();
         let day = today.day();
-        let scores = self
+        let raw_scores = self
             .inner
             .predict(self.lat, self.lon, month, day)
             .map_err(|e| InferenceError::Inference(e.to_string()))?;
 
         // BirdNET label format: "Scientific Name_Common Name".
         // Extract the scientific name (everything before the first '_') and normalise.
-        let allowed: Arc<HashSet<String>> = Arc::new(
-            scores
-                .iter()
-                .map(|s| {
-                    s.species
-                        .split_once('_')
-                        .map(|(sci, _)| sci)
-                        .unwrap_or(&s.species)
-                        .to_lowercase()
-                })
-                .collect(),
-        );
+        let mut allowed_set = HashSet::new();
+        let mut score_map = HashMap::with_capacity(raw_scores.len());
+
+        for s in &raw_scores {
+            let sci = s
+                .species
+                .split_once('_')
+                .map(|(sci, _)| sci)
+                .unwrap_or(&s.species)
+                .to_lowercase();
+            score_map.insert(sci.clone(), s.score);
+            allowed_set.insert(sci);
+        }
+
+        let allowed = Arc::new(allowed_set);
+        let scores = Arc::new(score_map);
 
         tracing::info!(
             date = %today,
@@ -168,8 +196,9 @@ impl RangeFilter {
         *guard = Some(Cached {
             date: today,
             allowed: Arc::clone(&allowed),
+            scores: Arc::clone(&scores),
         });
 
-        Ok(allowed)
+        Ok((allowed, scores))
     }
 }

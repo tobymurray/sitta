@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT detection_id, score AS \"score!: f64\",\n                      first_ever AS \"first_ever!: bool\",\n                      first_season AS \"first_season!: bool\",\n                      first_week AS \"first_week!: bool\",\n                      first_day AS \"first_day!: bool\",\n                      days_since_last,\n                      local_count AS \"local_count!: i64\",\n                      range_score,\n                      temporal_score AS \"temporal_score!: f64\"\n               FROM detection_rarity\n               WHERE detection_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "detection_id",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "score!: f64",
+        "ordinal": 1,
+        "type_info": "Float"
+      },
+      {
+        "name": "first_ever!: bool",
+        "ordinal": 2,
+        "type_info": "Bool"
+      },
+      {
+        "name": "first_season!: bool",
+        "ordinal": 3,
+        "type_info": "Bool"
+      },
+      {
+        "name": "first_week!: bool",
+        "ordinal": 4,
+        "type_info": "Bool"
+      },
+      {
+        "name": "first_day!: bool",
+        "ordinal": 5,
+        "type_info": "Bool"
+      },
+      {
+        "name": "days_since_last",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "local_count!: i64",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "range_score",
+        "ordinal": 8,
+        "type_info": "Float"
+      },
+      {
+        "name": "temporal_score!: f64",
+        "ordinal": 9,
+        "type_info": "Float"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "98c2166963fc6687f38d8eef6a418840e5087739b599306c5b39fb64e88e4b5d"
+}

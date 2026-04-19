@@ -181,6 +181,24 @@ pub struct SpeciesHourlyProfileRow {
     pub count: i64,
 }
 
+/// A notable (high-rarity) detection for a species.
+pub struct NotableDetectionRow {
+    pub detection_id: Vec<u8>,
+    pub detected_at: i64,
+    pub confidence: f64,
+    pub score: f64,
+    pub first_ever: bool,
+    pub first_season: bool,
+    pub first_week: bool,
+    pub first_day: bool,
+}
+
+/// Monthly detection count for a species (calendar month 1-12).
+pub struct SpeciesMonthlyRow {
+    pub month: i64,
+    pub count: i64,
+}
+
 /// Aggregate stats for a single species across all detections.
 pub struct SpeciesStatsRow {
     pub common_name: String,
@@ -189,6 +207,34 @@ pub struct SpeciesStatsRow {
     pub last_detected_at: i64,
     pub avg_confidence: f64,
     pub distinct_days: i64,
+}
+
+/// Rarity score breakdown for a detection.
+pub struct RarityRow {
+    pub detection_id: Vec<u8>,
+    pub score: f64,
+    pub first_ever: bool,
+    pub first_season: bool,
+    pub first_week: bool,
+    pub first_day: bool,
+    pub days_since_last: Option<i64>,
+    pub local_count: i64,
+    pub range_score: Option<f64>,
+    pub temporal_score: f64,
+}
+
+/// Parameters for inserting a rarity score.
+pub struct NewRarity<'a> {
+    pub detection_id: &'a uuid::Uuid,
+    pub score: f64,
+    pub first_ever: bool,
+    pub first_season: bool,
+    pub first_week: bool,
+    pub first_day: bool,
+    pub days_since_last: Option<i64>,
+    pub local_count: i64,
+    pub range_score: Option<f64>,
+    pub temporal_score: f64,
 }
 
 /// Aggregated species summary for a date range.
