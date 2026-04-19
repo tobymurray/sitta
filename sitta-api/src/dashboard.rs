@@ -18,15 +18,13 @@ pub fn page(title: &str, active: &str, content: &str, timezone: &str) -> Html<St
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} — Sitta</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
 tailwind.config = {{
   darkMode: 'class',
   theme: {{
     extend: {{
-      fontFamily: {{ sans: ['Inter', 'system-ui', 'sans-serif'] }},
+      fontFamily: {{ sans: ['system-ui', '-apple-system', 'sans-serif'] }},
       colors: {{
         nuthatch: {{
           50: '#fdf5ef', 100: '#fae8d6', 200: '#f4ceac', 300: '#ecad78',
