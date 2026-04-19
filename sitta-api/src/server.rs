@@ -252,21 +252,23 @@ struct ListParams {
 async fn list_detections(
     State(state): State<ApiState>,
     Query(params): Query<ListParams>,
-) -> Result<Json<Vec<DetectionSummary>>, ApiError> {
+) -> Result<Json<PaginatedDetections>, ApiError> {
     let now = Utc::now().timestamp_millis();
     let since = params.since.unwrap_or(now - 86_400_000);
     let until = params.until.unwrap_or(now);
     let limit = params.limit.unwrap_or(50).min(500);
     let offset = params.offset.unwrap_or(0);
 
+    // Request one extra to determine if more results exist.
     let display_conf = f64::from(state.core.settings.load().display_min_confidence);
     let rows = state
         .core.db
-        .recent_detections(since, until, limit, offset, params.species.as_deref(), Some(display_conf))
+        .recent_detections(since, until, limit + 1, offset, params.species.as_deref(), Some(display_conf))
         .await
         ?;
 
-    let detections: Vec<DetectionSummary> = rows.into_iter().filter_map(|r| {
+    let has_more = rows.len() as i64 > limit;
+    let detections: Vec<DetectionSummary> = rows.into_iter().take(limit as usize).filter_map(|r| {
         Some(DetectionSummary {
             id: uuid_from_blob(r.id).ok()?.to_string(),
             detected_at: millis_to_rfc3339(r.detected_at)?,
@@ -284,7 +286,12 @@ async fn list_detections(
         })
     }).collect();
 
-    Ok(Json(detections))
+    Ok(Json(PaginatedDetections {
+        items: detections,
+        offset,
+        limit,
+        has_more,
+    }))
 }
 
 async fn get_detection(
@@ -1244,7 +1251,7 @@ async fn detection_spectrogram_handler(
     Path(id): Path<String>,
 ) -> Result<axum::response::Response, ApiError> {
     use axum::body::Body;
-    use sitta_audio::spectrogram::{generate_spectrogram, SpectrogramParams};
+    use mel_spec_png::{generate_spectrogram, SpectrogramParams};
 
     let clip_dir = state.integrations.clip_dir.as_ref().ok_or(ApiError::not_found("not found"))?;
     let uuid = id.parse::<uuid::Uuid>().map_err(|_| ApiError::bad_request("invalid id"))?;
@@ -1378,6 +1385,14 @@ async fn delete_review(
 }
 
 // ── Response types ──────────────────────────────────────────────
+
+#[derive(Serialize)]
+struct PaginatedDetections {
+    items: Vec<DetectionSummary>,
+    offset: i64,
+    limit: i64,
+    has_more: bool,
+}
 
 #[derive(Serialize)]
 struct DetectionSummary {

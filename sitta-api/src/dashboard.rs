@@ -507,7 +507,8 @@ ACTIVITY_PANEL_PLACEHOLDER
   // Load initial detections from REST
   fetch('/api/v1/detections?limit=20')
     .then(r => r.json())
-    .then(data => {{
+    .then(resp => {{
+      const data = resp.items || resp;
       if (data.length > 0 && emptyState) emptyState.remove();
       data.reverse().forEach(d => {{
         const card = createCard(d);
@@ -1082,7 +1083,8 @@ pub fn species_detail_content(scientific_name: &str) -> String {
   // ── Detection list ────────────────────────────────────────────
   fetch('/api/v1/detections?species=' + encodeURIComponent(sciName) + '&limit=100')
     .then(r => r.json())
-    .then(data => {{
+    .then(resp => {{
+      const data = resp.items || resp;
       const el = document.getElementById('species-detections');
       if (data.length === 0) {{
         el.innerHTML = '<div class="text-center py-12 text-gray-400 dark:text-plumage-500 text-sm">No detections found for this species</div>';
