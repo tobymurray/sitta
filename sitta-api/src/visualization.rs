@@ -112,8 +112,11 @@ pub fn activity_panel() -> String {
 
   // ── Visualization type persistence ────────────────────────────
   const savedType = localStorage.getItem('sitta-viz-type');
+  const defaultType = window.innerWidth < 500 ? 'dots' : (savedType || 'ridge');
   if (savedType && vizSelect.querySelector(`option[value="${savedType}"]`)) {
     vizSelect.value = savedType;
+  } else if (window.innerWidth < 500) {
+    vizSelect.value = 'dots';
   }
   vizSelect.addEventListener('change', () => {
     localStorage.setItem('sitta-viz-type', vizSelect.value);
@@ -164,7 +167,7 @@ pub fn activity_panel() -> String {
     const species = data.species;
     const isDark = document.documentElement.classList.contains('dark');
     const isMobile = container.clientWidth < 500;
-    const LABEL_W = isMobile ? 70 : 130;
+    const LABEL_W = isMobile ? 90 : 130;
     const ROW_H = isMobile ? 28 : 36;
     const OVERLAP = isMobile ? 10 : 14;
     const PAD = { top: 20, right: isMobile ? 8 : 16, bottom: 24, left: LABEL_W + 8 };
@@ -324,10 +327,10 @@ pub fn activity_panel() -> String {
       label.setAttribute('y', baseY - (ROW_H * 0.3));
       label.setAttribute('text-anchor', 'end');
       label.setAttribute('class', 'fill-gray-600 dark:fill-plumage-300');
-      label.style.fontSize = isMobile ? '9px' : '11px';
+      label.style.fontSize = isMobile ? '10px' : '11px';
       label.style.cursor = 'pointer';
-      // Truncate long names (shorter on mobile)
-      const maxLen = isMobile ? 10 : 18;
+      // Truncate long names
+      const maxLen = isMobile ? 13 : 18;
       const name = sp.common_name.length > maxLen ? sp.common_name.slice(0, maxLen - 1) + '\u2026' : sp.common_name;
       label.textContent = name;
       label.addEventListener('click', () => {
@@ -350,94 +353,81 @@ pub fn activity_panel() -> String {
     container.appendChild(svg);
   }
 
-  // ── Dot matrix renderer ───────────────────────────────────────
+  // ── Dot matrix renderer (HTML grid with sticky labels) ────────
   function renderDotMatrix(container, data, tip) {
     const species = data.species;
     const isDark = document.documentElement.classList.contains('dark');
-    const isMob = container.clientWidth < 500;
-    const LABEL_W = isMob ? 70 : 130;
-    const CELL = isMob ? 10 : 20;
-    const GAP = isMob ? 1 : 2;
-    const PAD = { top: 24, right: isMob ? 8 : 16, bottom: 8, left: LABEL_W + 8 };
-    const W = PAD.left + 24 * (CELL + GAP) + PAD.right;
-    const H = PAD.top + species.length * (CELL + GAP) + PAD.bottom;
-
     const maxCount = Math.max(1, ...species.flatMap(s => s.hours));
 
-    const ns = 'http://www.w3.org/2000/svg';
-    const svg = document.createElementNS(ns, 'svg');
-    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-    svg.setAttribute('class', 'w-full select-none');
+    // Build as an HTML table: sticky first column for names, scrollable dot grid.
+    const wrapper = document.createElement('div');
+    wrapper.className = 'overflow-x-auto';
 
-    // Hour labels
-    const dotHourStep = isMob ? 6 : 3;
-    for (let h = 0; h < 24; h += dotHourStep) {
-      const x = PAD.left + h * (CELL + GAP) + CELL / 2;
-      const txt = document.createElementNS(ns, 'text');
-      txt.setAttribute('x', x); txt.setAttribute('y', PAD.top - 6);
-      txt.setAttribute('text-anchor', 'middle');
-      txt.setAttribute('class', 'fill-gray-400 dark:fill-plumage-500');
-      txt.style.fontSize = isMob ? '8px' : '10px';
-      txt.textContent = h.toString().padStart(2, '0');
-      svg.appendChild(txt);
+    const table = document.createElement('table');
+    table.className = 'border-collapse';
+    table.style.minWidth = '100%';
+
+    // Header row: empty label cell + 24 hour cells
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    const emptyTh = document.createElement('th');
+    emptyTh.className = 'sticky left-0 z-10 bg-white dark:bg-plumage-900';
+    headRow.appendChild(emptyTh);
+    for (let h = 0; h < 24; h++) {
+      const th = document.createElement('th');
+      th.className = 'text-center px-0.5 pb-1 text-gray-400 dark:text-plumage-500 font-normal';
+      th.style.fontSize = '9px';
+      th.style.minWidth = '18px';
+      th.textContent = h % 3 === 0 ? h.toString().padStart(2, '0') : '';
+      headRow.appendChild(th);
     }
+    thead.appendChild(headRow);
+    table.appendChild(thead);
 
-    species.forEach((sp, i) => {
-      const y = PAD.top + i * (CELL + GAP) + CELL / 2;
-
-      // Label
-      const label = document.createElementNS(ns, 'text');
-      label.setAttribute('x', PAD.left - 8);
-      label.setAttribute('y', y + 4);
-      label.setAttribute('text-anchor', 'end');
-      label.setAttribute('class', 'fill-gray-600 dark:fill-plumage-300');
-      label.style.fontSize = isMob ? '9px' : '11px';
-      label.style.cursor = 'pointer';
-      const dotMaxLen = isMob ? 10 : 18;
-      const name = sp.common_name.length > dotMaxLen ? sp.common_name.slice(0, dotMaxLen - 1) + '\u2026' : sp.common_name;
-      label.textContent = name;
-      label.addEventListener('click', () => {
+    // Species rows
+    const tbody = document.createElement('tbody');
+    species.forEach(sp => {
+      const row = document.createElement('tr');
+      row.className = 'cursor-pointer hover:bg-stone-50 dark:hover:bg-plumage-800/30 transition-colors';
+      row.addEventListener('click', () => {
         location.href = '/species/' + encodeURIComponent(sp.scientific_name);
       });
-      svg.appendChild(label);
 
-      // Dots
+      // Sticky name cell
+      const nameCell = document.createElement('td');
+      nameCell.className = 'sticky left-0 z-10 bg-white dark:bg-plumage-900 pr-3 py-0.5 text-xs text-stone-700 dark:text-plumage-300 whitespace-nowrap font-medium';
+      nameCell.style.maxWidth = '140px';
+      nameCell.style.overflow = 'hidden';
+      nameCell.style.textOverflow = 'ellipsis';
+      nameCell.textContent = sp.common_name;
+      nameCell.title = sp.common_name;
+      row.appendChild(nameCell);
+
+      // 24 hour cells
       sp.hours.forEach((count, h) => {
-        if (count === 0) return;
-        const cx = PAD.left + h * (CELL + GAP) + CELL / 2;
-        const r = Math.max(2, (Math.sqrt(count / maxCount)) * (CELL / 2 - 1));
-        const opacity = 0.25 + 0.75 * (count / maxCount);
-
-        const circle = document.createElementNS(ns, 'circle');
-        circle.setAttribute('cx', cx);
-        circle.setAttribute('cy', y);
-        circle.setAttribute('r', r.toFixed(1));
-        circle.setAttribute('fill', isDark ? '#e38a47' : '#d97226');
-        circle.setAttribute('fill-opacity', opacity.toFixed(2));
-        circle.style.cursor = 'pointer';
-
-        circle.addEventListener('mouseenter', (e) => {
-          circle.setAttribute('stroke', isDark ? '#fae8d6' : '#a34619');
-          circle.setAttribute('stroke-width', '1.5');
-          tip.innerHTML = `<span class="font-semibold">${sp.common_name}</span><br>${h.toString().padStart(2,'0')}:00 &mdash; ${count} detection${count !== 1 ? 's' : ''}`;
-          tip.style.left = (e.clientX + 12) + 'px';
-          tip.style.top = (e.clientY - 10) + 'px';
-          tip.classList.remove('hidden');
-        });
-        circle.addEventListener('mouseleave', () => {
-          circle.removeAttribute('stroke');
-          circle.removeAttribute('stroke-width');
-          tip.classList.add('hidden');
-        });
-        circle.addEventListener('click', () => {
-          location.href = '/species/' + encodeURIComponent(sp.scientific_name);
-        });
-
-        svg.appendChild(circle);
+        const cell = document.createElement('td');
+        cell.className = 'px-0.5 py-0.5';
+        if (count > 0) {
+          const dot = document.createElement('div');
+          const size = Math.max(6, Math.round(Math.sqrt(count / maxCount) * 16));
+          const opacity = 0.3 + 0.7 * (count / maxCount);
+          dot.style.width = size + 'px';
+          dot.style.height = size + 'px';
+          dot.style.borderRadius = '50%';
+          dot.style.margin = 'auto';
+          dot.style.backgroundColor = isDark ? '#e38a47' : '#d97226';
+          dot.style.opacity = opacity.toFixed(2);
+          dot.title = sp.common_name + ' ' + h.toString().padStart(2, '0') + ':00 — ' + count + ' detection' + (count !== 1 ? 's' : '');
+          cell.appendChild(dot);
+        }
+        row.appendChild(cell);
       });
-    });
 
-    container.appendChild(svg);
+      tbody.appendChild(row);
+    });
+    table.appendChild(tbody);
+    wrapper.appendChild(table);
+    container.appendChild(wrapper);
   }
 
   // ── Sparklines renderer ───────────────────────────────────────
@@ -460,9 +450,9 @@ pub fn activity_panel() -> String {
       const label = document.createElement('span');
       const isMob = container.clientWidth < 500;
       label.className = 'text-gray-600 dark:text-plumage-300 truncate';
-      label.style.width = isMob ? '70px' : '130px';
+      label.style.width = isMob ? '90px' : '130px';
       label.style.flexShrink = '0';
-      label.style.fontSize = isMob ? '9px' : '12px';
+      label.style.fontSize = isMob ? '11px' : '12px';
       label.textContent = sp.common_name;
 
       // Sparkline SVG
