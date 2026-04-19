@@ -7,5 +7,4 @@ pub mod manager;
 pub mod remote;
 pub mod rtsp;
 pub mod source;
-pub mod spectrogram;
 pub mod wav;

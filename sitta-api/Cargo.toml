@@ -21,6 +21,7 @@ toml = { workspace = true }
 bytes = { workspace = true }
 bytemuck = { workspace = true }
 async-trait = { workspace = true }
+mel-spec-png = { workspace = true }
 sitta-audio = { path = "../sitta-audio" }
 sitta-store = { path = "../sitta-store" }
 
