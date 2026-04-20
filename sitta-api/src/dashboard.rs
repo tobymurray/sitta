@@ -350,6 +350,19 @@ ACTIVITY_PANEL_PLACEHOLDER
   const _tz = document.body.dataset.tz || 'UTC';
   const _tf = {{ hour: '2-digit', minute: '2-digit', hour12: false, timeZone: _tz }};
 
+  // Start-of-today in the station's timezone, as Unix ms.
+  function startOfTodayMs() {{
+    // Get today's date string in station TZ: "YYYY-MM-DD"
+    const dateStr = new Date().toLocaleDateString('en-CA', {{ timeZone: _tz }});
+    // Compute TZ offset at that date's midnight
+    const refDate = new Date(dateStr + 'T00:00:00Z');
+    const utcStr = refDate.toLocaleString('en-US', {{ timeZone: 'UTC' }});
+    const tzStr = refDate.toLocaleString('en-US', {{ timeZone: _tz }});
+    const offsetMs = new Date(tzStr).getTime() - new Date(utcStr).getTime();
+    // Midnight in station TZ = midnight UTC minus the offset
+    return refDate.getTime() - offsetMs;
+  }}
+
   function timeAgo(iso) {{
     const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
     if (s < 5) return 'just now';
@@ -520,9 +533,9 @@ ACTIVITY_PANEL_PLACEHOLDER
     }})
     .catch(() => {{}});
 
-  // Load stats
+  // Load stats (scoped to calendar today in station timezone)
   function loadStats() {{
-    fetch('/api/v1/species')
+    fetch('/api/v1/species?since=' + startOfTodayMs())
       .then(r => r.json())
       .then(data => {{
         const total = data.reduce((s, d) => s + d.detection_count, 0);
