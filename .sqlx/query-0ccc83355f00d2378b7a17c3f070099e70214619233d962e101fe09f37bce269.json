@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                a.name AS source_name,\n                CAST(SUM(\n                    (MIN(COALESCE(s.ended_at, ?2), ?2) - MAX(s.started_at, ?1))\n                ) AS REAL) / 1000.0 AS \"total_seconds: f64\",\n                COUNT(*) AS session_count\n            FROM source_sessions s\n            JOIN audio_sources a ON a.id = s.source_id\n            WHERE s.started_at < ?2\n              AND (s.ended_at IS NULL OR s.ended_at > ?1)\n            GROUP BY s.source_id\n            ORDER BY source_name",
+  "describe": {
+    "columns": [
+      {
+        "name": "source_name",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "total_seconds: f64",
+        "ordinal": 1,
+        "type_info": "Float"
+      },
+      {
+        "name": "session_count",
+        "ordinal": 2,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0ccc83355f00d2378b7a17c3f070099e70214619233d962e101fe09f37bce269"
+}

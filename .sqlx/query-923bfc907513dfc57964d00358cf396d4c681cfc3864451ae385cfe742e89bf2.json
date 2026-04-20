@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                s.id AS \"id!\",\n                s.source_id AS \"source_id!\",\n                a.name AS \"source_name!\",\n                s.started_at AS \"started_at!\",\n                s.ended_at,\n                s.end_reason,\n                s.chunks_received AS \"chunks_received!\"\n            FROM source_sessions s\n            JOIN audio_sources a ON a.id = s.source_id\n            WHERE s.ended_at IS NULL\n            ORDER BY s.started_at",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "source_id!",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "source_name!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "started_at!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "ended_at",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "end_reason",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "chunks_received!",
+        "ordinal": 6,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "923bfc907513dfc57964d00358cf396d4c681cfc3864451ae385cfe742e89bf2"
+}

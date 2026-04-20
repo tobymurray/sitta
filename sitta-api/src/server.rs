@@ -178,6 +178,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/v1/candidates/{id}/dismiss", axum::routing::post(dismiss_cluster))
         .route("/api/v1/mqtt", get(get_mqtt_config).put(put_mqtt_config))
         .route("/api/v1/mqtt/test", axum::routing::post(test_mqtt_connection))
+        .route("/api/v1/effort", get(effort_handler))
         .route("/api/v1/sources", get(list_sources).post(add_source))
         .route("/api/v1/sources/{name}", delete(remove_source))
         .route("/api/v1/detections/{id}/audio", get(detection_audio_handler))
@@ -772,10 +773,20 @@ async fn status_handler(State(state): State<ApiState>) -> Json<StatusResponse> {
     let detection_count = state.core.db.detection_count().await.unwrap_or(-1);
     let s = state.core.settings.load();
     let m = &state.inference.metrics;
+
+    let active_sources = state
+        .core
+        .db
+        .active_sessions()
+        .await
+        .map(|sessions| sessions.into_iter().map(|s| s.source_name).collect())
+        .unwrap_or_default();
+
     Json(StatusResponse {
         station_name: s.station_name.clone(),
         status: "running",
         detection_count,
+        active_sources,
         pipeline: PipelineStatus {
             birdnet_chunks_processed: m.birdnet_chunks_processed.load(Ordering::Relaxed),
             birdnet_chunks_dropped: m.birdnet_chunks_dropped.load(Ordering::Relaxed),
@@ -783,6 +794,107 @@ async fn status_handler(State(state): State<ApiState>) -> Json<StatusResponse> {
             perch_chunks_dropped: m.perch_chunks_dropped.load(Ordering::Relaxed),
         },
     })
+}
+
+// ── REST: effort tracking ──────────────────────────────────────
+
+#[derive(Deserialize)]
+struct EffortParams {
+    /// Start of range (Unix ms). Default: 24 hours ago.
+    since: Option<i64>,
+    /// End of range (Unix ms). Default: now.
+    until: Option<i64>,
+}
+
+async fn effort_handler(
+    State(state): State<ApiState>,
+    Query(params): Query<EffortParams>,
+) -> Result<Json<EffortResponse>, ApiError> {
+    let now = Utc::now().timestamp_millis();
+    let since = params.since.unwrap_or(now - 86_400_000);
+    let until = params.until.unwrap_or(now);
+    let window_seconds = (until - since) as f64 / 1000.0;
+
+    let source_rows = state.core.db.effort_summary(since, until).await?;
+    let total_seconds = state.core.db.total_effort_seconds(since, until).await?;
+
+    let sources: Vec<SourceEffort> = source_rows
+        .into_iter()
+        .map(|r| {
+            let coverage = if window_seconds > 0.0 {
+                (r.total_seconds / window_seconds).min(1.0)
+            } else {
+                0.0
+            };
+            SourceEffort {
+                source_name: r.source_name,
+                total_seconds: r.total_seconds,
+                session_count: r.session_count,
+                coverage,
+            }
+        })
+        .collect();
+
+    let active_sessions = state.core.db.active_sessions().await?;
+    let active: Vec<ActiveSession> = active_sessions
+        .into_iter()
+        .filter_map(|s| {
+            Some(ActiveSession {
+                source_name: s.source_name,
+                started_at: millis_to_rfc3339(s.started_at)?,
+                chunks_received: s.chunks_received,
+                duration_seconds: (now - s.started_at) as f64 / 1000.0,
+            })
+        })
+        .collect();
+
+    // Overall coverage: fraction of the window with at least one source recording.
+    // Approximate as total_seconds / window_seconds, capped at 1.0.
+    let overall_coverage = if window_seconds > 0.0 {
+        (total_seconds / window_seconds).min(1.0)
+    } else {
+        0.0
+    };
+
+    Ok(Json(EffortResponse {
+        since: millis_to_rfc3339(since).unwrap_or_default(),
+        until: millis_to_rfc3339(until).unwrap_or_default(),
+        total_recording_seconds: total_seconds,
+        overall_coverage,
+        sources,
+        active_sessions: active,
+    }))
+}
+
+#[derive(Serialize)]
+struct EffortResponse {
+    since: String,
+    until: String,
+    /// Total seconds of audio recording across all sources in the window.
+    total_recording_seconds: f64,
+    /// Fraction of the time window covered by at least one source (0.0–1.0).
+    overall_coverage: f64,
+    /// Per-source breakdown.
+    sources: Vec<SourceEffort>,
+    /// Currently active recording sessions.
+    active_sessions: Vec<ActiveSession>,
+}
+
+#[derive(Serialize)]
+struct SourceEffort {
+    source_name: String,
+    total_seconds: f64,
+    session_count: i64,
+    /// Fraction of the time window this source was recording (0.0–1.0).
+    coverage: f64,
+}
+
+#[derive(Serialize)]
+struct ActiveSession {
+    source_name: String,
+    started_at: String,
+    chunks_received: i64,
+    duration_seconds: f64,
 }
 
 // ── REST: settings ──────────────────────────────────────────────
@@ -1683,6 +1795,8 @@ struct StatusResponse {
     station_name: String,
     status: &'static str,
     detection_count: i64,
+    /// Sources that are currently receiving audio.
+    active_sources: Vec<String>,
     pipeline: PipelineStatus,
 }
 

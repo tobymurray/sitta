@@ -237,6 +237,33 @@ pub struct NewRarity<'a> {
     pub temporal_score: f64,
 }
 
+// ── Session / effort tracking ──────────────────────────────────
+
+/// Parameters for starting a new source session.
+pub struct NewSession<'a> {
+    pub id: &'a Uuid,
+    pub source_id: &'a Uuid,
+    pub started_at: i64,
+}
+
+/// A source session row with joined source name.
+pub struct SessionRow {
+    pub id: Vec<u8>,
+    pub source_id: Vec<u8>,
+    pub source_name: String,
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+    pub end_reason: Option<String>,
+    pub chunks_received: i64,
+}
+
+/// Per-source effort summary for a time range.
+pub struct SourceEffortRow {
+    pub source_name: String,
+    pub total_seconds: f64,
+    pub session_count: i64,
+}
+
 /// Aggregated species summary for a date range.
 pub struct SpeciesSummaryRow {
     pub scientific_name: Option<String>,

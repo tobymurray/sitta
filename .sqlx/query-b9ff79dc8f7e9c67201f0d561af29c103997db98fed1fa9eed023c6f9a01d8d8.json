@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE source_sessions SET chunks_received = chunks_received + ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "b9ff79dc8f7e9c67201f0d561af29c103997db98fed1fa9eed023c6f9a01d8d8"
+}

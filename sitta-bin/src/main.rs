@@ -1,5 +1,6 @@
 mod config;
 mod consumers;
+mod effort;
 mod models;
 mod mqtt;
 mod persist;
@@ -223,6 +224,21 @@ async fn main() -> Result<()> {
         },
     };
     tokio::spawn(server::serve(api_addr, api_state, shutdown.clone()));
+
+    // ── Effort tracking ────────────────────────────────────────
+    // Gap timeout: 2x chunk duration + 5s buffer. If no audio arrives within
+    // this window, the session is considered ended (source disconnected).
+    let gap_timeout = std::time::Duration::from_secs(
+        (config.audio.chunk_seconds as u64) * 2 + 5,
+    );
+    effort::spawn_effort_tracker(
+        db.clone(),
+        persist_ctx.source_ids.clone(),
+        tx.subscribe(),
+        shutdown.clone(),
+        gap_timeout,
+    );
+    tracing::info!(?gap_timeout, "Effort tracker started");
 
     // ── Inference consumers ─────────────────────────────────────
     if let Some(perch) = perch_model {

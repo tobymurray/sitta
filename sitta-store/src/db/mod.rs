@@ -7,6 +7,7 @@ mod individuals;
 mod rarity;
 mod reviews;
 mod seeding;
+mod sessions;
 mod snippets;
 mod species;
 

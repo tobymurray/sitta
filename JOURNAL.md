@@ -685,3 +685,72 @@ Extended the species insights API and detail page with:
 Weather/temperature correlation is a natural next step but requires an external data source
 (weather API or local sensor). Flagged as future work — the data sufficiency framework
 is already in place to add "Need weather data for correlation" once a source is available.
+
+---
+
+## 2026-04-20: Effort Tracking
+
+### Decision: Automatic session tracking via broadcast subscriber
+
+Without effort data, detection counts are meaningless — "2 detections in 6 hours" is very
+different from "2 detections in 5 minutes." Effort tracking records *when each audio source
+was actually recording*, turning a species list into occupancy data suitable for publication.
+
+**Architecture:** A dedicated background task subscribes to the existing audio broadcast
+channel and tracks per-source "liveness." When the first chunk from a source arrives (or
+arrives after a gap), a session opens. When no chunks arrive for a configurable timeout
+(2× chunk duration + 5s buffer), the session closes with reason `"gap"`. On shutdown,
+all sessions close with reason `"shutdown"`.
+
+**Why broadcast subscriber, not source-internal hooks:** This approach requires zero
+modifications to the RTSP, Remote, or future Local source implementations. It works for
+any source type automatically. The broadcast channel is already the fan-out mechanism for
+audio — effort tracking is just another consumer, like BirdNET or Perch inference.
+
+**Crash safety:** On startup, any sessions left open by a prior unclean shutdown are
+closed with reason `"startup_cleanup"`. This prevents stale open-ended sessions from
+inflating effort calculations.
+
+**Chunk counter batching:** Rather than writing to the database on every chunk (every 3s
+per source), chunk counts are accumulated in memory and flushed every 10 chunks. This
+reduces SQLite write pressure on SD cards while keeping the count reasonably current.
+
+### Schema: source_sessions table
+
+```sql
+source_sessions (
+    id              BLOB PRIMARY KEY,   -- UUIDv7
+    source_id       BLOB NOT NULL REFERENCES audio_sources(id),
+    started_at      INTEGER NOT NULL,   -- epoch ms
+    ended_at        INTEGER,            -- NULL while active
+    end_reason      TEXT,               -- 'gap', 'shutdown', 'removed', 'startup_cleanup'
+    chunks_received INTEGER NOT NULL DEFAULT 0
+)
+```
+
+Indexed on `(source_id, started_at)` for per-source queries and `(started_at, ended_at)`
+for time-range effort summaries.
+
+### API: GET /api/v1/effort
+
+Returns effort data for any time window (default: last 24h):
+
+- `total_recording_seconds` — total audio captured across all sources
+- `overall_coverage` — fraction of the time window covered (0.0–1.0)
+- Per-source breakdown: `total_seconds`, `session_count`, `coverage`
+- `active_sessions` — currently-recording sources with duration and chunk count
+
+The effort summary query clamps sessions to the requested window boundaries, so a session
+that started before the window or is still active contributes only the overlapping portion.
+
+### Enhancement: Status endpoint
+
+`GET /api/v1/status` now includes `active_sources` — the list of source names currently
+receiving audio, derived from open sessions.
+
+### Insight: Gap timeout tuning
+
+The gap timeout (time without chunks before a session closes) is set to `2 × chunk_seconds
++ 5s`. For the default 3s chunks, this is 11s. This accounts for: one missed chunk (RTSP
+hiccup), processing delays, and a small buffer. Short enough to accurately reflect real
+disconnects, long enough to avoid false session splits from transient network blips.
