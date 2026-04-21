@@ -1,4 +1,6 @@
 /target
 /models/
 dev.db*
+sitta.db*
+/clips/
 .env
