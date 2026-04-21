@@ -10,7 +10,7 @@ Named for the nuthatch genus (*Sitta*).
 - **Edge hardware.** Targets ARM64 SBCs (RPi 5, Orange Pi 5, Radxa Rock 5B) with 2-4 GB RAM.
 - **No GPU assumed.** Optional Coral TPU via Edge TPU delegate.
 - **Real-time.** Sustains inference on at least 2 concurrent audio streams.
-- **Integration.** MQTT for Home Assistant, REST/WebSocket for dashboards.
+- **Integration.** MQTT for Home Assistant, REST/SSE for dashboards.
 
 ## Architecture
 
@@ -23,7 +23,7 @@ Named for the nuthatch genus (*Sitta*).
 │   │  Pipeline │─▶│  Engine      │─▶│   Gateway        │  │
 │   │           │   │              │   │                  │  │
 │   │ capture   │   │ birdnet      │   │ REST (axum)      │  │
-│   │ resample  │   │ perch        │   │ WebSocket        │  │
+│   │ resample  │   │ perch        │   │ SSE              │  │
 │   │ buffer    │   │ individual   │   │ MQTT publish     │  │
 │   │ dispatch  │   │ id matching  │   │ HA discovery     │  │
 │   └───────────┘   └──────────────┘   └──────────────────┘  │
@@ -63,13 +63,20 @@ sitta/
 ├── sitta-taxonomy/         # eBird taxonomy: scientific name → common name + species code
 │   └── src/
 │       └── lib.rs
-├── sitta-store/            # persistence layer (stub)
+├── sitta-store/            # SQLite persistence, embeddings, individual matching
 ├── sitta-spatial/          # future TDOA triangulation (stub)
-├── sitta-api/              # HTTP, WebSocket, MQTT (stub)
+├── sitta-api/              # REST API, SSE live feed, embedded dashboard
 └── sitta-bin/              # binary entry point, config, orchestration
     └── src/
         ├── main.rs
-        └── config.rs
+        ├── config.rs
+        ├── consumers.rs    # BirdNET/Perch inference consumers
+        ├── models.rs       # model + range filter loading
+        ├── persist.rs      # detection persistence + rarity scoring
+        ├── mqtt.rs         # MQTT publisher with HA auto-discovery
+        ├── effort.rs       # audio source effort tracking
+        ├── seed.rs         # database seeding (labels, models)
+        └── snippets.rs     # audio clip management + retention
 ```
 
 Workspace crates compile independently. When iterating on the API layer, `sitta-audio` and `sitta-inference` don't recompile. On ARM64 cross-compilation, this matters.
@@ -91,7 +98,7 @@ RTSP stream (any codec)          RTSP stream (any codec)
   ┌─ broadcast::channel (fan-out to all consumers) ─┐
   │                                                  │
   ▼                                                  ▼
-BirdNET consumer (3s windows)        Perch consumer (5s windows, future)
+BirdNET consumer (3s windows)        Perch consumer (5s windows, 48→32 kHz)
 ```
 
 - **One ffmpeg process per source.** Each RTSP stream gets its own ffmpeg subprocess with `kill_on_drop` for cleanup. If a process dies, the source reconnects with configurable backoff.
@@ -169,7 +176,7 @@ Implemented as a second `Classifier` backed by the same `birdnet-onnx` crate. Ru
 - **Resampling:** incoming 48 kHz audio is resampled in-process via `rubato` (`Fft` resampler, 48000→32000 Hz, 5s windows, 3s stride / 2s overlap)
 - **Install:** `birda models install perch-v2`
 
-The 1536-dim embeddings are logged at `DEBUG` level. They will be stored in `sitta-store` in Phase 3 to enable individual animal identification via cosine similarity.
+The 1536-dim embeddings are stored in `sitta-store` (SQLite binary blobs) and used for individual animal identification via cosine similarity.
 
 ### birdnet-onnx backend
 
@@ -210,14 +217,37 @@ Phase 5 work. The architecture must not block it.
 ### REST Endpoints
 
 ```
-GET  /api/v1/detections              # paginated detection history
-GET  /api/v1/detections/:id          # single detection + audio snippet
-GET  /api/v1/species                 # species list with detection counts
-GET  /api/v1/individuals             # known individuals
-POST /api/v1/individuals             # enrol new individual from detection
-GET  /api/v1/stream/events           # WebSocket: live detection events
-GET  /api/v1/status                  # system health, mic status, model info
-POST /api/v1/config                  # runtime config update
+GET    /api/v1/stream/events                 # SSE: live detection events
+GET    /api/v1/detections                    # paginated detection history
+GET    /api/v1/detections/{id}               # single detection detail
+GET    /api/v1/detections/{id}/audio         # audio clip (WAV)
+GET    /api/v1/detections/{id}/spectrogram   # spectrogram image (PNG)
+GET    /api/v1/detections/{id}/review        # review status
+PUT    /api/v1/detections/{id}/review        # set review (correct/false_positive)
+DELETE /api/v1/detections/{id}/review        # remove review
+GET    /api/v1/species                       # species list with detection counts
+GET    /api/v1/species/{name}/insights       # species detail + seasonality
+GET    /api/v1/activity/hourly               # hourly detection breakdown
+GET    /api/v1/individuals                   # known individuals
+POST   /api/v1/individuals                   # enrol new individual
+DELETE /api/v1/individuals                   # remove all individuals
+GET    /api/v1/individuals/{id}              # single individual detail
+GET    /api/v1/candidates                    # candidate clusters for enrolment
+POST   /api/v1/candidates/{id}/enroll        # enrol a candidate cluster
+POST   /api/v1/candidates/{id}/dismiss       # dismiss a candidate cluster
+GET    /api/v1/status                        # system health, model info, metrics
+GET    /api/v1/settings                      # runtime settings
+PUT    /api/v1/settings                      # update runtime settings
+GET    /api/v1/effort                        # audio capture effort summary
+GET    /api/v1/sources                       # configured audio sources
+POST   /api/v1/sources                       # add audio source at runtime
+DELETE /api/v1/sources/{name}                # remove audio source at runtime
+GET    /api/v1/mqtt                          # MQTT configuration
+PUT    /api/v1/mqtt                          # update MQTT configuration
+POST   /api/v1/mqtt/test                     # test MQTT broker connection
+GET    /api/v1/audio/sources                 # audio source status
+GET    /api/v1/audio/levels                  # real-time audio levels
+GET    /api/v1/audio/stream/{source_name}    # raw audio stream
 ```
 
 ### MQTT (Home Assistant)
@@ -229,42 +259,49 @@ Sitta publishes HA MQTT discovery messages on startup so detection sensors appea
 ```json
 {
   "id": "01961074-...",
-  "timestamp": "2026-04-15T08:30:00Z",
+  "detected_at": "2026-04-15T08:30:00Z",
   "station_id": "station_01",
+  "source_name": "north_feeder",
+  "model": "birdnet",
+  "model_version": "2.4",
   "species": {
     "scientific_name": "Tyto alba",
     "common_name": "Barn Owl",
-    "taxon_id": "barowl1",
-    "model": "birdnet"
+    "taxon_code": "brnowl1"
   },
   "confidence": 0.92,
+  "alternatives": [
+    { "rank": 1, "scientific_name": "Strix aluco", "common_name": "Tawny Owl", "confidence": 0.05 }
+  ],
+  "has_embedding": true,
+  "has_audio": true,
   "individual": {
-    "id": "a1b2c3d4-...",
+    "individual_id": "a1b2c3d4-...",
     "label": "Barn Owl #1",
     "similarity": 0.91
   },
-  "audio": {
-    "sample_rate": 48000,
-    "duration_ms": 3000,
-    "channel_id": 0,
-    "snippet_path": "/var/lib/sitta/snippets/01961074-....wav"
-  },
-  "location": null,
-  "metadata": {
-    "noise_floor_db": -42.5,
-    "peak_frequency_hz": 3200.0,
-    "inference_time_ms": 285
+  "rarity": {
+    "score": 0.35,
+    "first_ever": false,
+    "first_season": false,
+    "first_week": true,
+    "first_day": true,
+    "days_since_last": 8,
+    "local_count": 42,
+    "range_score": 0.85,
+    "temporal_score": 0.15
   }
 }
 ```
 
 Fields:
 
-- **`species`** -- classification result with model provenance
-- **`individual`** -- non-null when matched to a known individual via Perch embeddings
-- **`rarity`** -- how unusual this detection is (see below)
-- **`location`** -- non-null when TDOA triangulation is available (Phase 5)
-- **`metadata`** -- extensible key-value pairs for diagnostics
+- **`species`** -- classification result (scientific name, common name, eBird taxon code)
+- **`model`** / **`model_version`** -- which model produced the detection
+- **`alternatives`** -- ranked secondary predictions (omitted when empty)
+- **`individual`** -- present when matched to a known individual via Perch embeddings
+- **`rarity`** -- how unusual this detection is (see below); present when rarity scoring is enabled
+- **`has_embedding`** / **`has_audio`** -- whether embedding vector and audio clip were saved
 
 ### Rarity Scoring
 
@@ -332,8 +369,12 @@ labels_path = "/opt/sitta/models/BirdNET_GLOBAL_6K_V2.4_Labels_en_uk.txt"
 min_confidence = 0.25
 top_k = 10
 
-# Future sections (not yet implemented):
-# [inference.perch]
+[inference.perch]
+model_path = "/opt/sitta/models/perch-v2.onnx"
+labels_path = "/opt/sitta/models/perch-v2.csv"
+min_confidence = 0.25
+top_k = 10
+
 # [api]
 # [mqtt]
 # [storage]
@@ -363,12 +404,12 @@ Runtime dependencies: `ffmpeg` must be installed on the host for RTSP capture.
 | `arc-swap` | Lock-free runtime settings reads |
 | `rustfft` | FFT for mel spectrogram generation |
 | `image` | PNG encoding for spectrograms |
+| `rumqttc` | Async MQTT client with HA auto-discovery |
 
 ### Planned (future phases)
 
 | Crate | Purpose |
 |---|---|
-| `rumqttc` | Async MQTT client |
 | `cpal` | Local sound card capture (ALSA) |
 | `core_affinity` | CPU pinning for deterministic scheduling |
 
@@ -425,7 +466,7 @@ Expose detections over the network. Let users hear what the model heard.
 - [x] Detection review API (correct / false_positive / un-review)
 - [x] Dashboard: spectrogram images, play button, review buttons, keyboard shortcuts (c/f)
 - [x] BirdNET sliding-window inference (configurable stride, default 1s for 2s overlap)
-- [ ] MQTT client with HA auto-discovery
+- [x] MQTT client with HA auto-discovery
 
 **Deliverable:** Full detection review workflow in the browser. Hear what the model heard.
 
