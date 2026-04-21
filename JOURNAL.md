@@ -754,3 +754,40 @@ The gap timeout (time without chunks before a session closes) is set to `2 × ch
 + 5s`. For the default 3s chunks, this is 11s. This accounts for: one missed chunk (RTSP
 hiccup), processing delays, and a small buffer. Short enough to accurately reflect real
 disconnects, long enough to avoid false session splits from transient network blips.
+
+---
+
+## 2026-04-20: Species list confidence filtering and range filter visibility
+
+### Bug: Species list hid low-confidence detections
+
+The species list API (`GET /api/v1/species`) was filtering by `display_min_confidence`
+(default 0.65). This meant species that were only detected at lower confidence levels
+(e.g., 0.30–0.64) were completely invisible on the species page — even though the
+detections existed in the database. The detection *list* filtering makes sense (you don't
+want to scroll through noise), but the species *index* should show every species that has
+any detection at all.
+
+**Fix:** Removed the confidence floor from `species_summary()`. The species list now shows
+all species with at least one detection in the time window, regardless of confidence. The
+detection list and dashboard still respect `display_min_confidence`.
+
+### Insight: Range filter silently drops detections
+
+The BirdNET range filter (`meta_model_path` + station lat/lon) calls `birdnet_onnx`'s
+`predict()` which returns only species whose location score >= `meta_threshold` (default
+0.01). Sitta's `RangeFilter::filter()` then drops any detection whose species isn't in
+that set. If a species IS present at the station but the meta-model doesn't expect it
+(score < 0.01), the detection is silently discarded before it ever reaches the database.
+
+This was the most likely explanation for why BirdNET-GO was detecting a species (Barred Owl
+at 75% confidence) that Sitta was not: BirdNET-GO either had the range filter disabled or
+configured more permissively.
+
+**Mitigation:** Added `DEBUG`-level logging when the range filter drops a detection,
+including species name, scientific name, and confidence. Run with `RUST_LOG=sitta=debug`
+to see which species are being filtered. If a species is being incorrectly dropped,
+options are:
+1. Add its eBird species code to `[inference.birdnet] force_allow`
+2. Lower `meta_threshold` (e.g., to 0.001)
+3. Remove `meta_model_path` to disable the range filter entirely

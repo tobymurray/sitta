@@ -120,6 +120,12 @@ impl RangeFilter {
                 );
                 return true;
             }
+            tracing::debug!(
+                species = %c.species.common_name,
+                scientific_name = %c.species.scientific_name,
+                confidence = format_args!("{:.3}", c.confidence),
+                "Detection dropped by range filter (species not expected at this location)"
+            );
             false
         });
 

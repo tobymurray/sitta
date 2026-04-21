@@ -420,10 +420,11 @@ async fn list_species(
     let since = params.since.unwrap_or(now - 86_400_000);
     let until = params.until.unwrap_or(now);
 
-    let display_conf = f64::from(state.core.settings.load().display_min_confidence);
+    // No confidence filter: show every species with any detection in the window.
+    // Individual detection lists still respect display_min_confidence.
     let rows = state
         .core.db
-        .species_summary(since, until, Some(display_conf))
+        .species_summary(since, until, None)
         .await
         ?;
 
