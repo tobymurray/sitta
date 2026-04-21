@@ -487,7 +487,7 @@ ACTIVITY_PANEL_PLACEHOLDER
         </div>` : ''}}
       <div class="mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800 flex items-center justify-between">
         <div class="flex items-center gap-2">
-          ${{d.has_audio || d.snippet_path ? `<button onclick="playClip('${{d.id}}', this)" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors">${{playSvg}} Play</button>` : ''}}
+          ${{d.has_audio || d.snippet_path ? `<button onclick="playClip('${{d.id}}', this)" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors">${{playSvg}} Play</button><a href="/api/v1/detections/${{d.id}}/audio" download="${{(d.species?.common_name || 'clip').replace(/[^a-zA-Z0-9 ]/g, '').replace(/ +/g, '_')}}_${{(d.detected_at || '').replace(/[:.]/g, '-').slice(0, 19)}}.wav" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors" title="Download audio clip"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg></a>` : ''}}
           <button onclick="reviewDetection('${{d.id}}', 'correct', this.closest('[data-id]'))" class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-900/30 transition-colors" title="Mark correct (c)">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
           </button>
@@ -661,6 +661,10 @@ pub fn detection_detail_content(detection_id: &str) -> String {
         <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/></svg>
         Play clip
       </button>
+      <a id="det-download-btn" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors" title="Download audio clip">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+        Download
+      </a>
       <button onclick="reviewThis('correct')" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-900/30 transition-colors">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg> Correct
       </button>
@@ -725,6 +729,11 @@ pub fn detection_detail_content(detection_id: &str) -> String {
         const sec = document.getElementById('det-audio-section');
         sec.classList.remove('hidden');
         document.getElementById('det-spectrogram').src = '/api/v1/detections/' + ID + '/spectrogram';
+        const dlBtn = document.getElementById('det-download-btn');
+        const safeName = (d.species?.common_name || 'clip').replace(/[^a-zA-Z0-9 ]/g, '').replace(/ +/g, '_');
+        const safeTime = (d.detected_at || '').replace(/[:.]/g, '-').slice(0, 19);
+        dlBtn.href = '/api/v1/detections/' + ID + '/audio';
+        dlBtn.download = safeName + '_' + safeTime + '.wav';
         const playBtn = document.getElementById('det-play-btn');
         let audio = null;
         playBtn.onclick = function() {{
