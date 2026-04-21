@@ -4,6 +4,35 @@ Decisions, insights, and lessons learned during development.
 
 ---
 
+## 2026-04-21: Bug fix — range filter silently dropped Perch-only species
+
+### Bug
+
+The BirdNET meta-model range filter was applied to both BirdNET and Perch detections,
+but it only knows about BirdNET's 6,522 species. Perch covers 14,795 species. Any
+Perch detection of a species outside BirdNET's label space was silently dropped because
+`RangeFilter::filter()` treated "not in allowed set" the same as "below threshold."
+
+This also compounded the V1-vs-V2 meta-model issue (below): species like Barred Owl
+were filtered from *both* pipelines, leaving zero detections where BirdNET-Go (using
+V2) was finding dozens.
+
+### Fix
+
+`RangeFilter` now stores a `known_species` set (all 6,522 BirdNET scientific names)
+built at load time. In `filter()`, species unknown to the meta-model pass through
+unfiltered — we have no occurrence data to filter on, so dropping them is wrong. Species
+that *are* in the meta-model but score below threshold are still dropped as before.
+
+### Stale documentation
+
+An earlier JOURNAL entry (2026-04-17) stated "Perch does NOT get the range filter."
+This was true at the time, but commit `2384b63` (Make range filter model-agnostic)
+changed the filter to key by scientific name and applied it to both consumers without
+updating the JOURNAL. The stale entry is corrected below.
+
+---
+
 ## 2026-04-21: Upgraded BirdNET range-filter to MData_Model_V2
 
 ### Context: previous meta model was an unversioned third-party conversion
@@ -445,8 +474,10 @@ by index avoids string comparisons and is unaffected by label format differences
 
 **Where it's applied:** Inside `handle_chunk`'s `spawn_blocking` closure, immediately
 after `Classifier::classify()` returns. The filter `Arc` is cloned cheaply for each
-inference task. Perch does NOT get the range filter — its 14,795-species label space is
-different from BirdNET's 6,522.
+inference task. ~~Perch does NOT get the range filter~~ — **Correction (2026-04-21):**
+commit `2384b63` made the range filter model-agnostic and applied it to Perch too.
+Species outside BirdNET's 6,522 label space now pass through unfiltered; species
+within it are filtered by location score as normal.
 
 **Key constraint:** `BirdNet` must not be erased to `Arc<dyn Classifier>` until AFTER
 the `RangeFilter` is built, because the filter needs `model.labels()` (the raw label
@@ -819,9 +850,19 @@ The BirdNET range filter (`meta_model_path` + station lat/lon) calls `birdnet_on
 that set. If a species IS present at the station but the meta-model doesn't expect it
 (score < 0.01), the detection is silently discarded before it ever reaches the database.
 
-This was the most likely explanation for why BirdNET-GO was detecting a species (Barred Owl
-at 75% confidence) that Sitta was not: BirdNET-GO either had the range filter disabled or
-configured more permissively.
+**Root cause found (2026-04-21):** Two issues were responsible for Barred Owl detections
+being lost:
+
+1. **Meta-model version mismatch.** The `birda` CLI installed V1 of the meta-model
+   (`birdnet_data_model.onnx` from `justinchuby/BirdNET-onnx` on HuggingFace) while
+   BirdNET-Go defaults to V2 (`BirdNET_GLOBAL_6K_V2.4_MData_Model_V2_FP16.tflite`).
+   V1 scores Barred Owl below 0.01 at our station; V2 does not. Fixed by converting
+   the official V2 TFLite model to ONNX (see 2026-04-21 JOURNAL entry above).
+
+2. **Range filter blocked Perch-only species.** The filter was applied to both BirdNET
+   and Perch consumers but only knew BirdNET's 6,522 species. Perch detections of
+   species outside that label space were silently dropped. Fixed by adding a
+   `known_species` set so unknown species pass through unfiltered.
 
 **Mitigation:** Added `DEBUG`-level logging when the range filter drops a detection,
 including species name, scientific name, and confidence. Run with `RUST_LOG=sitta=debug`

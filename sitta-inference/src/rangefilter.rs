@@ -30,7 +30,9 @@ struct Cached {
 ///
 /// The allowed set is keyed by **lowercase scientific name**, so the same
 /// `RangeFilter` instance can be shared between BirdNET and Perch consumers
-/// even though they have different label-index spaces.
+/// even though they have different label-index spaces. Species outside the
+/// meta-model's label space (e.g. Perch-only species not in BirdNET's 6,522)
+/// pass through unfiltered since there is no occurrence data to filter on.
 ///
 /// Species in `force_allow` bypass geographic scoring entirely — they always
 /// pass regardless of the meta-model's location score for that species.
@@ -41,6 +43,10 @@ pub struct RangeFilter {
     /// eBird species codes that always pass, e.g. `["guifow"]` for Helmeted Guineafowl.
     /// Checked against `Classification::species::taxon_code`; requires taxonomy to be loaded.
     force_allow: HashSet<String>,
+    /// All species known to the BirdNET meta-model (lowercase scientific names).
+    /// Used to distinguish "species below threshold" (drop) from "species not in
+    /// meta-model at all" (pass through — e.g. Perch-only species).
+    known_species: HashSet<String>,
     cache: Mutex<Option<Cached>>,
 }
 
@@ -65,12 +71,26 @@ impl RangeFilter {
             .build()
             .map_err(|e| InferenceError::ModelLoad(e.to_string()))?;
 
+        // Build the set of all species known to the meta-model so we can
+        // distinguish "below threshold" (drop) from "not in model" (pass through).
+        let known_species: HashSet<String> = labels
+            .iter()
+            .map(|label| {
+                label
+                    .split_once('_')
+                    .map(|(sci, _)| sci)
+                    .unwrap_or(label)
+                    .to_lowercase()
+            })
+            .collect();
+
         tracing::info!(
             model = %meta_model_path.display(),
             lat,
             lon,
             threshold,
             force_allow = ?force_allow,
+            known_species = known_species.len(),
             "Loaded BirdNET range filter (meta-model)"
         );
 
@@ -79,6 +99,7 @@ impl RangeFilter {
             lat,
             lon,
             force_allow,
+            known_species,
             cache: Mutex::new(None),
         })
     }
@@ -117,6 +138,18 @@ impl RangeFilter {
                     taxon_code = code,
                     confidence = c.confidence,
                     "Detection passed via force_allow"
+                );
+                return true;
+            }
+            // Species not in the meta-model at all (e.g. Perch-only species outside
+            // BirdNET's 6,522 label space) — pass through since we have no occurrence
+            // data to filter on.
+            if !self.known_species.contains(&sci) {
+                tracing::debug!(
+                    species = %c.species.common_name,
+                    scientific_name = %c.species.scientific_name,
+                    confidence = format_args!("{:.3}", c.confidence),
+                    "Detection passed (species not in meta-model label space)"
                 );
                 return true;
             }

@@ -402,7 +402,7 @@ Capture audio, run BirdNET, emit detections.
 - [x] Google Perch v2 inference (32 kHz, 5s windows, 1536-dim embeddings)
 - [x] In-process 48→32 kHz resampling via rubato (FFT, 3s stride)
 - [x] eBird taxonomy (`sitta-taxonomy`): scientific name → common name + eBird species code
-- [x] Geographic/seasonal range filter via BirdNET meta-model (`birdnet-v24-meta.onnx`); location scores cached per calendar day
+- [x] Geographic/seasonal range filter via BirdNET meta-model (`birdnet-v24-meta.onnx`); location scores cached per calendar day; species outside BirdNET's label space (e.g. Perch-only) pass through unfiltered
 - [x] `force_allow` list: species codes that bypass the geographic filter (for known-present domestic animals)
 - [ ] Local audio capture via `cpal`
 - [x] SQLite detection log (sqlx, WAL mode) — see `STORE_IMPLEMENTATION_PLAN.md`
