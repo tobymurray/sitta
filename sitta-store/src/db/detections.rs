@@ -297,6 +297,42 @@ impl Database {
             .collect())
     }
 
+    /// Delete a detection and all associated data.
+    ///
+    /// Returns the snippet_path (if any) so the caller can clean up the audio file.
+    /// Manually deletes from `detection_rarity` (no cascade FK), then deletes the
+    /// detection row which cascades to predictions, embeddings, reviews, matches,
+    /// and candidate_embeddings.
+    pub async fn delete_detection(
+        &self,
+        id: &[u8],
+    ) -> Result<Option<String>, crate::StoreError> {
+        let mut tx = self.pool.begin().await?;
+
+        // Grab snippet_path before deleting.
+        let snippet_path = sqlx::query_scalar!(
+            "SELECT snippet_path FROM detections WHERE id = $1",
+            id,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+
+        // detection_rarity has no ON DELETE CASCADE.
+        sqlx::query!("DELETE FROM detection_rarity WHERE detection_id = $1", id)
+            .execute(&mut *tx)
+            .await?;
+
+        // This cascades to: detection_predictions, embeddings,
+        // individual_matches, detection_reviews, candidate_embeddings.
+        sqlx::query!("DELETE FROM detections WHERE id = $1", id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(snippet_path)
+    }
+
     /// Total detection count (for status endpoint).
     pub async fn detection_count(&self) -> Result<i64, crate::StoreError> {
         let row = sqlx::query!(r#"SELECT COUNT(*) AS "count!" FROM detections"#)

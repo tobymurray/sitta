@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT snippet_path FROM detections WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "snippet_path",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "9dcdb54aee98d70af59ef4dd59507e38f5bff399a9d57caf5fd6c82e16929c25"
+}

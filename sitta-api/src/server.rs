@@ -165,7 +165,7 @@ pub fn router(state: ApiState) -> Router {
         // API endpoints
         .route("/api/v1/stream/events", get(sse_handler))
         .route("/api/v1/detections", get(list_detections))
-        .route("/api/v1/detections/{id}", get(get_detection))
+        .route("/api/v1/detections/{id}", get(get_detection).delete(delete_detection_handler))
         .route("/api/v1/species", get(list_species))
         .route("/api/v1/activity/hourly", get(hourly_activity))
         .route("/api/v1/species/{name}/insights", get(species_insights))
@@ -402,6 +402,30 @@ async fn get_detection(
     };
 
     Ok(Json(detail))
+}
+
+async fn delete_detection_handler(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let uuid = id.parse::<uuid::Uuid>().map_err(|_| ApiError::bad_request("invalid id"))?;
+    let id_bytes = uuid.as_bytes().as_slice();
+
+    let snippet_path = state
+        .core.db
+        .delete_detection(id_bytes)
+        .await?;
+
+    // Clean up audio clip and cached spectrogram on disk.
+    if let (Some(clip_dir), Some(rel_path)) = (&state.integrations.clip_dir, &snippet_path) {
+        let clip_path = clip_dir.join(rel_path);
+        let _ = tokio::fs::remove_file(&clip_path).await;
+        let spectrogram_path = clip_path.with_extension("png");
+        let _ = tokio::fs::remove_file(&spectrogram_path).await;
+    }
+
+    tracing::info!(detection_id = %uuid, "Detection deleted");
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // ── REST: species ───────────────────────────────────────────────
