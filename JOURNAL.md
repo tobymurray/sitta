@@ -4,6 +4,45 @@ Decisions, insights, and lessons learned during development.
 
 ---
 
+## 2026-04-21: Upgraded BirdNET range-filter to MData_Model_V2
+
+### Context: previous meta model was an unversioned third-party conversion
+
+The birda model registry pointed `birdnet-v24-meta.onnx` at a third-party HuggingFace
+conversion (`justinchuby/BirdNET-onnx/birdnet_data_model.onnx`) whose provenance was
+unclear — specifically, whether it was derived from the v1 or v2 release of the BirdNET
+meta/data model.
+
+BirdNET-Go uses `BirdNET_GLOBAL_6K_V2.4_MData_Model_V2_FP16.tflite` (the v2 release).
+The old `birdnet-v24-meta.onnx` was ~14 MB — matching FP16 size — while the v2 TFLite
+source is ~14 MB. It's plausible the `justinchuby` file was v1 or an FP16-preserved
+conversion of v2; either way, it was not authoritative.
+
+### Action
+
+Downloaded the official v2.4 release archive from the Cornell/Chemnitz distribution:
+
+  http://tuc.cloud/index.php/s/886x39f5N3sdsAM/download/v2.4.zip
+
+Extracted `V2.4/BirdNET_GLOBAL_6K_V2.4_MData_Model_V2_FP16.tflite` and converted to
+ONNX using `tf2onnx` (tensorflow-cpu 2.21.0, tf2onnx 1.17.0, opset 17):
+
+  python3 -m tf2onnx.convert \
+    --tflite BirdNET_GLOBAL_6K_V2.4_MData_Model_V2_FP16.tflite \
+    --output birdnet-v24-meta.onnx \
+    --opset 17
+
+The conversion upsampled FP16 weights to FP32 (standard tf2onnx behaviour), growing
+the file from ~14 MB to ~29 MB. Input/output shapes are identical to the old file:
+`[batch, 3]` → `[batch, 6522]`. The `birdnet-onnx` crate selects tensors by index
+so the new tensor names (`serving_default_MNET_INPUT:0`, `StatefulPartitionedCall:0`)
+are compatible.
+
+The resulting file was installed to `~/.local/share/birda/models/birdnet-v24-meta.onnx`,
+replacing the previous third-party conversion.
+
+---
+
 ## 2026-04-15: Project Bootstrap
 
 ### Decision: Rust + Tokio async runtime
