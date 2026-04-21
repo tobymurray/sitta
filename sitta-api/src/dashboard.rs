@@ -1512,7 +1512,7 @@ pub fn individuals_content() -> String {
         html += `<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 overflow-hidden">
           <div class="px-5 py-3 border-b border-gray-100 dark:border-plumage-800 flex items-center justify-between">
             <div>
-              <h3 class="font-semibold text-sm">${g.individuals[0].scientific_name}</h3>
+              <h3 class="font-semibold text-sm">${g.individuals[0].common_name || g.scientific_name}</h3>
               <p class="text-xs text-gray-400 dark:text-plumage-500 italic">${g.scientific_name}</p>
             </div>
             <span class="inline-flex items-center justify-center min-w-[1.5rem] rounded-full bg-nuthatch-50 dark:bg-nuthatch-900/20 text-nuthatch-700 dark:text-nuthatch-400 text-xs font-semibold px-2 py-0.5">${g.individuals.length}</span>

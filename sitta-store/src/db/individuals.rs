@@ -43,10 +43,12 @@ impl Database {
         id: &[u8],
     ) -> Result<Option<IndividualRow>, crate::StoreError> {
         let row = sqlx::query!(
-            r#"SELECT id, scientific_name, label,
-                      reference_embedding, reference_embedding_dim,
-                      enrolled_at, notes
-               FROM individuals WHERE id = $1"#,
+            r#"SELECT i.id, i.scientific_name, i.label,
+                      i.reference_embedding, i.reference_embedding_dim,
+                      i.enrolled_at, i.notes,
+                      (SELECT l.common_name FROM labels l
+                       WHERE l.scientific_name = i.scientific_name LIMIT 1) AS "common_name?"
+               FROM individuals i WHERE i.id = $1"#,
             id,
         )
         .fetch_optional(&self.pool)
@@ -55,6 +57,7 @@ impl Database {
         Ok(row.map(|r| IndividualRow {
             id: r.id,
             scientific_name: r.scientific_name,
+            common_name: r.common_name,
             label: r.label,
             reference_embedding: r.reference_embedding,
             reference_embedding_dim: r.reference_embedding_dim,
@@ -69,12 +72,14 @@ impl Database {
         species: Option<&str>,
     ) -> Result<Vec<IndividualRow>, crate::StoreError> {
         let rows = sqlx::query!(
-            r#"SELECT id, scientific_name, label,
-                      reference_embedding, reference_embedding_dim,
-                      enrolled_at, notes
-               FROM individuals
-               WHERE ($1 IS NULL OR scientific_name = $1)
-               ORDER BY enrolled_at DESC"#,
+            r#"SELECT i.id, i.scientific_name, i.label,
+                      i.reference_embedding, i.reference_embedding_dim,
+                      i.enrolled_at, i.notes,
+                      (SELECT l.common_name FROM labels l
+                       WHERE l.scientific_name = i.scientific_name LIMIT 1) AS "common_name?"
+               FROM individuals i
+               WHERE ($1 IS NULL OR i.scientific_name = $1)
+               ORDER BY i.enrolled_at DESC"#,
             species,
         )
         .fetch_all(&self.pool)
@@ -85,6 +90,7 @@ impl Database {
             .map(|r| IndividualRow {
                 id: r.id,
                 scientific_name: r.scientific_name,
+                common_name: r.common_name,
                 label: r.label,
                 reference_embedding: r.reference_embedding,
                 reference_embedding_dim: r.reference_embedding_dim,
@@ -99,11 +105,13 @@ impl Database {
         &self,
     ) -> Result<Vec<IndividualRow>, crate::StoreError> {
         let rows = sqlx::query!(
-            r#"SELECT id, scientific_name, label,
-                      reference_embedding, reference_embedding_dim,
-                      enrolled_at, notes
-               FROM individuals
-               WHERE reference_embedding IS NOT NULL"#,
+            r#"SELECT i.id, i.scientific_name, i.label,
+                      i.reference_embedding, i.reference_embedding_dim,
+                      i.enrolled_at, i.notes,
+                      (SELECT l.common_name FROM labels l
+                       WHERE l.scientific_name = i.scientific_name LIMIT 1) AS "common_name?"
+               FROM individuals i
+               WHERE i.reference_embedding IS NOT NULL"#,
         )
         .fetch_all(&self.pool)
         .await?;
@@ -113,6 +121,7 @@ impl Database {
             .map(|r| IndividualRow {
                 id: r.id,
                 scientific_name: r.scientific_name,
+                common_name: r.common_name,
                 label: r.label,
                 reference_embedding: r.reference_embedding,
                 reference_embedding_dim: r.reference_embedding_dim,

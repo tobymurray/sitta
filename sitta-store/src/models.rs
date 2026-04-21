@@ -117,6 +117,8 @@ pub struct PredictionRow {
 pub struct IndividualRow {
     pub id: Vec<u8>,
     pub scientific_name: String,
+    /// Common name resolved from the labels table. `None` if no label matches.
+    pub common_name: Option<String>,
     pub label: String,
     pub reference_embedding: Option<Vec<u8>>,
     pub reference_embedding_dim: Option<i64>,

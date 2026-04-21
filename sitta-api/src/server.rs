@@ -1012,6 +1012,7 @@ async fn list_individuals(
             Some(IndividualSummary {
                 id: uuid_from_blob(r.id).ok()?.to_string(),
                 scientific_name: r.scientific_name,
+                common_name: r.common_name,
                 label: r.label,
                 enrolled_at: millis_to_rfc3339(r.enrolled_at)?,
                 notes: r.notes,
@@ -1042,6 +1043,7 @@ async fn get_individual(
     Ok(Json(IndividualSummary {
         id: uuid.to_string(),
         scientific_name: row.scientific_name,
+        common_name: row.common_name,
         label: row.label,
         enrolled_at: millis_to_rfc3339(row.enrolled_at).unwrap_or_default(),
         notes: row.notes,
@@ -1093,6 +1095,7 @@ async fn enroll_individual(
     let now_ms = chrono::Utc::now().timestamp_millis();
     let dim = (emb_blob.len() / 4) as i64;
     let scientific_name = det.scientific_name.unwrap_or_default();
+    let common_name = Some(det.common_name);
 
     state
         .core.db
@@ -1125,6 +1128,7 @@ async fn enroll_individual(
     Ok(Json(IndividualSummary {
         id: individual_id.to_string(),
         scientific_name,
+        common_name,
         label: req.label,
         enrolled_at: millis_to_rfc3339(now_ms).unwrap_or_default(),
         notes: req.notes,
@@ -1142,6 +1146,8 @@ struct EnrollRequest {
 struct IndividualSummary {
     id: String,
     scientific_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    common_name: Option<String>,
     label: String,
     enrolled_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1255,6 +1261,7 @@ async fn enroll_cluster(
     Ok(Json(IndividualSummary {
         id: individual_id.to_string(),
         scientific_name: cluster.scientific_name,
+        common_name: None,
         label: req.label,
         enrolled_at: millis_to_rfc3339(now_ms).unwrap_or_default(),
         notes: req.notes,

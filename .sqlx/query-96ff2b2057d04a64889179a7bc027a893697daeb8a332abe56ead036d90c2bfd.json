@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, scientific_name, label,\n                      reference_embedding, reference_embedding_dim,\n                      enrolled_at, notes\n               FROM individuals\n               WHERE ($1 IS NULL OR scientific_name = $1)\n               ORDER BY enrolled_at DESC",
+  "query": "SELECT i.id, i.scientific_name, i.label,\n                      i.reference_embedding, i.reference_embedding_dim,\n                      i.enrolled_at, i.notes,\n                      (SELECT l.common_name FROM labels l\n                       WHERE l.scientific_name = i.scientific_name LIMIT 1) AS \"common_name?\"\n               FROM individuals i WHERE i.id = $1",
   "describe": {
     "columns": [
       {
@@ -37,6 +37,11 @@
         "name": "notes",
         "ordinal": 6,
         "type_info": "Text"
+      },
+      {
+        "name": "common_name?",
+        "ordinal": 7,
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -49,8 +54,9 @@
       true,
       true,
       false,
-      true
+      true,
+      false
     ]
   },
-  "hash": "ac8bd9c50f2ef618a92dc96c00dd07af7029be207862a96af888239c3e3bca47"
+  "hash": "96ff2b2057d04a64889179a7bc027a893697daeb8a332abe56ead036d90c2bfd"
 }
