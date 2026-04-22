@@ -1183,17 +1183,25 @@ async fn list_candidate_clusters(
         .await
         ?;
 
-    let clusters = rows
+    let mut clusters: Vec<CandidateClusterSummary> = rows
         .into_iter()
         .map(|r| CandidateClusterSummary {
             id: r.id,
             scientific_name: r.scientific_name,
+            common_name: None,
             member_count: r.member_count,
             distinct_days: r.distinct_days,
             first_seen_at: millis_to_rfc3339(r.first_seen_at).unwrap_or_default(),
             last_seen_at: millis_to_rfc3339(r.last_seen_at).unwrap_or_default(),
         })
         .collect();
+
+    // Resolve common names from the labels table.
+    for c in &mut clusters {
+        if let Ok(name) = state.core.db.common_name_for(&c.scientific_name).await {
+            c.common_name = name;
+        }
+    }
 
     Ok(Json(clusters))
 }
@@ -1313,6 +1321,8 @@ async fn dismiss_cluster(
 struct CandidateClusterSummary {
     id: i64,
     scientific_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    common_name: Option<String>,
     member_count: i64,
     distinct_days: i64,
     first_seen_at: String,

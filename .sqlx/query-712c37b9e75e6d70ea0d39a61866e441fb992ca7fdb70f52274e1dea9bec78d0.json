@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT common_name FROM labels WHERE scientific_name = $1 LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "common_name",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "712c37b9e75e6d70ea0d39a61866e441fb992ca7fdb70f52274e1dea9bec78d0"
+}

@@ -195,4 +195,18 @@ impl Database {
             })
         }))
     }
+
+    /// Look up the common name for a scientific name from the labels table.
+    pub async fn common_name_for(
+        &self,
+        scientific_name: &str,
+    ) -> Result<Option<String>, crate::StoreError> {
+        let row = sqlx::query_scalar!(
+            "SELECT common_name FROM labels WHERE scientific_name = $1 LIMIT 1",
+            scientific_name,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
 }

@@ -1470,7 +1470,8 @@ pub fn individuals_content() -> String {
         const range = first === last ? first : first + ' — ' + last;
         return `<div class="bg-white dark:bg-plumage-900 rounded-xl border border-nuthatch-200 dark:border-nuthatch-800/50 border-l-4 border-l-nuthatch-500 p-4 flex items-center justify-between gap-4">
           <div class="min-w-0 flex-1">
-            <p class="font-semibold text-sm">${c.scientific_name}</p>
+            <p class="font-semibold text-sm">${c.common_name || c.scientific_name}</p>
+            <p class="text-xs text-gray-400 dark:text-plumage-500 italic">${c.scientific_name}</p>
             <p class="text-xs text-gray-500 dark:text-plumage-400 mt-0.5">
               ${c.member_count} detections over ${c.distinct_days} day${c.distinct_days !== 1 ? 's' : ''}
               <span class="text-gray-400 dark:text-plumage-500 ml-1">${range}</span>
