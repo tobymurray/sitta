@@ -67,6 +67,7 @@ pub struct NewDetection<'a> {
     pub snippet_duration_ms: Option<i64>,
     pub snippet_sample_rate: Option<i64>,
     pub metadata: Option<&'a str>,
+    pub range_status: Option<&'a str>,
 }
 
 /// A secondary prediction for a detection.
@@ -103,6 +104,7 @@ pub struct DetectionRow {
     pub model_version: String,
     pub source_name: Option<String>,
     pub has_embedding: bool,
+    pub range_status: Option<String>,
 }
 
 /// A secondary prediction row with label info.

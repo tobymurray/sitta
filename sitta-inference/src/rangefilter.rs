@@ -6,7 +6,7 @@ use birdnet_onnx::RangeFilter as OnnxRangeFilter;
 use chrono::{Datelike, NaiveDate, Utc};
 
 use crate::InferenceError;
-use crate::model::Classification;
+use crate::model::{Classification, RangeStatus};
 
 /// Allowed species set + per-species location scores for a single day.
 type DayScores = (Arc<HashSet<String>>, Arc<HashMap<String, f32>>);
@@ -123,16 +123,18 @@ impl RangeFilter {
         let today = Utc::now().date_naive();
         let allowed = self.allowed_for_today(today)?;
 
-        classifications.retain(|c| {
+        classifications.retain_mut(|c| {
             // Primary check: scientific name in today's location-allowed set.
             let sci = c.species.scientific_name.to_lowercase();
             if allowed.contains(&sci) {
+                c.range_status = RangeStatus::Allowed;
                 return true;
             }
             // Secondary check: force_allow by taxon code (requires taxonomy).
             if let Some(code) = c.species.taxon_code.as_deref()
                 && self.force_allow.contains(code)
             {
+                c.range_status = RangeStatus::ForceAllowed;
                 tracing::debug!(
                     species = %c.species.common_name,
                     taxon_code = code,
@@ -145,6 +147,7 @@ impl RangeFilter {
             // BirdNET's 6,522 label space) — pass through since we have no occurrence
             // data to filter on.
             if !self.known_species.contains(&sci) {
+                c.range_status = RangeStatus::NotInMetaModel;
                 tracing::debug!(
                     species = %c.species.common_name,
                     scientific_name = %c.species.scientific_name,

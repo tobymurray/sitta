@@ -1,3 +1,17 @@
+/// How a classification relates to the geographic/seasonal range filter.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RangeStatus {
+    /// No range filter was applied (filter disabled or not configured).
+    #[default]
+    Unfiltered,
+    /// Species is in the meta-model and passed the location/date threshold.
+    Allowed,
+    /// Species passed via the `force_allow` bypass list.
+    ForceAllowed,
+    /// Species is NOT in the meta-model label space (e.g. Perch-only species).
+    NotInMetaModel,
+}
+
 /// A species classification result from an inference model.
 #[derive(Debug, Clone)]
 pub struct Classification {
@@ -7,6 +21,8 @@ pub struct Classification {
     pub species: Species,
     /// Confidence score in [0.0, 1.0] (post-sigmoid for BirdNET).
     pub confidence: f32,
+    /// How this detection relates to the range filter. Set by `RangeFilter::filter()`.
+    pub range_status: RangeStatus,
 }
 
 /// A species identifier with scientific and common names.

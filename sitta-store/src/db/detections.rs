@@ -18,8 +18,8 @@ impl Database {
         let station_id = uuid_bytes(det.station_id);
         let source_id = det.source_id.map(uuid_bytes);
         sqlx::query!(
-            "INSERT INTO detections (id, station_id, source_id, model_id, label_id, detected_at, confidence, snippet_path, snippet_duration_ms, snippet_sample_rate, metadata)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+            "INSERT INTO detections (id, station_id, source_id, model_id, label_id, detected_at, confidence, snippet_path, snippet_duration_ms, snippet_sample_rate, metadata, range_status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
             id,
             station_id,
             source_id,
@@ -31,6 +31,7 @@ impl Database {
             det.snippet_duration_ms,
             det.snippet_sample_rate,
             det.metadata,
+            det.range_status,
         )
         .execute(&self.pool)
         .await?;
@@ -109,7 +110,8 @@ impl Database {
                       l.taxon_code,
                       m.name AS "model_name!", m.version AS "model_version!",
                       s.name AS "source_name?",
-                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS "has_embedding!: bool"
+                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS "has_embedding!: bool",
+                      d.range_status
                FROM detections d
                JOIN labels l ON l.id = d.label_id
                JOIN models m ON m.id = d.model_id
@@ -168,6 +170,7 @@ impl Database {
                     model_version: r.model_version,
                     source_name: r.source_name,
                     has_embedding: r.has_embedding,
+                    range_status: r.range_status.clone(),
                 });
             }
         }
@@ -188,7 +191,8 @@ impl Database {
                       l.taxon_code,
                       m.name AS "model_name!", m.version AS "model_version!",
                       s.name AS "source_name?",
-                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS "has_embedding!: bool"
+                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS "has_embedding!: bool",
+                      d.range_status
                FROM detections d
                JOIN labels l ON l.id = d.label_id
                JOIN models m ON m.id = d.model_id
@@ -212,6 +216,7 @@ impl Database {
             model_version: r.model_version,
             source_name: r.source_name,
             has_embedding: r.has_embedding,
+            range_status: r.range_status,
         }))
     }
 
@@ -260,7 +265,8 @@ impl Database {
                       l.taxon_code,
                       m.name AS "model_name!", m.version AS "model_version!",
                       s.name AS "source_name?",
-                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS "has_embedding!: bool"
+                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS "has_embedding!: bool",
+                      d.range_status
                FROM detections d
                JOIN labels l ON l.id = d.label_id
                JOIN models m ON m.id = d.model_id
@@ -293,6 +299,7 @@ impl Database {
                 model_version: r.model_version,
                 source_name: r.source_name,
                 has_embedding: r.has_embedding,
+                range_status: r.range_status,
             })
             .collect())
     }

@@ -6,7 +6,7 @@ use chrono::{Datelike, NaiveDate, Utc};
 use sitta_api::event::{Alternative, DetectionEvent, IndividualInfo, RarityInfo, SpeciesInfo};
 use sitta_api::settings::RuntimeSettings;
 use sitta_audio::chunk::AudioChunk;
-use sitta_inference::model::Classification;
+use sitta_inference::model::{Classification, RangeStatus};
 use sitta_inference::rangefilter::RangeFilter;
 use sitta_store::db::Database;
 use sitta_store::matcher::IndividualMatcher;
@@ -86,6 +86,12 @@ pub async fn persist_detections(
             snippet_duration_ms: None,
             snippet_sample_rate: None,
             metadata: None,
+            range_status: match top.range_status {
+                RangeStatus::Allowed => Some("allowed"),
+                RangeStatus::ForceAllowed => Some("force_allowed"),
+                RangeStatus::NotInMetaModel => Some("not_in_meta_model"),
+                RangeStatus::Unfiltered => None,
+            },
         })
         .await
     {
@@ -226,6 +232,11 @@ pub async fn persist_detections(
             similarity: m.similarity,
         }),
         rarity: rarity_info,
+        range_unverified: match top.range_status {
+            RangeStatus::NotInMetaModel => Some(true),
+            RangeStatus::Allowed | RangeStatus::ForceAllowed => Some(false),
+            RangeStatus::Unfiltered => None,
+        },
     };
 
     // Only broadcast to live UI if above the display threshold AND not a

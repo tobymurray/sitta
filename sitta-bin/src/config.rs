@@ -192,6 +192,10 @@ pub struct ApiConfig {
     /// Detections below this are still captured in the database. Default: 0.65.
     #[serde(default = "default_display_min_confidence")]
     pub display_min_confidence: f32,
+    /// Show detections whose species is not in the BirdNET range model.
+    /// Default: true.
+    #[serde(default = "default_show_range_unverified")]
+    pub show_range_unverified: bool,
 }
 
 impl Default for ApiConfig {
@@ -199,9 +203,12 @@ impl Default for ApiConfig {
         Self {
             bind: default_api_bind(),
             display_min_confidence: default_display_min_confidence(),
+            show_range_unverified: true,
         }
     }
 }
+
+fn default_show_range_unverified() -> bool { true }
 
 
 

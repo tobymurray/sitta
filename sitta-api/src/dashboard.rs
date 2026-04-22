@@ -474,6 +474,7 @@ ACTIVITY_PANEL_PLACEHOLDER
             <span>${{d.model}} ${{d.model_version}}</span>
             ${{d.source_name ? '<span class="before:content-[\\\"\\u00b7\\\"] before:mr-3">' + d.source_name + '</span>' : ''}}
             <span class="before:content-[\\\"\\u00b7\\\"] before:mr-3">${{timeAgo(d.detected_at)}}</span>
+            ${{d.range_unverified ? '<span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700 ring-1 ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-300 dark:ring-amber-400/20" title="Species not in BirdNET range model — not verified by geographic filter">Range unverified</span>' : ''}}
           </div>
         </div>
         <div class="flex flex-col items-end gap-2 flex-shrink-0">
@@ -733,6 +734,7 @@ pub fn detection_detail_content(detection_id: &str) -> String {
       let meta = `<span>${{d.model}} ${{d.model_version}}</span>`;
       if (d.source_name) meta += `<span class="before:content-['\\u00b7'] before:mr-3">${{d.source_name}}</span>`;
       meta += `<span class="before:content-['\\u00b7'] before:mr-3">${{timeStr}}</span>`;
+      if (d.range_unverified) meta += `<span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700 ring-1 ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-300 dark:ring-amber-400/20" title="Species not in BirdNET range model — not verified by geographic filter">Range unverified</span>`;
       document.getElementById('det-meta').innerHTML = meta;
 
       // Review
@@ -1708,6 +1710,14 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
         placeholder="e.g. http://192.168.1.50/birds or https://my-cdn.com/species">
       <p class="mt-1 text-xs text-gray-400 dark:text-plumage-500">Base URL for custom species images. The UI will try <code>{{url}}/{{Scientific_name}}.jpg</code> before falling back to Wikipedia. Leave empty to use Wikipedia only.</p>
     </div>
+    <div class="mt-4 flex items-center justify-between">
+      <div>
+        <label class="text-sm font-medium text-gray-700 dark:text-plumage-300">Show range-unverified detections</label>
+        <p class="text-xs text-gray-400 dark:text-plumage-500 mt-0.5">Perch species not in BirdNET's geographic model. These bypass the range filter because no occurrence data exists.</p>
+      </div>
+      <input name="show_range_unverified" type="checkbox" {show_range_unverified_checked}
+        class="h-4 w-4 rounded border-gray-300 text-nuthatch-600 focus:ring-nuthatch-500 ml-4 flex-shrink-0">
+    </div>
   </div>
 
   <!-- Audio Sources -->
@@ -1802,6 +1812,8 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
         body[k] = v;
       }}
     }}
+    // Checkboxes: unchecked inputs are absent from FormData; set explicitly.
+    body.show_range_unverified = form.querySelector('[name=show_range_unverified]').checked;
 
     try {{
       const res = await fetch('/api/v1/settings', {{
@@ -2038,6 +2050,7 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
         timezone = settings.timezone,
         display_min_confidence = display_min_confidence,
         species_image_url = settings.species_image_url.as_deref().unwrap_or(""),
+        show_range_unverified_checked = if settings.show_range_unverified { "checked" } else { "" },
         birdnet_section = if has_birdnet {{ format!(
             r#"<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
     <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-4">BirdNET</h3>

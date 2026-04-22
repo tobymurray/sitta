@@ -291,8 +291,18 @@ async fn list_detections(
             has_embedding: r.has_embedding,
             has_audio: r.snippet_path.is_some(),
             rarity: None,
+            range_unverified: match r.range_status.as_deref() {
+                Some("not_in_meta_model") => Some(true),
+                Some("allowed") | Some("force_allowed") => Some(false),
+                _ => None,
+            },
         })
     }).collect();
+
+    // Hide range-unverified detections if the setting is off.
+    if !state.core.settings.load().show_range_unverified {
+        detections.retain(|d| d.range_unverified != Some(true));
+    }
 
     // Populate rarity scores for each detection.
     for det in &mut detections {
@@ -399,6 +409,11 @@ async fn get_detection(
         review,
         correlated,
         rarity,
+        range_unverified: match row.range_status.as_deref() {
+            Some("not_in_meta_model") => Some(true),
+            Some("allowed") | Some("force_allowed") => Some(false),
+            _ => None,
+        },
     };
 
     Ok(Json(detail))
@@ -1764,6 +1779,8 @@ struct DetectionSummary {
     /// Rarity scoring breakdown.
     #[serde(skip_serializing_if = "Option::is_none")]
     rarity: Option<RarityInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    range_unverified: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -1791,6 +1808,8 @@ struct DetectionDetail {
     /// Rarity scoring breakdown.
     #[serde(skip_serializing_if = "Option::is_none")]
     rarity: Option<RarityInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    range_unverified: Option<bool>,
 }
 
 #[derive(Serialize)]

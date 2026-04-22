@@ -39,6 +39,10 @@ pub struct DetectionEvent {
     /// Rarity scoring breakdown.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rarity: Option<RarityInfo>,
+    /// `true` if the species is not in the BirdNET meta-model label space
+    /// (range filter had no occurrence data). `None` if no range filter configured.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub range_unverified: Option<bool>,
 }
 
 /// Species identification within a detection event.

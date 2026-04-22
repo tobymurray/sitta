@@ -52,7 +52,8 @@ impl Database {
                       l.taxon_code,
                       m.name AS "model_name!", m.version AS "model_version!",
                       s.name AS "source_name?",
-                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS "has_embedding!: bool"
+                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS "has_embedding!: bool",
+                      d.range_status
                FROM detections d
                JOIN labels l ON l.id = d.label_id
                JOIN models m ON m.id = d.model_id
@@ -80,6 +81,7 @@ impl Database {
                 model_version: r.model_version,
                 source_name: r.source_name,
                 has_embedding: r.has_embedding,
+                range_status: r.range_status,
             })
             .collect())
     }

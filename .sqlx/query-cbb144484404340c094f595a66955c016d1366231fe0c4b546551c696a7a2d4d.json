@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO detections (id, station_id, source_id, model_id, label_id, detected_at, confidence, snippet_path, snippet_duration_ms, snippet_sample_rate, metadata, range_status)\n             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 12
+    },
+    "nullable": []
+  },
+  "hash": "cbb144484404340c094f595a66955c016d1366231fe0c4b546551c696a7a2d4d"
+}

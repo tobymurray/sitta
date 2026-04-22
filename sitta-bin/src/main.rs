@@ -100,6 +100,7 @@ async fn main() -> Result<()> {
         birdnet_force_allow: config.inference.birdnet.as_ref().map(|b| b.force_allow.clone()),
         perch_min_confidence: config.inference.perch.as_ref().map(|p| p.min_confidence),
         perch_top_k: config.inference.perch.as_ref().map(|p| p.top_k),
+        show_range_unverified: config.api.show_range_unverified,
     };
     let settings = Arc::new(ArcSwap::from_pointee(runtime_settings));
 

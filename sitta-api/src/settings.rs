@@ -27,7 +27,13 @@ pub struct RuntimeSettings {
     pub birdnet_force_allow: Option<Vec<String>>,
     pub perch_min_confidence: Option<f32>,
     pub perch_top_k: Option<usize>,
+    /// Show detections whose species is not in the BirdNET range model
+    /// (Perch-only species that bypass the geographic filter). Default: true.
+    #[serde(default = "default_show_range_unverified")]
+    pub show_range_unverified: bool,
 }
+
+fn default_show_range_unverified() -> bool { true }
 
 /// Partial update for PUT /api/v1/settings.
 /// All fields are optional — only present fields are applied.
@@ -45,6 +51,7 @@ pub struct SettingsUpdate {
     pub birdnet_force_allow: Option<Vec<String>>,
     pub perch_min_confidence: Option<f32>,
     pub perch_top_k: Option<usize>,
+    pub show_range_unverified: Option<bool>,
 }
 
 /// Read-only config snapshot for values that require a restart to change.
@@ -168,6 +175,12 @@ pub fn apply_update(current: &RuntimeSettings, update: &SettingsUpdate) -> (Runt
         merged.perch_top_k = Some(v);
         changed.push("perch_top_k");
     }
+    if let Some(v) = update.show_range_unverified
+        && v != merged.show_range_unverified
+    {
+        merged.show_range_unverified = v;
+        changed.push("show_range_unverified");
+    }
 
     (merged, changed)
 }
@@ -195,9 +208,10 @@ pub fn persist_to_toml(path: &Path, settings: &RuntimeSettings) -> Result<(), St
         }
     }
 
-    // Display threshold — stored under [api]
+    // Display settings — stored under [api]
     if let Some(api) = doc.get_mut("api").and_then(|v| v.as_table_mut()) {
         api["display_min_confidence"] = toml_edit::value(f64::from(settings.display_min_confidence));
+        api["show_range_unverified"] = toml_edit::value(settings.show_range_unverified);
     }
 
     // BirdNET inference

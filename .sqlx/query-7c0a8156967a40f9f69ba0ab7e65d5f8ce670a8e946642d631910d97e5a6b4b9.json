@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT d.id, d.detected_at, d.confidence AS \"confidence!: f64\",\n                      d.snippet_path, d.metadata,\n                      l.scientific_name, l.common_name AS \"common_name!\",\n                      l.taxon_code,\n                      m.name AS \"model_name!\", m.version AS \"model_version!\",\n                      s.name AS \"source_name?\",\n                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS \"has_embedding!: bool\"\n               FROM detections d\n               JOIN labels l ON l.id = d.label_id\n               JOIN models m ON m.id = d.model_id\n               LEFT JOIN audio_sources s ON s.id = d.source_id\n               WHERE d.snippet_path IS NOT NULL\n               ORDER BY d.detected_at ASC\n               LIMIT $1",
+  "query": "SELECT d.id, d.detected_at, d.confidence AS \"confidence!: f64\",\n                      d.snippet_path, d.metadata,\n                      l.scientific_name, l.common_name AS \"common_name!\",\n                      l.taxon_code,\n                      m.name AS \"model_name!\", m.version AS \"model_version!\",\n                      s.name AS \"source_name?\",\n                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS \"has_embedding!: bool\",\n                      d.range_status\n               FROM detections d\n               JOIN labels l ON l.id = d.label_id\n               JOIN models m ON m.id = d.model_id\n               LEFT JOIN audio_sources s ON s.id = d.source_id\n               WHERE d.detected_at >= $1 AND d.detected_at <= $2\n                 AND d.confidence >= $6\n                 AND ($5 IS NULL OR l.scientific_name = $5)\n               ORDER BY d.detected_at DESC\n               LIMIT $3 OFFSET $4",
   "describe": {
     "columns": [
       {
@@ -61,11 +61,16 @@
       {
         "name": "has_embedding!: bool",
         "ordinal": 11,
-        "type_info": "Integer"
+        "type_info": "Null"
+      },
+      {
+        "name": "range_status",
+        "ordinal": 12,
+        "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 6
     },
     "nullable": [
       false,
@@ -78,9 +83,10 @@
       true,
       false,
       false,
-      true,
-      false
+      false,
+      null,
+      true
     ]
   },
-  "hash": "e1d86530a251817d5ed0f98dfc22ac5f42000cd72c6f72ee82f0c707c81d3133"
+  "hash": "7c0a8156967a40f9f69ba0ab7e65d5f8ce670a8e946642d631910d97e5a6b4b9"
 }

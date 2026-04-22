@@ -5,7 +5,7 @@ use birdnet_onnx::{Classifier as OnnxClassifier, InferenceOptions, ModelType};
 use sitta_taxonomy::EbirdTaxonomy;
 
 use crate::InferenceError;
-use crate::model::{Classification, Classifier, Species};
+use crate::model::{Classification, Classifier, RangeStatus, Species};
 
 /// BirdNET species classifier via birdnet-onnx (ONNX Runtime).
 ///
@@ -128,6 +128,7 @@ impl Classifier for BirdNet {
                 label_index: p.index,
                 species: self.parse_species(&p.species),
                 confidence: p.confidence,
+                range_status: RangeStatus::default(),
             })
             .collect();
 
@@ -158,6 +159,7 @@ impl Classifier for BirdNet {
                 label_index: p.index,
                 species: self.parse_species(&p.species),
                 confidence: p.confidence,
+                range_status: RangeStatus::default(),
             })
             .collect();
 
