@@ -51,7 +51,7 @@ impl RtspSource {
     pub async fn run(self, shutdown: CancellationToken) {
         tracing::info!(
             source = %self.config.name,
-            url = %self.config.url,
+            url = %crate::sanitize_url(&self.config.url),
             sample_rate = self.config.sample_rate,
             channels = self.config.channels,
             "Starting RTSP capture"

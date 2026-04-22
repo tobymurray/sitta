@@ -26,7 +26,7 @@ impl RemoteSource {
     /// Run the capture loop with automatic reconnection.
     pub async fn run(self, shutdown: CancellationToken) {
         loop {
-            tracing::info!(source = %self.config.name, url = %self.config.url, "Connecting to remote audio stream");
+            tracing::info!(source = %self.config.name, url = %crate::sanitize_url(&self.config.url), "Connecting to remote audio stream");
 
             tokio::select! {
                 result = self.capture_loop() => {

@@ -432,8 +432,9 @@ async fn delete_detection_handler(
         .await?;
 
     // Clean up audio clip and cached spectrogram on disk.
-    if let (Some(clip_dir), Some(rel_path)) = (&state.integrations.clip_dir, &snippet_path) {
-        let clip_path = clip_dir.join(rel_path);
+    if let (Some(clip_dir), Some(rel_path)) = (&state.integrations.clip_dir, &snippet_path)
+        && let Ok(clip_path) = safe_join(clip_dir, rel_path)
+    {
         let _ = tokio::fs::remove_file(&clip_path).await;
         let spectrogram_path = clip_path.with_extension("png");
         let _ = tokio::fs::remove_file(&spectrogram_path).await;
@@ -1580,6 +1581,25 @@ async fn audio_stream_handler(
         .unwrap()
 }
 
+// ── Path traversal guard ───────────────────────────────────────
+
+/// Resolve `base.join(rel)` and verify the result stays within `base`.
+/// Returns the canonical path on success, or a not-found error if the
+/// path escapes (e.g., `../../etc/passwd`) or doesn't exist.
+fn safe_join(base: &std::path::Path, rel: &str) -> Result<PathBuf, ApiError> {
+    let full = base.join(rel);
+    let canonical = full
+        .canonicalize()
+        .map_err(|_| ApiError::not_found("not found"))?;
+    let base_canonical = base
+        .canonicalize()
+        .map_err(|_| ApiError::not_found("not found"))?;
+    if !canonical.starts_with(&base_canonical) {
+        return Err(ApiError::not_found("not found"));
+    }
+    Ok(canonical)
+}
+
 // ── Audio clip serving ──────────────────────────────────────────
 
 async fn detection_audio_handler(
@@ -1600,7 +1620,7 @@ async fn detection_audio_handler(
         .ok_or(ApiError::not_found("not found"))?;
 
     let rel_path = row.snippet_path.ok_or(ApiError::not_found("not found"))?;
-    let full_path = clip_dir.join(&rel_path);
+    let full_path = safe_join(clip_dir, &rel_path)?;
 
     // If a .tmp file exists, the clip is still being written.
     let tmp_path = full_path.with_extension("wav.tmp");
@@ -1644,7 +1664,7 @@ async fn detection_spectrogram_handler(
         .ok_or(ApiError::not_found("not found"))?;
 
     let rel_path = row.snippet_path.ok_or(ApiError::not_found("not found"))?;
-    let wav_path = clip_dir.join(&rel_path);
+    let wav_path = safe_join(clip_dir, &rel_path)?;
     let png_path = wav_path.with_extension("png");
 
     // Serve cached PNG if it exists.
