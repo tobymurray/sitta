@@ -1342,15 +1342,18 @@ struct ClusterEnrollRequest {
 
 async fn get_mqtt_config(
     State(state): State<ApiState>,
-) -> Json<serde_json::Value> {
-    let mut mqtt = serde_json::to_value(settings::read_mqtt_from_toml(&state.core.config_path)).unwrap();
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let mut mqtt = serde_json::to_value(settings::read_mqtt_from_toml(&state.core.config_path))
+        .map_err(ApiError::internal)?;
     let running = if let Some(ref ctrl) = state.integrations.mqtt_control {
         ctrl.is_running().await
     } else {
         false
     };
-    mqtt.as_object_mut().unwrap().insert("running".into(), running.into());
-    Json(mqtt)
+    if let Some(obj) = mqtt.as_object_mut() {
+        obj.insert("running".into(), running.into());
+    }
+    Ok(Json(mqtt))
 }
 
 async fn put_mqtt_config(
@@ -1533,7 +1536,7 @@ async fn audio_stream_handler(
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(Body::from(format!("unknown source: {source_name}")))
-            .unwrap();
+            .expect("static response");
     }
 
     let mut rx = state.audio.audio_tx.subscribe();
@@ -1578,7 +1581,7 @@ async fn audio_stream_handler(
         .header("x-sitta-format", "f32le")
         .header("x-sitta-source", &header_source)
         .body(Body::from_stream(stream))
-        .unwrap()
+        .expect("static response")
 }
 
 // ── Path traversal guard ───────────────────────────────────────
@@ -1625,22 +1628,22 @@ async fn detection_audio_handler(
     // If a .tmp file exists, the clip is still being written.
     let tmp_path = full_path.with_extension("wav.tmp");
     if tokio::fs::try_exists(&tmp_path).await.unwrap_or(false) {
-        return Ok(axum::response::Response::builder()
+        return axum::response::Response::builder()
             .status(StatusCode::SERVICE_UNAVAILABLE)
             .header("retry-after", "1")
             .body(Body::empty())
-            .unwrap());
+            .map_err(ApiError::internal);
     }
 
     let data = tokio::fs::read(&full_path).await.map_err(|_| ApiError::not_found("file not found"))?;
-    Ok(axum::response::Response::builder()
+    axum::response::Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "audio/wav")
         .header("accept-ranges", "bytes")
         .header("content-disposition", "inline")
         .header("cache-control", "public, max-age=31536000, immutable")
         .body(Body::from(data))
-        .unwrap())
+        .map_err(ApiError::internal)
 }
 
 // ── Spectrogram serving (on-demand with disk cache) ────────────
@@ -1669,12 +1672,12 @@ async fn detection_spectrogram_handler(
 
     // Serve cached PNG if it exists.
     if let Ok(data) = tokio::fs::read(&png_path).await {
-        return Ok(axum::response::Response::builder()
+        return axum::response::Response::builder()
             .status(StatusCode::OK)
             .header("content-type", "image/png")
             .header("cache-control", "public, max-age=31536000, immutable")
             .body(Body::from(data))
-            .unwrap());
+            .map_err(ApiError::internal);
     }
 
     // Generate on demand: read WAV, render spectrogram, cache PNG.
@@ -1693,12 +1696,12 @@ async fn detection_spectrogram_handler(
     .map_err(ApiError::internal)?
     ?;
 
-    Ok(axum::response::Response::builder()
+    axum::response::Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "image/png")
         .header("cache-control", "public, max-age=31536000, immutable")
         .body(Body::from(data))
-        .unwrap())
+        .map_err(ApiError::internal)
 }
 
 // ── Detection review ───────────────────────────────────────────

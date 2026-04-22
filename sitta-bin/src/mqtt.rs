@@ -254,7 +254,7 @@ fn spawn_mqtt_tasks(
     }
 
     let status_topic = format!("sitta/{station_id}/status");
-    let lwt_payload = serde_json::to_string(&StatusPayload { state: "offline" }).unwrap();
+    let lwt_payload = serde_json::to_string(&StatusPayload { state: "offline" }).expect("serialize StatusPayload");
     opts.set_last_will(rumqttc::LastWill::new(
         &status_topic,
         lwt_payload,
@@ -285,7 +285,7 @@ fn spawn_mqtt_tasks(
                         Ok(Event::Incoming(Packet::ConnAck(_))) => {
                             tracing::info!("MQTT connected");
                             let topic = format!("sitta/{}/status", sid_for_loop);
-                            let payload = serde_json::to_string(&StatusPayload { state: "online" }).unwrap();
+                            let payload = serde_json::to_string(&StatusPayload { state: "online" }).expect("serialize StatusPayload");
                             let _ = client_for_loop.publish(&topic, QoS::AtLeastOnce, true, payload).await;
                             if ha_enabled {
                                 publish_ha_discovery(&client_for_loop, &ha_prefix_for_loop, &sid_for_loop, &sname_for_loop).await;
@@ -300,7 +300,7 @@ fn spawn_mqtt_tasks(
                 }
                 () = shutdown_loop.cancelled() => {
                     let topic = format!("sitta/{}/status", sid_for_loop);
-                    let payload = serde_json::to_string(&StatusPayload { state: "offline" }).unwrap();
+                    let payload = serde_json::to_string(&StatusPayload { state: "offline" }).expect("serialize StatusPayload");
                     let _ = client_for_loop.publish(&topic, QoS::AtLeastOnce, true, payload).await;
                     let _ = client_for_loop.disconnect().await;
                     break;
@@ -416,7 +416,7 @@ async fn publish_ha_discovery(client: &AsyncClient, prefix: &str, station_id: &s
             "payload_on": "online", "payload_off": "offline",
             "device_class": "connectivity",
             "availability": [avail],
-        })).unwrap(),
+        })).expect("serialize HA discovery"),
     ).await;
 
     let _ = client.publish(
@@ -431,7 +431,7 @@ async fn publish_ha_discovery(client: &AsyncClient, prefix: &str, station_id: &s
             "json_attributes_topic": format!("sitta/{station_id}/detection"),
             "icon": "mdi:bird",
             "availability": [avail],
-        })).unwrap(),
+        })).expect("serialize HA discovery"),
     ).await;
 
     let _ = client.publish(
@@ -446,7 +446,7 @@ async fn publish_ha_discovery(client: &AsyncClient, prefix: &str, station_id: &s
             "json_attributes_topic": format!("sitta/{station_id}/first_today"),
             "icon": "mdi:bird",
             "availability": [avail],
-        })).unwrap(),
+        })).expect("serialize HA discovery"),
     ).await;
 
     let _ = client.publish(
@@ -461,7 +461,7 @@ async fn publish_ha_discovery(client: &AsyncClient, prefix: &str, station_id: &s
             "unit_of_measurement": "species",
             "icon": "mdi:format-list-numbered",
             "availability": [avail],
-        })).unwrap(),
+        })).expect("serialize HA discovery"),
     ).await;
 
     tracing::info!("Published HA MQTT discovery messages");
