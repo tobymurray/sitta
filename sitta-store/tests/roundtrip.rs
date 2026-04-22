@@ -106,6 +106,7 @@ async fn seed_and_insert_roundtrip() {
         snippet_duration_ms: None,
         snippet_sample_rate: None,
         metadata: None,
+        range_status: None,
     })
     .await
     .unwrap();
@@ -186,6 +187,7 @@ async fn embedding_roundtrip() {
         snippet_duration_ms: None,
         snippet_sample_rate: None,
         metadata: None,
+        range_status: None,
     })
     .await
     .unwrap();
@@ -228,6 +230,7 @@ async fn foreign_key_enforcement() {
             snippet_duration_ms: None,
             snippet_sample_rate: None,
             metadata: None,
+            range_status: None,
         })
         .await;
 

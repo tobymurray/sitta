@@ -101,6 +101,9 @@ async fn main() -> Result<()> {
         perch_min_confidence: config.inference.perch.as_ref().map(|p| p.min_confidence),
         perch_top_k: config.inference.perch.as_ref().map(|p| p.top_k),
         show_range_unverified: config.api.show_range_unverified,
+        presence_min_detections: config.presence.min_detections,
+        presence_window_minutes: config.presence.window_minutes,
+        presence_immediate_threshold: config.presence.immediate_threshold,
     };
     let settings = Arc::new(ArcSwap::from_pointee(runtime_settings));
 
@@ -117,6 +120,15 @@ async fn main() -> Result<()> {
 
     // Wire range filter into persist context for rarity scoring.
     persist_ctx.range_filter = range_filter.clone();
+
+    if config.presence.min_detections > 1 {
+        tracing::info!(
+            min_detections = config.presence.min_detections,
+            window_minutes = config.presence.window_minutes,
+            immediate_threshold = ?config.presence.immediate_threshold,
+            "Presence confirmation enabled"
+        );
+    }
 
     // Base URL for detection links in MQTT/SSE events.
     // Prefer explicit config; fall back to the API bind address.

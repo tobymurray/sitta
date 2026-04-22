@@ -46,11 +46,129 @@ pub struct PersistCtx {
     /// Base URL for detection links (e.g., "http://192.168.1.132:8080").
     /// Used to construct `detection_url` in MQTT and SSE events.
     pub api_base_url: Option<String>,
+    /// Presence confirmation tracker. Requires repeated detections of the same
+    /// species within a time window before broadcasting to SSE/MQTT.
+    pub presence_tracker: Arc<Mutex<PresenceTracker>>,
 }
 
 /// Deduplication window in milliseconds. Detections of the same species
 /// within this window are stored in the DB but not broadcast to SSE/MQTT.
 const DEDUP_WINDOW_MS: i64 = 5_000;
+
+/// Accumulates detections per species and requires N hits within a sliding
+/// time window before broadcasting a confirmed-presence event.
+///
+/// This dramatically reduces false positives: a single 3-second window
+/// at 0.72 confidence is weak evidence, but 3 hits in 10 minutes is
+/// strong evidence of actual presence.
+pub struct PresenceTracker {
+    min_detections: u32,
+    window_ms: i64,
+    /// Confidence at or above which a single detection bypasses the repeat requirement.
+    immediate_threshold: Option<f32>,
+    /// Per-species: list of (timestamp_ms, confidence, event) within the window.
+    pending: HashMap<String, Vec<(i64, f32, DetectionEvent)>>,
+    /// Per-species: timestamp of last confirmed broadcast (cooldown).
+    confirmed_at: HashMap<String, i64>,
+}
+
+impl PresenceTracker {
+    pub fn new(min_detections: u32, window_minutes: u32) -> Self {
+        Self {
+            min_detections,
+            window_ms: i64::from(window_minutes) * 60_000,
+            immediate_threshold: None,
+            pending: HashMap::new(),
+            confirmed_at: HashMap::new(),
+        }
+    }
+
+    /// Update configuration if settings changed at runtime.
+    pub fn update_config(&mut self, min_detections: u32, window_minutes: u32, immediate_threshold: Option<f32>) {
+        let new_window_ms = i64::from(window_minutes) * 60_000;
+        if self.min_detections != min_detections
+            || self.window_ms != new_window_ms
+            || self.immediate_threshold != immediate_threshold
+        {
+            self.min_detections = min_detections;
+            self.window_ms = new_window_ms;
+            self.immediate_threshold = immediate_threshold;
+            // Clear accumulators since the rules changed.
+            self.pending.clear();
+            self.confirmed_at.clear();
+            tracing::info!(min_detections, window_minutes, ?immediate_threshold, "Presence tracker reconfigured");
+        }
+    }
+
+    /// Record a detection and return Some(event) if this triggers a confirmation.
+    ///
+    /// The returned event is the one with the highest confidence in the window,
+    /// decorated with `peak_confidence` and `confirmed_count`.
+    pub fn track(&mut self, species: &str, timestamp_ms: i64, event: DetectionEvent) -> Option<DetectionEvent> {
+        // Bypass: min_detections <= 1 means every detection confirms immediately.
+        if self.min_detections <= 1 {
+            return Some(event);
+        }
+
+        // Still in cooldown from a recent confirmation for this species?
+        if let Some(&last_confirmed) = self.confirmed_at.get(species)
+            && timestamp_ms - last_confirmed < self.window_ms
+        {
+            return None;
+        }
+
+        // Immediate threshold: a single very-high-confidence detection bypasses
+        // the repeat requirement. Useful for flyover calls and other brief vocalizations.
+        if let Some(threshold) = self.immediate_threshold
+            && event.confidence >= threshold
+        {
+            // Set cooldown so the normal tracker doesn't re-alert.
+            self.confirmed_at.insert(species.to_string(), timestamp_ms);
+            self.pending.remove(species);
+            return Some(event);
+        }
+
+        let entries = self.pending.entry(species.to_string()).or_default();
+
+        // Prune entries outside the sliding window.
+        entries.retain(|(ts, _, _)| timestamp_ms - *ts < self.window_ms);
+
+        entries.push((timestamp_ms, event.confidence, event));
+
+        if entries.len() as u32 >= self.min_detections {
+            // Confirmed! Pick the detection with peak confidence.
+            let count = entries.len() as u32;
+            let peak = entries.iter().map(|(_, c, _)| *c).fold(0.0_f32, f32::max);
+            let best_idx = entries
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+
+            let (_, _, mut best_event) = entries.swap_remove(best_idx);
+            best_event.peak_confidence = Some(peak);
+            best_event.confirmed_count = Some(count);
+
+            // Clear accumulator and set cooldown.
+            entries.clear();
+            self.confirmed_at.insert(species.to_string(), timestamp_ms);
+
+            // Periodic cleanup of stale cooldown entries.
+            if self.confirmed_at.len() > 500 {
+                self.confirmed_at.retain(|_, ts| timestamp_ms - *ts < self.window_ms * 2);
+            }
+
+            Some(best_event)
+        } else {
+            // Periodic cleanup of stale pending species.
+            if self.pending.len() > 500 {
+                self.pending.retain(|_, v| !v.is_empty());
+            }
+            None
+        }
+    }
+}
 
 /// Persist a detection, its secondary predictions, optional embedding,
 /// and broadcast a live event to SSE subscribers.
@@ -243,6 +361,8 @@ pub async fn persist_detections(
         detection_url: ctx.api_base_url.as_ref().map(|base| {
             format!("{base}/detections/{detection_id}")
         }),
+        peak_confidence: None,
+        confirmed_count: None,
     };
 
     // Only broadcast to live UI if above the display threshold AND not a
@@ -260,13 +380,27 @@ pub async fn persist_detections(
             match dedup.get(&species_key) {
                 Some(&last_ts) if now_ms - last_ts < DEDUP_WINDOW_MS => false,
                 _ => {
-                    dedup.insert(species_key, now_ms);
+                    dedup.insert(species_key.clone(), now_ms);
                     true
                 }
             }
         };
         if should_broadcast {
-            let _ = ctx.detection_tx.send(event);
+            // Feed through the presence tracker: requires N detections within
+            // T minutes before actually broadcasting a confirmed event.
+            let confirmed_event = {
+                let mut tracker = ctx.presence_tracker.lock().unwrap();
+                let settings = ctx.settings.load();
+                tracker.update_config(
+                    settings.presence_min_detections,
+                    settings.presence_window_minutes,
+                    settings.presence_immediate_threshold,
+                );
+                tracker.track(&species_key, now_ms, event)
+            };
+            if let Some(evt) = confirmed_event {
+                let _ = ctx.detection_tx.send(evt);
+            }
         }
     }
 }
@@ -411,6 +545,174 @@ fn meteorological_season(date: NaiveDate, latitude: Option<f64>) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn dummy_event(species: &str, confidence: f32) -> DetectionEvent {
+        DetectionEvent {
+            id: "test-id".into(),
+            detected_at: "2026-04-22T12:00:00Z".into(),
+            station_id: "station-1".into(),
+            source_name: None,
+            model: "birdnet".into(),
+            model_version: "2.4".into(),
+            species: SpeciesInfo {
+                scientific_name: species.into(),
+                common_name: species.into(),
+                taxon_code: None,
+            },
+            confidence,
+            alternatives: vec![],
+            has_embedding: false,
+            has_audio: false,
+            individual: None,
+            rarity: None,
+            range_unverified: None,
+            detection_url: None,
+            peak_confidence: None,
+            confirmed_count: None,
+        }
+    }
+
+    #[test]
+    fn presence_tracker_min_1_passes_immediately() {
+        let mut tracker = PresenceTracker::new(1, 10);
+        let event = dummy_event("Tyto alba", 0.8);
+        let result = tracker.track("Tyto alba", 1000, event);
+        assert!(result.is_some());
+        // No peak_confidence or confirmed_count set when min_detections=1.
+        let evt = result.unwrap();
+        assert!(evt.peak_confidence.is_none());
+        assert!(evt.confirmed_count.is_none());
+    }
+
+    #[test]
+    fn presence_tracker_requires_n_detections() {
+        let mut tracker = PresenceTracker::new(3, 10);
+
+        // First detection: not enough.
+        let r1 = tracker.track("Tyto alba", 0, dummy_event("Tyto alba", 0.7));
+        assert!(r1.is_none());
+
+        // Second: still not enough.
+        let r2 = tracker.track("Tyto alba", 60_000, dummy_event("Tyto alba", 0.9));
+        assert!(r2.is_none());
+
+        // Third: confirmed!
+        let r3 = tracker.track("Tyto alba", 120_000, dummy_event("Tyto alba", 0.75));
+        assert!(r3.is_some());
+        let evt = r3.unwrap();
+        assert_eq!(evt.confirmed_count, Some(3));
+        assert_eq!(evt.peak_confidence, Some(0.9));
+        // The event should be the one with peak confidence (0.9).
+        assert!((evt.confidence - 0.9).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn presence_tracker_cooldown_after_confirmation() {
+        let mut tracker = PresenceTracker::new(2, 10);
+
+        // Confirm species.
+        tracker.track("Tyto alba", 0, dummy_event("Tyto alba", 0.8));
+        let confirmed = tracker.track("Tyto alba", 60_000, dummy_event("Tyto alba", 0.85));
+        assert!(confirmed.is_some());
+
+        // Within cooldown window (10 minutes = 600_000 ms): should be suppressed.
+        let r = tracker.track("Tyto alba", 300_000, dummy_event("Tyto alba", 0.9));
+        assert!(r.is_none());
+
+        // After cooldown (11 minutes): should start accumulating again.
+        let r = tracker.track("Tyto alba", 660_001, dummy_event("Tyto alba", 0.7));
+        assert!(r.is_none()); // first detection, need 2
+        let r = tracker.track("Tyto alba", 700_000, dummy_event("Tyto alba", 0.72));
+        assert!(r.is_some()); // second detection, confirmed!
+    }
+
+    #[test]
+    fn presence_tracker_prunes_old_entries() {
+        let mut tracker = PresenceTracker::new(2, 10);
+        let window_ms = 10 * 60_000;
+
+        // Detection at t=0.
+        tracker.track("Tyto alba", 0, dummy_event("Tyto alba", 0.8));
+
+        // Detection at t=window+1ms — the first one should be pruned.
+        let r = tracker.track("Tyto alba", window_ms + 1, dummy_event("Tyto alba", 0.85));
+        assert!(r.is_none(), "First detection expired, so only 1 in window");
+
+        // Another detection within the new window.
+        let r = tracker.track("Tyto alba", window_ms + 60_000, dummy_event("Tyto alba", 0.9));
+        assert!(r.is_some(), "Two detections within current window");
+    }
+
+    #[test]
+    fn presence_tracker_independent_species() {
+        let mut tracker = PresenceTracker::new(2, 10);
+
+        tracker.track("Tyto alba", 0, dummy_event("Tyto alba", 0.8));
+        tracker.track("Strix aluco", 0, dummy_event("Strix aluco", 0.85));
+
+        // Second Barn Owl detection confirms Barn Owl only.
+        let r = tracker.track("Tyto alba", 60_000, dummy_event("Tyto alba", 0.9));
+        assert!(r.is_some());
+
+        // Tawny Owl still needs one more.
+        let r = tracker.track("Strix aluco", 60_000, dummy_event("Strix aluco", 0.88));
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn presence_tracker_update_config_clears_state() {
+        let mut tracker = PresenceTracker::new(3, 10);
+
+        // Accumulate 2 detections (1 short of threshold).
+        tracker.track("Tyto alba", 0, dummy_event("Tyto alba", 0.8));
+        tracker.track("Tyto alba", 60_000, dummy_event("Tyto alba", 0.85));
+
+        // Change config: now only 2 needed. But update_config clears state.
+        tracker.update_config(2, 10, None);
+
+        // Previous detections are gone, need to start fresh.
+        let r = tracker.track("Tyto alba", 120_000, dummy_event("Tyto alba", 0.9));
+        assert!(r.is_none(), "State was cleared on config change");
+
+        let r = tracker.track("Tyto alba", 180_000, dummy_event("Tyto alba", 0.88));
+        assert!(r.is_some(), "Two fresh detections after reconfig");
+    }
+
+    #[test]
+    fn presence_tracker_immediate_threshold_bypasses() {
+        let mut tracker = PresenceTracker::new(3, 10);
+        tracker.immediate_threshold = Some(0.90);
+
+        // Below threshold: needs 3 hits.
+        let r = tracker.track("Tyto alba", 0, dummy_event("Tyto alba", 0.85));
+        assert!(r.is_none());
+
+        // At threshold: immediate broadcast.
+        let r = tracker.track("Tyto alba", 60_000, dummy_event("Tyto alba", 0.95));
+        assert!(r.is_some());
+        let evt = r.unwrap();
+        // Immediate bypass doesn't set peak_confidence/confirmed_count.
+        assert!(evt.peak_confidence.is_none());
+        assert!(evt.confirmed_count.is_none());
+    }
+
+    #[test]
+    fn presence_tracker_immediate_threshold_sets_cooldown() {
+        let mut tracker = PresenceTracker::new(2, 10);
+        tracker.immediate_threshold = Some(0.90);
+
+        // High-confidence detection confirms immediately.
+        let r = tracker.track("Tyto alba", 0, dummy_event("Tyto alba", 0.95));
+        assert!(r.is_some());
+
+        // Subsequent detection within cooldown window is suppressed.
+        let r = tracker.track("Tyto alba", 60_000, dummy_event("Tyto alba", 0.7));
+        assert!(r.is_none());
+
+        // But another high-confidence one also gets suppressed by cooldown.
+        let r = tracker.track("Tyto alba", 120_000, dummy_event("Tyto alba", 0.96));
+        assert!(r.is_none(), "Cooldown applies even to high-confidence");
+    }
 
     #[test]
     fn meteorological_season_northern() {

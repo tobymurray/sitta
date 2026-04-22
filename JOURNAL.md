@@ -4,6 +4,69 @@ Decisions, insights, and lessons learned during development.
 
 ---
 
+## 2026-04-22: Presence confirmation — repeat-detection gating before alerts
+
+### Problem
+
+A single 3-second window claiming "Barn Owl" at 0.72 confidence is weak evidence. Each
+detection was treated independently — there was no temporal clustering before notifying.
+For the photographer use case, a false alert means wasting 10 minutes gearing up for nothing.
+
+### Solution: PresenceTracker
+
+A new `PresenceTracker` sits between detection persistence and broadcasting. Detections are
+still saved to the database individually, but SSE/MQTT broadcasts are gated: a species must
+be detected N times within a T-minute sliding window before a confirmed-presence event fires.
+
+**Flow:**
+```
+Detection → persist to DB → confidence check → 5s dedup → PresenceTracker → broadcast
+```
+
+The 5-second dedup (same species within overlapping inference windows) remains as a
+complementary filter — it prevents counting the same audio moment multiple times in the
+tracker. The presence tracker operates on de-duped detections at a longer timescale.
+
+**Configuration (`[presence]` in config.toml):**
+- `min_detections` — number of detections required (default: 2, set to 1 to disable)
+- `window_minutes` — sliding window duration (default: 10)
+
+Both are runtime-changeable via `PUT /api/v1/settings`.
+
+**Broadcast event enrichment:**
+- `peak_confidence` — highest confidence across all detections in the window
+- `confirmed_count` — number of detections that contributed
+- The broadcast event itself is the detection with peak confidence (the "best evidence")
+
+**Cooldown:** After confirming a species, the tracker suppresses re-confirmation for the
+same species for the duration of the window. This prevents alert fatigue from a bird that
+sits on a feeder for 30 minutes.
+
+**Immediate threshold (break glass):** An optional `immediate_threshold` (e.g., 0.90)
+bypasses the repeat requirement for very-high-confidence detections. A 0.95 detection of a
+species that vocalizes once and leaves shouldn't have to wait 10 minutes for a second hit.
+Disabled by default (all detections require N hits). Cooldown still applies after an
+immediate broadcast to prevent alert fatigue.
+
+**Backward compatibility:** Setting `min_detections = 1` disables the tracker entirely —
+every detection broadcasts immediately, matching pre-feature behavior. The `peak_confidence`
+and `confirmed_count` fields are omitted from the JSON when absent.
+
+### Design decisions
+
+- **In-memory only, no DB table.** The tracker is ephemeral — state is lost on restart.
+  This is intentional: on restart, requiring a fresh N detections before alerting is the
+  correct behavior (we don't know what happened while the system was down).
+
+- **Per-species independent tracking.** Each species has its own accumulator and cooldown.
+  A Barn Owl being confirmed doesn't affect tracking for Tawny Owl.
+
+- **Peak-confidence event selection.** When confirmation triggers, the event with the
+  highest confidence in the window is broadcast (not the triggering detection). This means
+  downstream consumers (MQTT, HA, SSE dashboard) see the strongest evidence.
+
+---
+
 ## 2026-04-21: Bug fix — range filter silently dropped Perch-only species
 
 ### Bug

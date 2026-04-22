@@ -18,6 +18,8 @@ pub struct Config {
     pub mqtt: Option<MqttConfig>,
     #[serde(default)]
     pub taxonomy: Option<TaxonomyConfig>,
+    #[serde(default)]
+    pub presence: PresenceConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -267,6 +269,49 @@ fn default_min_distinct_days() -> u32 {
 }
 fn default_candidate_retention_days() -> u32 {
     30
+}
+
+/// Presence confirmation: require repeated detections before alerting.
+///
+/// A single 3-second window claiming a species at moderate confidence is
+/// weak evidence. Requiring N detections within T minutes dramatically
+/// cuts false positives — especially important for rare-bird alerts where
+/// a false alarm wastes real effort.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PresenceConfig {
+    /// Number of detections of the same species required within the window
+    /// before broadcasting a confirmed-presence event. Default: 2.
+    /// Set to 1 to disable (every detection broadcasts immediately).
+    #[serde(default = "default_presence_min_detections")]
+    pub min_detections: u32,
+    /// Sliding window in minutes. Detections older than this are pruned
+    /// from the accumulator. Default: 10.
+    #[serde(default = "default_presence_window_minutes")]
+    pub window_minutes: u32,
+    /// Confidence threshold that bypasses the repeat-detection requirement.
+    /// A single detection at or above this confidence broadcasts immediately
+    /// without waiting for additional hits. Useful for high-confidence
+    /// detections of species that vocalize once and leave.
+    /// Default: None (disabled — all detections require N hits).
+    #[serde(default)]
+    pub immediate_threshold: Option<f32>,
+}
+
+impl Default for PresenceConfig {
+    fn default() -> Self {
+        Self {
+            min_detections: default_presence_min_detections(),
+            window_minutes: default_presence_window_minutes(),
+            immediate_threshold: None,
+        }
+    }
+}
+
+fn default_presence_min_detections() -> u32 {
+    2
+}
+fn default_presence_window_minutes() -> u32 {
+    10
 }
 
 /// MQTT publishing configuration. When absent, MQTT is disabled.

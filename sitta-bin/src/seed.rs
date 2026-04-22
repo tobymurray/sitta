@@ -15,7 +15,7 @@ use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use crate::config::Config;
-use crate::persist::PersistCtx;
+use crate::persist::{PersistCtx, PresenceTracker};
 
 /// Stable namespace for deriving deterministic UUIDs from config strings.
 pub const SITTA_NS: Uuid = Uuid::from_bytes([
@@ -93,6 +93,11 @@ pub async fn seed_database(
         .unwrap_or(0.85);
     let matcher = IndividualMatcher::new(db.clone(), individual_threshold).await?;
 
+    let presence_tracker = PresenceTracker::new(
+        config.presence.min_detections,
+        config.presence.window_minutes,
+    );
+
     Ok(PersistCtx {
         db: db.clone(),
         label_cache: Arc::new(label_cache),
@@ -107,6 +112,7 @@ pub async fn seed_database(
         range_filter: None,   // set by main after loading models
         station_latitude: settings.load().station_latitude,
         api_base_url: None,   // set by main from config
+        presence_tracker: std::sync::Arc::new(std::sync::Mutex::new(presence_tracker)),
     })
 }
 

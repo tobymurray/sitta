@@ -31,9 +31,23 @@ pub struct RuntimeSettings {
     /// (Perch-only species that bypass the geographic filter). Default: true.
     #[serde(default = "default_show_range_unverified")]
     pub show_range_unverified: bool,
+    /// Number of detections of the same species required within the window
+    /// before broadcasting. 1 = immediate (no confirmation). Default: 2.
+    #[serde(default = "default_presence_min_detections")]
+    pub presence_min_detections: u32,
+    /// Presence confirmation window in minutes. Default: 10.
+    #[serde(default = "default_presence_window_minutes")]
+    pub presence_window_minutes: u32,
+    /// Confidence threshold that bypasses presence confirmation.
+    /// A single detection at or above this confidence broadcasts immediately.
+    /// None = disabled (all detections require N hits). Example: 0.90.
+    #[serde(default)]
+    pub presence_immediate_threshold: Option<f32>,
 }
 
 fn default_show_range_unverified() -> bool { true }
+fn default_presence_min_detections() -> u32 { 2 }
+fn default_presence_window_minutes() -> u32 { 10 }
 
 /// Partial update for PUT /api/v1/settings.
 /// All fields are optional — only present fields are applied.
@@ -52,6 +66,9 @@ pub struct SettingsUpdate {
     pub perch_min_confidence: Option<f32>,
     pub perch_top_k: Option<usize>,
     pub show_range_unverified: Option<bool>,
+    pub presence_min_detections: Option<u32>,
+    pub presence_window_minutes: Option<u32>,
+    pub presence_immediate_threshold: Option<f32>,
 }
 
 /// Read-only config snapshot for values that require a restart to change.
@@ -181,6 +198,24 @@ pub fn apply_update(current: &RuntimeSettings, update: &SettingsUpdate) -> (Runt
         merged.show_range_unverified = v;
         changed.push("show_range_unverified");
     }
+    if let Some(v) = update.presence_min_detections
+        && v != merged.presence_min_detections
+    {
+        merged.presence_min_detections = v;
+        changed.push("presence_min_detections");
+    }
+    if let Some(v) = update.presence_window_minutes
+        && v != merged.presence_window_minutes
+    {
+        merged.presence_window_minutes = v;
+        changed.push("presence_window_minutes");
+    }
+    if let Some(v) = update.presence_immediate_threshold
+        && merged.presence_immediate_threshold != Some(v)
+    {
+        merged.presence_immediate_threshold = Some(v);
+        changed.push("presence_immediate_threshold");
+    }
 
     (merged, changed)
 }
@@ -212,6 +247,22 @@ pub fn persist_to_toml(path: &Path, settings: &RuntimeSettings) -> Result<(), St
     if let Some(api) = doc.get_mut("api").and_then(|v| v.as_table_mut()) {
         api["display_min_confidence"] = toml_edit::value(f64::from(settings.display_min_confidence));
         api["show_range_unverified"] = toml_edit::value(settings.show_range_unverified);
+    }
+
+    // Presence confirmation — stored under [presence]
+    {
+        let table = doc.entry("presence").or_insert_with(|| {
+            toml_edit::Item::Table(toml_edit::Table::new())
+        });
+        if let Some(t) = table.as_table_mut() {
+            t["min_detections"] = toml_edit::value(i64::from(settings.presence_min_detections));
+            t["window_minutes"] = toml_edit::value(i64::from(settings.presence_window_minutes));
+            if let Some(v) = settings.presence_immediate_threshold {
+                t["immediate_threshold"] = toml_edit::value(f64::from(v));
+            } else {
+                t.remove("immediate_threshold");
+            }
+        }
     }
 
     // BirdNET inference

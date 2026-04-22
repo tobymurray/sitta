@@ -15,6 +15,10 @@ fn base_settings() -> RuntimeSettings {
         birdnet_force_allow: Some(vec!["helgui1".into()]),
         perch_min_confidence: Some(0.25),
         perch_top_k: Some(10),
+        show_range_unverified: true,
+        presence_min_detections: 2,
+        presence_window_minutes: 10,
+        presence_immediate_threshold: None,
     }
 }
 
@@ -32,6 +36,10 @@ fn empty_update() -> SettingsUpdate {
         birdnet_force_allow: None,
         perch_min_confidence: None,
         perch_top_k: None,
+        show_range_unverified: None,
+        presence_min_detections: None,
+        presence_window_minutes: None,
+        presence_immediate_threshold: None,
     }
 }
 
@@ -135,6 +143,10 @@ top_k = 10
         birdnet_force_allow: Some(vec!["helgui1".into(), "redjun1".into()]),
         perch_min_confidence: Some(0.3),
         perch_top_k: Some(8),
+        show_range_unverified: true,
+        presence_min_detections: 2,
+        presence_window_minutes: 10,
+        presence_immediate_threshold: None,
     };
 
     persist_to_toml(&path, &settings).unwrap();
@@ -182,6 +194,10 @@ name = "Test"
         birdnet_force_allow: None,
         perch_min_confidence: None,
         perch_top_k: None,
+        show_range_unverified: true,
+        presence_min_detections: 2,
+        presence_window_minutes: 10,
+        presence_immediate_threshold: None,
     };
 
     // Should succeed — birdnet section missing is silently skipped.

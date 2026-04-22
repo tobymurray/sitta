@@ -75,6 +75,7 @@ async fn seed_with_detections() -> (Database, Uuid, i64, Vec<i64>, Vec<Uuid>) {
         snippet_duration_ms: None,
         snippet_sample_rate: None,
         metadata: None,
+        range_status: None,
     })
     .await
     .unwrap();
@@ -94,6 +95,7 @@ async fn seed_with_detections() -> (Database, Uuid, i64, Vec<i64>, Vec<Uuid>) {
         snippet_duration_ms: None,
         snippet_sample_rate: None,
         metadata: None,
+        range_status: None,
     })
     .await
     .unwrap();
@@ -113,6 +115,7 @@ async fn seed_with_detections() -> (Database, Uuid, i64, Vec<i64>, Vec<Uuid>) {
         snippet_duration_ms: None,
         snippet_sample_rate: None,
         metadata: None,
+        range_status: None,
     })
     .await
     .unwrap();
@@ -280,6 +283,7 @@ async fn embedding_bytemuck_roundtrip() {
         snippet_duration_ms: None,
         snippet_sample_rate: None,
         metadata: None,
+        range_status: None,
     })
     .await
     .unwrap();

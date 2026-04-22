@@ -46,6 +46,14 @@ pub struct DetectionEvent {
     /// URL to the detection detail page. Present when api_base_url is configured.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detection_url: Option<String>,
+    /// Peak confidence across the confirmation window. Present only when
+    /// presence confirmation is enabled (min_detections > 1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peak_confidence: Option<f32>,
+    /// Number of detections in the confirmation window that triggered this
+    /// event. Present only when presence confirmation is enabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confirmed_count: Option<u32>,
 }
 
 /// Species identification within a detection event.

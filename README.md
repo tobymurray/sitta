@@ -290,7 +290,9 @@ Sitta publishes HA MQTT discovery messages on startup so detection sensors appea
     "local_count": 42,
     "range_score": 0.85,
     "temporal_score": 0.15
-  }
+  },
+  "peak_confidence": 0.95,
+  "confirmed_count": 3
 }
 ```
 
@@ -302,6 +304,8 @@ Fields:
 - **`individual`** -- present when matched to a known individual via Perch embeddings
 - **`rarity`** -- how unusual this detection is (see below); present when rarity scoring is enabled
 - **`has_embedding`** / **`has_audio`** -- whether embedding vector and audio clip were saved
+- **`peak_confidence`** -- highest confidence across the confirmation window (present when presence confirmation is enabled, i.e. `min_detections > 1`)
+- **`confirmed_count`** -- number of detections that contributed to confirming this species' presence
 
 ### Rarity Scoring
 
@@ -374,6 +378,11 @@ model_path = "/opt/sitta/models/perch-v2.onnx"
 labels_path = "/opt/sitta/models/perch-v2.csv"
 min_confidence = 0.25
 top_k = 10
+
+# [presence]
+# min_detections = 2        # require N detections within window before alerting (1 = disabled)
+# window_minutes = 10       # sliding window for repeat-detection confirmation
+# immediate_threshold = 0.9 # single detection above this bypasses the repeat requirement
 
 # [api]
 # [mqtt]
