@@ -188,6 +188,10 @@ pub struct ApiConfig {
     /// Socket address to bind (e.g., "0.0.0.0:8080").
     #[serde(default = "default_api_bind")]
     pub bind: String,
+    /// External base URL for detection links in MQTT events (e.g., "http://192.168.1.132:8080").
+    /// Defaults to `http://{bind}` if not set.
+    #[serde(default)]
+    pub base_url: Option<String>,
     /// Minimum confidence for displaying detections in the UI and SSE feed.
     /// Detections below this are still captured in the database. Default: 0.65.
     #[serde(default = "default_display_min_confidence")]
@@ -202,6 +206,7 @@ impl Default for ApiConfig {
     fn default() -> Self {
         Self {
             bind: default_api_bind(),
+            base_url: None,
             display_min_confidence: default_display_min_confidence(),
             show_range_unverified: true,
         }

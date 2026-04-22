@@ -43,6 +43,9 @@ pub struct DetectionEvent {
     /// (range filter had no occurrence data). `None` if no range filter configured.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub range_unverified: Option<bool>,
+    /// URL to the detection detail page. Present when api_base_url is configured.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detection_url: Option<String>,
 }
 
 /// Species identification within a detection event.

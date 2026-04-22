@@ -80,6 +80,9 @@ struct FirstOfDayPayload {
     /// Whether this is the first detection of the season for this species.
     #[serde(skip_serializing_if = "Option::is_none")]
     first_season: Option<bool>,
+    /// URL to the detection detail page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detection_url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -342,6 +345,7 @@ fn spawn_mqtt_tasks(
                                     rarity_score: rarity.map(|r| r.score),
                                     first_ever: rarity.map(|r| r.first_ever),
                                     first_season: rarity.map(|r| r.first_season),
+                                    detection_url: event.detection_url.clone(),
                                 };
                                 if let Ok(payload) = serde_json::to_string(&fod) {
                                     let _ = client.publish(

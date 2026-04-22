@@ -118,6 +118,20 @@ async fn main() -> Result<()> {
     // Wire range filter into persist context for rarity scoring.
     persist_ctx.range_filter = range_filter.clone();
 
+    // Base URL for detection links in MQTT/SSE events.
+    // Prefer explicit config; fall back to the API bind address.
+    persist_ctx.api_base_url = Some(
+        config.api.base_url.clone().unwrap_or_else(|| {
+            let bind = &config.api.bind;
+            let host = if bind.starts_with("0.0.0.0") {
+                bind.replacen("0.0.0.0", "localhost", 1)
+            } else {
+                bind.clone()
+            };
+            format!("http://{host}")
+        }),
+    );
+
     // ── Snippet writer ──────────────────────────────────────────
     let shutdown = CancellationToken::new();
 

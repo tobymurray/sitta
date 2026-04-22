@@ -43,6 +43,9 @@ pub struct PersistCtx {
     pub range_filter: Option<Arc<RangeFilter>>,
     /// Station latitude — used to determine hemisphere for season calculation.
     pub station_latitude: Option<f64>,
+    /// Base URL for detection links (e.g., "http://192.168.1.132:8080").
+    /// Used to construct `detection_url` in MQTT and SSE events.
+    pub api_base_url: Option<String>,
 }
 
 /// Deduplication window in milliseconds. Detections of the same species
@@ -237,6 +240,9 @@ pub async fn persist_detections(
             RangeStatus::Allowed | RangeStatus::ForceAllowed => Some(false),
             RangeStatus::Unfiltered => None,
         },
+        detection_url: ctx.api_base_url.as_ref().map(|base| {
+            format!("{base}/detections/{detection_id}")
+        }),
     };
 
     // Only broadcast to live UI if above the display threshold AND not a

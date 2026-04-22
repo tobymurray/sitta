@@ -106,6 +106,7 @@ pub async fn seed_database(
         broadcast_dedup: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         range_filter: None,   // set by main after loading models
         station_latitude: settings.load().station_latitude,
+        api_base_url: None,   // set by main from config
     })
 }
 
