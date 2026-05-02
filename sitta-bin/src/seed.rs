@@ -203,7 +203,38 @@ pub fn parse_label_for_seeding(
             .map(|e| e.species_code.clone());
         return (Some(sci.to_string()), common.to_string(), taxon_code);
     }
+    // Fallback: a label like "Dryobates villosus" — a binomial scientific
+    // name with no common-name suffix, and not in our taxonomy (e.g. a
+    // recent taxonomic revision the eBird CSV doesn't yet carry). Treat
+    // it as a scientific name so that links and bucketing key off the
+    // right field; common_name mirrors it so the row is still rendered
+    // (the cross-row enrichment migration will replace it with a sister
+    // row's proper common name when one exists).
+    if looks_like_binomial(label) {
+        return (Some(label.to_string()), label.to_string(), None);
+    }
     (None, label.to_string(), None)
+}
+
+/// Loose binomial detector: "Genus species" — Capitalized first word
+/// followed by an all-lowercase second word (with optional hyphen). Used
+/// to recognise scientific names that arrive without a common-name suffix.
+fn looks_like_binomial(s: &str) -> bool {
+    let mut parts = s.split_whitespace();
+    let Some(genus) = parts.next() else { return false };
+    let Some(species) = parts.next() else { return false };
+    if parts.next().is_some() {
+        return false;
+    }
+    let mut g = genus.chars();
+    let Some(first) = g.next() else { return false };
+    if !first.is_ascii_uppercase() {
+        return false;
+    }
+    if !g.all(|c| c.is_ascii_lowercase()) {
+        return false;
+    }
+    !species.is_empty() && species.chars().all(|c| c.is_ascii_lowercase() || c == '-')
 }
 
 #[cfg(test)]
@@ -251,6 +282,37 @@ mod tests {
         assert_eq!(sci, None);
         assert_eq!(common, "Engine");
         assert_eq!(taxon, None);
+    }
+
+    #[test]
+    fn parse_label_binomial_no_underscore_no_taxonomy() {
+        // Label like "Dryobates villosus" with no common-name suffix and
+        // not in the (absent) taxonomy. Must still produce a usable
+        // scientific_name so links and bucketing work.
+        let (sci, common, taxon) = parse_label_for_seeding("Dryobates villosus", None);
+        assert_eq!(sci, Some("Dryobates villosus".into()));
+        assert_eq!(common, "Dryobates villosus");
+        assert_eq!(taxon, None);
+    }
+
+    #[test]
+    fn parse_label_binomial_skipped_for_common_names() {
+        // "Hairy Woodpecker" is two Title-Case words — not a binomial.
+        // Stays as an environment-type label.
+        let (sci, common, _) = parse_label_for_seeding("Hairy Woodpecker", None);
+        assert_eq!(sci, None);
+        assert_eq!(common, "Hairy Woodpecker");
+    }
+
+    #[test]
+    fn looks_like_binomial_cases() {
+        assert!(looks_like_binomial("Dryobates villosus"));
+        assert!(looks_like_binomial("Junco hyemalis-oreganus"));
+        assert!(!looks_like_binomial("Hairy Woodpecker"));
+        assert!(!looks_like_binomial("Engine"));
+        assert!(!looks_like_binomial("Genus species subspecies"));
+        assert!(!looks_like_binomial(""));
+        assert!(!looks_like_binomial("genus species")); // genus must be capitalised
     }
 
     #[test]
