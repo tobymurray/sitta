@@ -140,6 +140,71 @@ function toggleTheme() {{
   else {{ d.add('dark'); localStorage.setItem('sitta-theme','dark'); }}
 }}
 
+// ── Shared detection rendering helpers (global) ────────────────
+// `window.sitta` is the page-level helper namespace. Card renderers on every
+// page (dashboard, species detail, detection detail, future rare/timeline)
+// share these primitives so links are consistent app-wide.
+window.sitta = (function() {{
+  function esc(s) {{ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c])); }}
+  function speciesUrl(d) {{ return '/species/' + encodeURIComponent(d.species.scientific_name); }}
+  function detectionUrl(d) {{ return '/detections/' + encodeURIComponent(d.id); }}
+  function individualUrl(d) {{ return d.individual ? '/individuals/' + encodeURIComponent(d.individual.individual_id) : null; }}
+
+  function speciesLink(d, opts) {{
+    opts = opts || {{}};
+    const cls = opts.class || 'font-semibold text-base hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors';
+    return '<a href="' + speciesUrl(d) + '" class="' + cls + '">' + esc(d.species.common_name) + '</a>';
+  }}
+
+  function timeLink(d, label) {{
+    return '<a href="' + detectionUrl(d) + '" class="hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">' + esc(label) + '</a>';
+  }}
+
+  function confidenceBadge(d) {{
+    const pct = Math.round(d.confidence * 100);
+    const cls = pct >= 80
+      ? 'text-emerald-700 bg-emerald-50 ring-emerald-600/20 dark:text-emerald-400 dark:bg-emerald-900/30 dark:ring-emerald-400/20'
+      : pct >= 50
+        ? 'text-amber-700 bg-amber-50 ring-amber-600/20 dark:text-amber-400 dark:bg-amber-900/30 dark:ring-amber-400/20'
+        : 'text-red-700 bg-red-50 ring-red-600/20 dark:text-red-400 dark:bg-red-900/30 dark:ring-red-400/20';
+    return '<span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ' + cls + '">' + pct + '%</span>';
+  }}
+
+  function rarityBadges(d) {{
+    if (!d.rarity) return '';
+    const r = d.rarity;
+    let html = '';
+    const chip = (cls, label) => '<span class="px-1.5 py-0.5 text-[10px] font-semibold rounded ring-1 ' + cls + '">' + label + '</span>';
+    if (r.first_ever) {{
+      html += chip('bg-purple-100 text-purple-700 ring-purple-600/20 dark:bg-purple-900/40 dark:text-purple-300 dark:ring-purple-400/20', 'First ever');
+    }} else if (r.first_season) {{
+      html += chip('bg-blue-100 text-blue-700 ring-blue-600/20 dark:bg-blue-900/40 dark:text-blue-300 dark:ring-blue-400/20', 'First of season');
+    }} else if (r.first_week) {{
+      html += chip('bg-teal-100 text-teal-700 ring-teal-600/20 dark:bg-teal-900/40 dark:text-teal-300 dark:ring-teal-400/20', 'First this week');
+    }} else if (r.first_day) {{
+      html += chip('bg-sky-100 text-sky-700 ring-sky-600/20 dark:bg-sky-900/40 dark:text-sky-300 dark:ring-sky-400/20', 'First today');
+    }}
+    if (r.score >= 0.6 && !r.first_ever) {{
+      html += chip('bg-amber-100 text-amber-700 ring-amber-600/20 dark:bg-amber-900/40 dark:text-amber-300 dark:ring-amber-400/20', 'Rare');
+    }}
+    return html;
+  }}
+
+  function fmtTime(iso, tz) {{
+    return new Date(iso).toLocaleTimeString('en-GB', {{ hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz || 'UTC' }});
+  }}
+  function fmtDateTime(iso, tz) {{
+    return new Date(iso).toLocaleString('en-GB', {{ month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz || 'UTC' }});
+  }}
+
+  return {{
+    esc, speciesUrl, detectionUrl,
+    speciesLink, timeLink,
+    confidenceBadge, rarityBadges,
+    fmtTime, fmtDateTime,
+  }};
+}})();
+
 // ── Audio waveforms + player (global, runs on every page) ──────
 (function() {{
   const srcEl = document.getElementById('audio-sources');
@@ -467,18 +532,22 @@ ACTIVITY_PANEL_PLACEHOLDER
     const card = document.createElement('div');
     card.className = 'slide-in bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4 transition-all';
     card.dataset.id = d.id;
+    const sciEnc = encodeURIComponent(d.species.scientific_name);
     card.innerHTML = `
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2 flex-wrap">
-            <a href="/detections/${{d.id}}" class="font-semibold text-base truncate hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${{d.species.common_name}}</a>
-            <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${{badge}}">${{pct}}%</span>
+            <a href="/species/${{sciEnc}}" class="font-semibold text-base truncate hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${{window.sitta.esc(d.species.common_name)}}</a>
+            ${{window.sitta.confidenceBadge(d)}}
+            ${{window.sitta.rarityBadges(d)}}
           </div>
-          <p class="text-sm text-gray-500 dark:text-plumage-400 italic mt-0.5">${{d.species.scientific_name}}</p>
+          <p class="text-sm text-gray-500 dark:text-plumage-400 italic mt-0.5">
+            <a href="/species/${{sciEnc}}" class="hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${{window.sitta.esc(d.species.scientific_name)}}</a>
+          </p>
           <div class="flex items-center gap-3 mt-2 text-xs text-gray-400 dark:text-plumage-500">
             <span>${{d.model}} ${{d.model_version}}</span>
-            ${{d.source_name ? '<span class="before:content-[\\\"\\u00b7\\\"] before:mr-3">' + d.source_name + '</span>' : ''}}
-            <span class="before:content-[\\\"\\u00b7\\\"] before:mr-3">${{timeAgo(d.detected_at)}}</span>
+            ${{d.source_name ? '<span class="before:content-[\\\"\\u00b7\\\"] before:mr-3">' + window.sitta.esc(d.source_name) + '</span>' : ''}}
+            <a href="/detections/${{d.id}}" class="before:content-[\\\"\\u00b7\\\"] before:mr-3 hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${{timeAgo(d.detected_at)}}</a>
             ${{d.range_unverified ? '<span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700 ring-1 ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-300 dark:ring-amber-400/20" title="Species not in BirdNET range model — not verified by geographic filter">Range unverified</span>' : ''}}
           </div>
         </div>
@@ -522,7 +591,7 @@ ACTIVITY_PANEL_PLACEHOLDER
         <div class="mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800">
           <p class="text-xs text-gray-400 dark:text-plumage-500 mb-1.5">Alternatives</p>
           <div class="flex flex-wrap gap-2">
-            ${{d.alternatives.slice(0, 3).map(a => `<span class="text-xs bg-gray-100 dark:bg-plumage-800 px-2 py-0.5 rounded">${{a.common_name}} <span class="text-gray-400 dark:text-plumage-500">${{Math.round(a.confidence * 100)}}%</span></span>`).join('')}}
+            ${{d.alternatives.slice(0, 3).map(a => `<a href="/species/${{encodeURIComponent(a.scientific_name)}}" class="text-xs bg-gray-100 dark:bg-plumage-800 px-2 py-0.5 rounded hover:bg-gray-200 dark:hover:bg-plumage-700 transition-colors">${{window.sitta.esc(a.common_name)}} <span class="text-gray-400 dark:text-plumage-500">${{Math.round(a.confidence * 100)}}%</span></a>`).join('')}}
           </div>
         </div>` : ''}}`;
     return card;
@@ -656,20 +725,32 @@ pub fn detection_detail_content(detection_id: &str) -> String {
         r##"<div id="detail-loading" class="text-center py-16 text-gray-400 dark:text-plumage-500">Loading...</div>
 <div id="detail-content" class="hidden">
 
-  <!-- Header -->
-  <div class="flex items-center gap-2 mb-1">
-    <a href="/" class="text-sm text-gray-400 dark:text-plumage-500 hover:text-gray-600 dark:hover:text-plumage-300">&larr; Dashboard</a>
-  </div>
-  <div class="flex items-start justify-between gap-4 mb-6">
-    <div>
-      <h1 id="det-common" class="text-2xl font-bold tracking-tight"></h1>
-      <p id="det-scientific" class="text-sm text-gray-500 dark:text-plumage-400 italic mt-0.5"></p>
+  <!-- Breadcrumb -->
+  <nav id="det-breadcrumb" class="flex items-center gap-2 text-xs text-gray-400 dark:text-plumage-500 mb-2 flex-wrap" aria-label="Breadcrumb">
+    <a href="/" class="hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">Dashboard</a>
+    <span aria-hidden="true">/</span>
+    <a href="/species" class="hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">Species</a>
+    <span aria-hidden="true">/</span>
+    <a id="det-bc-species" class="hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors" href="#"></a>
+    <span aria-hidden="true">/</span>
+    <span class="text-gray-500 dark:text-plumage-400">Detection</span>
+  </nav>
+  <div class="flex items-start justify-between gap-4 mb-3">
+    <div class="min-w-0">
+      <h1 class="text-2xl font-bold tracking-tight"><a id="det-common" class="hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors" href="#"></a></h1>
+      <p class="text-sm text-gray-500 dark:text-plumage-400 italic mt-0.5"><a id="det-scientific" class="hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors" href="#"></a></p>
     </div>
     <div class="flex items-center gap-3 flex-shrink-0">
       <span id="det-badge" class="inline-flex items-center rounded-md px-2.5 py-1 text-sm font-medium ring-1 ring-inset"></span>
     </div>
   </div>
-  <div id="det-meta" class="flex items-center gap-3 text-sm text-gray-500 dark:text-plumage-400 mb-6"></div>
+  <div id="det-meta" class="flex items-center gap-2 text-sm text-gray-500 dark:text-plumage-400 mb-3 flex-wrap"></div>
+  <div class="mb-6 flex flex-wrap gap-2">
+    <a id="det-cta-species" href="#" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-nuthatch-50 text-nuthatch-700 hover:bg-nuthatch-100 dark:bg-nuthatch-900/20 dark:text-nuthatch-400 dark:hover:bg-nuthatch-900/40 transition-colors">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/></svg>
+      All detections of this species
+    </a>
+  </div>
 
   <!-- Review strip -->
   <div id="det-review" class="mb-6 flex items-center gap-3"></div>
@@ -723,9 +804,19 @@ pub fn detection_detail_content(detection_id: &str) -> String {
       document.getElementById('detail-loading').classList.add('hidden');
       document.getElementById('detail-content').classList.remove('hidden');
 
-      // Header
-      document.getElementById('det-common').textContent = d.species.common_name;
-      document.getElementById('det-scientific').textContent = d.species.scientific_name;
+      // Header (links to species page)
+      const sciUrl = '/species/' + encodeURIComponent(d.species.scientific_name);
+      const dcEl = document.getElementById('det-common');
+      dcEl.textContent = d.species.common_name;
+      dcEl.href = sciUrl;
+      const dsEl = document.getElementById('det-scientific');
+      dsEl.textContent = d.species.scientific_name;
+      dsEl.href = sciUrl;
+      const bcEl = document.getElementById('det-bc-species');
+      bcEl.textContent = d.species.common_name;
+      bcEl.href = sciUrl;
+      document.getElementById('det-cta-species').href = sciUrl;
+
       const pct = Math.round(d.confidence * 100);
       const badge = document.getElementById('det-badge');
       badge.textContent = pct + '%';
@@ -733,14 +824,17 @@ pub fn detection_detail_content(detection_id: &str) -> String {
       else if (d.confidence >= 0.5) badge.className = 'inline-flex items-center rounded-md px-2.5 py-1 text-sm font-medium ring-1 ring-inset text-amber-700 bg-amber-50 ring-amber-600/20 dark:text-amber-400 dark:bg-amber-900/30 dark:ring-amber-400/20';
       else badge.className = 'inline-flex items-center rounded-md px-2.5 py-1 text-sm font-medium ring-1 ring-inset text-red-700 bg-red-50 ring-red-600/20 dark:text-red-400 dark:bg-red-900/30 dark:ring-red-400/20';
 
-      // Meta
-      const dt = new Date(d.detected_at);
-      const timeStr = dt.toLocaleString('en-GB', {{ dateStyle: 'medium', timeStyle: 'medium', timeZone: _tz }});
-      let meta = `<span>${{d.model}} ${{d.model_version}}</span>`;
-      if (d.source_name) meta += `<span class="before:content-['\\u00b7'] before:mr-3">${{d.source_name}}</span>`;
-      meta += `<span class="before:content-['\\u00b7'] before:mr-3">${{timeStr}}</span>`;
-      if (d.range_unverified) meta += `<span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700 ring-1 ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-300 dark:ring-amber-400/20" title="Species not in BirdNET range model — not verified by geographic filter">Range unverified</span>`;
-      document.getElementById('det-meta').innerHTML = meta;
+      // Meta (rich row with rarity + source)
+      const timeStr = window.sitta.fmtDateTime(d.detected_at, _tz);
+      const sep = '<span class="text-stone-300 dark:text-plumage-700" aria-hidden="true">·</span>';
+      const metaParts = [];
+      metaParts.push('<span>' + window.sitta.esc(timeStr) + '</span>');
+      metaParts.push('<span>' + window.sitta.esc(d.model + ' ' + d.model_version) + '</span>');
+      if (d.source_name) metaParts.push('<span>' + window.sitta.esc(d.source_name) + '</span>');
+      const rb = window.sitta.rarityBadges(d);
+      if (rb) metaParts.push(rb);
+      if (d.range_unverified) metaParts.push('<span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700 ring-1 ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-300 dark:ring-amber-400/20" title="Species not in BirdNET range model — not verified by geographic filter">Range unverified</span>');
+      document.getElementById('det-meta').innerHTML = metaParts.join(' ' + sep + ' ');
 
       // Review
       if (d.review) {{
@@ -799,19 +893,20 @@ pub fn detection_detail_content(detection_id: &str) -> String {
         d.correlated.forEach(c => {{
           const cpct = Math.round(c.confidence * 100);
           const sameSpecies = c.species.scientific_name === d.species.scientific_name;
+          const csUrl = '/species/' + encodeURIComponent(c.species.scientific_name);
           div.innerHTML += `
-            <a href="/detections/${{c.id}}" class="block p-3 rounded-lg border border-gray-100 dark:border-plumage-800 hover:bg-gray-50 dark:hover:bg-plumage-800/50 transition-colors">
-              <div class="flex items-center justify-between">
-                <div>
-                  <span class="text-sm font-medium">${{c.species.common_name}}</span>
+            <div class="block p-3 rounded-lg border border-gray-100 dark:border-plumage-800 hover:bg-gray-50 dark:hover:bg-plumage-800/50 transition-colors">
+              <div class="flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                  <a href="${{csUrl}}" class="text-sm font-medium hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${{window.sitta.esc(c.species.common_name)}}</a>
                   ${{!sameSpecies ? '<span class="ml-2 text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">different species</span>' : '<span class="ml-2 text-xs px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">agrees</span>'}}
                 </div>
-                <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-plumage-400">
+                <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-plumage-400 flex-shrink-0">
                   <span>${{c.model}} ${{c.model_version}}</span>
-                  <span class="font-mono">${{cpct}}%</span>
+                  <a href="/detections/${{c.id}}" class="font-mono hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${{cpct}}%</a>
                 </div>
               </div>
-            </a>`;
+            </div>`;
         }});
       }}
     }})
@@ -1267,41 +1362,17 @@ pub fn species_detail_content(scientific_name: &str) -> String {
         document.getElementById('species-title').textContent = data[0].species.common_name;
       }}
       el.innerHTML = data.map(d => {{
-        const pct = Math.round(d.confidence * 100);
-        const confClass = pct >= 80 ? 'text-emerald-700 bg-emerald-50 ring-emerald-600/20 dark:text-emerald-400 dark:bg-emerald-900/30 dark:ring-emerald-400/20'
-          : pct >= 50 ? 'text-amber-700 bg-amber-50 ring-amber-600/20 dark:text-amber-400 dark:bg-amber-900/30 dark:ring-amber-400/20'
-          : 'text-red-700 bg-red-50 ring-red-600/20 dark:text-red-400 dark:bg-red-900/30 dark:ring-red-400/20';
-        const time = new Date(d.detected_at).toLocaleString('en-GB', {{
-          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: _tz
-        }});
+        const time = window.sitta.fmtDateTime(d.detected_at, _tz);
         const hasAudio = d.has_audio || d.snippet_path;
 
-        // Rarity badges
-        let rarityBadge = '';
-        if (d.rarity) {{
-          const r = d.rarity;
-          if (r.first_ever) {{
-            rarityBadge = '<span class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-purple-100 text-purple-700 ring-1 ring-purple-600/20 dark:bg-purple-900/40 dark:text-purple-300 dark:ring-purple-400/20">First ever</span>';
-          }} else if (r.first_season) {{
-            rarityBadge = '<span class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-700 ring-1 ring-blue-600/20 dark:bg-blue-900/40 dark:text-blue-300 dark:ring-blue-400/20">First of season</span>';
-          }} else if (r.first_week) {{
-            rarityBadge = '<span class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-teal-100 text-teal-700 ring-1 ring-teal-600/20 dark:bg-teal-900/40 dark:text-teal-300 dark:ring-teal-400/20">First this week</span>';
-          }} else if (r.first_day) {{
-            rarityBadge = '<span class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-sky-100 text-sky-700 ring-1 ring-sky-600/20 dark:bg-sky-900/40 dark:text-sky-300 dark:ring-sky-400/20">First today</span>';
-          }}
-          if (r.score >= 0.6 && !r.first_ever) {{
-            rarityBadge += '<span class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700 ring-1 ring-amber-600/20 dark:bg-amber-900/40 dark:text-amber-300 dark:ring-amber-400/20">Rare</span>';
-          }}
-        }}
-
         return `<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${{confClass}}">${{pct}}%</span>
-              ${{rarityBadge}}
-              <span class="text-sm text-gray-500 dark:text-plumage-400">${{time}}</span>
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 flex-wrap min-w-0">
+              ${{window.sitta.confidenceBadge(d)}}
+              ${{window.sitta.rarityBadges(d)}}
+              <a href="/detections/${{d.id}}" class="text-sm text-gray-600 dark:text-plumage-300 hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${{time}}</a>
             </div>
-            <span class="text-xs text-gray-400 dark:text-plumage-600 font-mono">${{d.id.slice(0, 8)}}</span>
+            <a href="/detections/${{d.id}}" class="text-xs text-gray-400 dark:text-plumage-600 font-mono hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors flex-shrink-0">${{d.id.slice(0, 8)}}</a>
           </div>
           ${{hasAudio ? `<div class="mt-3 relative cursor-pointer group" id="spect-${{d.id}}" onclick="seekSpectrogram(event, '${{d.id}}')">
             <img src="/api/v1/detections/${{d.id}}/spectrogram" loading="lazy"
@@ -1309,12 +1380,12 @@ pub fn species_detail_content(scientific_name: &str) -> String {
                  alt="spectrogram" onerror="this.parentElement.style.display='none'"/>
             <div class="playhead absolute top-0 bottom-0 w-0.5 bg-white/80 dark:bg-nuthatch-400/80 pointer-events-none transition-none" style="left:0%;display:none"></div>
             <div class="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/5 dark:group-hover:bg-white/5 transition-colors pointer-events-none"></div>
-          </div>` : ''}}
+          </div>` : `<div class="mt-3 px-3 py-2 rounded-lg bg-gray-50 dark:bg-plumage-800/50 text-xs text-gray-400 dark:text-plumage-500 italic">No audio clip on disk · <a href="/diagnostics" class="hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors not-italic">why?</a></div>`}}
           <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800">
             <div class="flex items-center gap-3">
               ${{hasAudio ? `<button onclick="playClip('${{d.id}}', this)" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors">${{playSvg}} Play</button>` : ''}}
               <span class="text-xs text-gray-400 dark:text-plumage-500">${{d.model}} ${{d.model_version}}</span>
-              ${{d.source_name ? '<span class="text-xs text-gray-400 dark:text-plumage-500 before:content-[\\u00b7] before:mr-2">' + d.source_name + '</span>' : ''}}
+              ${{d.source_name ? '<span class="text-xs text-gray-400 dark:text-plumage-500 before:content-[\\u00b7] before:mr-2">' + window.sitta.esc(d.source_name) + '</span>' : ''}}
             </div>
             ${{d.has_embedding ? '<span class="text-xs text-plumage-500 dark:text-plumage-400">embedding</span>' : ''}}
           </div>

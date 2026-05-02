@@ -4,6 +4,93 @@ Decisions, insights, and lessons learned during development.
 
 ---
 
+## 2026-05-02: Cross-page detection navigation (slice 1: link strip + breadcrumbs)
+
+### Problem
+
+The app was page-shaped, not graph-shaped: each page rendered one entity in
+isolation with at most one parent breadcrumb, and several link targets were
+flat-out wrong.
+
+- Dashboard cards: clicking the species name went to `/detections/{id}` (the
+  detection detail), not `/species/{name}`. Surprise navigation.
+- Detection detail page: only `← Dashboard` breadcrumb. No way to jump to the
+  species, no way to see other detections of this species.
+- Species detail cards: the timestamp was plain text — there was no in-list
+  affordance to open the detection detail (only the short ID hex was clickable
+  via row hover, and that wasn't obvious).
+- Alternatives in dashboard cards: plain text — couldn't open the alternative
+  species' page even though it's a real link target.
+- Correlated detections on the detection detail: the whole row was a link to
+  `/detections/{id}`, with the species name *inside* — there was no separate
+  way to jump to the *species* of the correlated detection.
+
+### Solution: a shared rendering layer + consistent link patterns
+
+A new `window.sitta` namespace lives in the global script (loaded on every
+page via `dashboard::page()`), exposing helpers that all card renderers share:
+
+- `esc(s)` — HTML escape (regex + arrow-fn lookup; ES2015, Safari-safe).
+- `speciesUrl(d)`, `detectionUrl(d)` — canonical URL builders.
+- `confidenceBadge(d)`, `rarityBadges(d)` — small markup primitives.
+- `fmtTime`, `fmtDateTime` — IANA-timezone-aware formatters.
+
+Then every detection card and detail view is rewritten to use them so the
+links in one place look exactly like the links in another. Concretely:
+
+- Dashboard live feed: species name + scientific name → `/species/{sci}`,
+  time chip → `/detections/{id}`, alternatives → `/species/{sci}` for each.
+- Species detail card: time and short-ID both → `/detections/{id}`. Cards
+  with no clip get a "No audio clip on disk · why?" inline note that links
+  to `/diagnostics`.
+- Detection detail page: replaced the lone `← Dashboard` with a real
+  breadcrumb (`Dashboard / Species / {Common Name} / Detection`); made the
+  page heading itself an anchor to the species page; reworked the meta row
+  using the shared helpers (rich rarity badges, separators, range-unverified
+  flag); added an "All detections of this species" CTA button under the
+  header. Correlated detections now have a separate species link (jumps to
+  the *species* page) and a separate confidence link (jumps to the *detection*).
+
+### Design decisions
+
+- **Only link to pages that exist.** It would have been tempting to add
+  `/individuals/{id}` and `/rare` chips now (the data is there for some of
+  these), but the corresponding routes don't exist yet, so any click would
+  404 — the exact "navigational black hole" we're trying to remove. Slice 2
+  is `/rare`; slice 3 is the individual detail page (which also requires
+  enriching `DetectionSummary` and `DetectionDetail` so the chip data is
+  consistent across SSE and REST). For now those chips are deferred.
+
+- **Helpers live in the global script, not a separate module.** No template
+  engine, no bundler — sticking with the project's existing pattern of
+  inline JS. The helpers are plain ES2015 so they work on any iOS Safari
+  14+ device (where `flex gap` and IANA timezones land).
+
+- **Spectrogram still seeks; navigation is by the time chip.** I tried
+  wrapping the spectrogram in an anchor so the whole image was clickable for
+  navigation, but it conflicts with the click-to-seek interaction. The time
+  chip carries the navigation, and the spectrogram keeps its scrubbing
+  affordance.
+
+- **No keyboard layer in this slice.** Per user direction: the app is
+  consumed mostly on mobile, so a keyboard shortcut layer is deferred.
+
+### What still feels page-shaped (and what's coming next)
+
+- No `/rare` page. Rarity badges are visible but not clickable. (Slice 2.)
+- No `/individuals/{id}` page. The dashboard live feed gets matched-individual
+  data via SSE but the REST list and detection detail responses don't carry
+  it, so the chip would render inconsistently. Both backend and frontend
+  changes pending. (Slice 3.)
+- No co-occurrence panel ("heard at the same moment" across all sources).
+  The detection detail page already shows correlated detections from *other
+  models* on the same audio moment — the "other species heard at the same
+  time" version needs a new endpoint. (Slice 4.)
+- Species list is still a stats-only table; species cards with sparklines
+  and rarity flags would make the gallery view scannable. (Slice 5.)
+
+---
+
 ## 2026-05-02: Audio Health diagnostics page
 
 ### Problem
