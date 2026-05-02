@@ -1,5 +1,6 @@
 //! axum HTTP server with SSE live feed and REST endpoints.
 
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -185,6 +186,7 @@ pub fn router(state: ApiState) -> Router {
         // API endpoints
         .route("/api/v1/stream/events", get(sse_handler))
         .route("/api/v1/detections", get(list_detections))
+        .route("/api/v1/dashboard/feed", get(dashboard_feed_handler))
         .route("/api/v1/detections/{id}", get(get_detection).delete(delete_detection_handler))
         .route("/api/v1/species", get(list_species))
         .route("/api/v1/activity/hourly", get(hourly_activity))
@@ -353,6 +355,208 @@ async fn list_detections(
 
 fn is_rare(r: &RarityInfo) -> bool {
     r.first_ever || r.first_season || r.first_week || r.first_day || r.score >= 0.6
+}
+
+// ── REST: dashboard feed (bucketed) ─────────────────────────────
+
+/// Single bucket: many detections of one species inside a sliding-window
+/// session, plus the highest-confidence detection's full data so the UI can
+/// render a spectrogram, play button, etc.
+#[derive(Serialize)]
+struct DashboardFeedItem {
+    /// The highest-confidence detection in the bucket. Carries species,
+    /// confidence, has_audio, source_name, model, rarity, etc. — all the
+    /// fields a card needs to render its primary content.
+    best: DetectionSummary,
+    /// RFC3339 of the earliest detection in the bucket.
+    first_detected_at: String,
+    /// RFC3339 of the latest detection in the bucket.
+    last_detected_at: String,
+    /// How many detections of this species were folded into the bucket.
+    /// 1 = a single (or rare) detection; >1 = multiple folded sightings.
+    count: u32,
+}
+
+#[derive(Deserialize)]
+struct DashboardFeedParams {
+    /// Start of range (Unix ms). Default: 24 hours ago.
+    since: Option<i64>,
+    /// End of range (Unix ms). Default: now.
+    until: Option<i64>,
+    /// Sliding-window bucket size in seconds. Two consecutive non-rare
+    /// detections of the same species fold into one bucket if they are
+    /// within this many seconds of each other. Default 1800 (30 min).
+    bucket_seconds: Option<i64>,
+    /// Max bucket count to return (default 50, max 200).
+    limit: Option<i64>,
+}
+
+async fn dashboard_feed_handler(
+    State(state): State<ApiState>,
+    Query(params): Query<DashboardFeedParams>,
+) -> Result<Json<Vec<DashboardFeedItem>>, ApiError> {
+    let now = Utc::now().timestamp_millis();
+    let since = params.since.unwrap_or(now - 86_400_000);
+    let until = params.until.unwrap_or(now);
+    let bucket_seconds = params.bucket_seconds.unwrap_or(1800).clamp(30, 86_400);
+    let bucket_ms: i64 = bucket_seconds * 1000;
+    let limit = params.limit.unwrap_or(50).clamp(1, 200);
+
+    let display_conf = f64::from(state.core.settings.load().display_min_confidence);
+    // recent_detections returns rows ordered by detected_at DESC, already
+    // dedup'd across overlapping inference windows. Pull a generous slice
+    // so chatty species don't crowd out everything else after bucketing.
+    let raw_limit = (limit * 10).max(200);
+    let rows = state
+        .core
+        .db
+        .recent_detections(since, until, raw_limit, 0, None, Some(display_conf))
+        .await?;
+
+    let show_range = state.core.settings.load().show_range_unverified;
+    let rows: Vec<sitta_store::models::DetectionRow> = if show_range {
+        rows
+    } else {
+        rows.into_iter()
+            .filter(|r| r.range_status.as_deref() != Some("not_in_meta_model"))
+            .collect()
+    };
+
+    // Pre-fetch rarity for all rows (N+1 queries; matches list_detections).
+    let mut rarities: HashMap<Vec<u8>, RarityInfo> = HashMap::with_capacity(rows.len());
+    for r in &rows {
+        if let Ok(Some(rr)) = state.core.db.get_rarity(&r.id).await {
+            rarities.insert(r.id.clone(), rarity_row_to_info(&rr));
+        }
+    }
+
+    // Walk DESC, building open buckets per species. A non-rare detection
+    // folds into the species' open bucket if the time gap to the bucket's
+    // earliest entry is within the window. Rare detections always emit
+    // standalone (count=1) and close the species' open bucket.
+    let mut open: HashMap<String, OpenBucket> = HashMap::new();
+    let mut closed: Vec<OpenBucket> = Vec::new();
+
+    for r in rows {
+        let sci = r.scientific_name.clone().unwrap_or_default();
+        let rarity = rarities.get(&r.id).cloned();
+        let rare = rarity.as_ref().is_some_and(is_rare);
+
+        if rare {
+            if let Some(b) = open.remove(&sci) {
+                closed.push(b);
+            }
+            closed.push(OpenBucket::new(r, rarity));
+            continue;
+        }
+
+        let det_ms = r.detected_at;
+        match open.get_mut(&sci) {
+            Some(b) if b.earliest_ms - det_ms <= bucket_ms => {
+                b.add(r);
+            }
+            _ => {
+                if let Some(prev) = open.remove(&sci) {
+                    closed.push(prev);
+                }
+                open.insert(sci, OpenBucket::new(r, rarity));
+            }
+        }
+    }
+    for (_, b) in open.into_iter() {
+        closed.push(b);
+    }
+
+    // Sort by latest detection first (the "this just sang" timestamp).
+    closed.sort_by_key(|b| std::cmp::Reverse(b.latest_ms));
+
+    let items: Vec<DashboardFeedItem> = closed
+        .into_iter()
+        .take(limit as usize)
+        .filter_map(|b| b.into_item())
+        .collect();
+
+    Ok(Json(items))
+}
+
+/// In-progress bucket built while walking detections DESC. Exits to
+/// `DashboardFeedItem` once finalized.
+struct OpenBucket {
+    /// Detection currently considered the "best" (highest-confidence)
+    /// of the bucket. We render its spectrogram, audio, etc. on the card.
+    best_row: sitta_store::models::DetectionRow,
+    best_rarity: Option<RarityInfo>,
+    /// Earliest detected_at seen so far (ms). Used to test whether the
+    /// next (older) detection is still within the bucket window.
+    earliest_ms: i64,
+    /// Latest detected_at seen so far (ms). Used to sort buckets.
+    latest_ms: i64,
+    count: u32,
+}
+
+impl OpenBucket {
+    fn new(row: sitta_store::models::DetectionRow, rarity: Option<RarityInfo>) -> Self {
+        let ms = row.detected_at;
+        Self {
+            earliest_ms: ms,
+            latest_ms: ms,
+            best_rarity: rarity,
+            best_row: row,
+            count: 1,
+        }
+    }
+
+    fn add(&mut self, row: sitta_store::models::DetectionRow) {
+        // Earliest decreases as we walk DESC; latest stays at first-seen.
+        if row.detected_at < self.earliest_ms {
+            self.earliest_ms = row.detected_at;
+        }
+        if row.detected_at > self.latest_ms {
+            self.latest_ms = row.detected_at;
+        }
+        if row.confidence > self.best_row.confidence {
+            // The new row is the new best — but we keep the existing
+            // rarity blob: a rarity belongs to a specific detection, and
+            // bucketed (non-rare) detections wouldn't carry one anyway.
+            self.best_row = row;
+            self.best_rarity = None;
+        }
+        self.count += 1;
+    }
+
+    fn into_item(self) -> Option<DashboardFeedItem> {
+        let r = self.best_row;
+        let id = uuid_from_blob(r.id).ok()?.to_string();
+        let detected_at = millis_to_rfc3339(r.detected_at)?;
+        let first_detected_at = millis_to_rfc3339(self.earliest_ms)?;
+        let last_detected_at = millis_to_rfc3339(self.latest_ms)?;
+        Some(DashboardFeedItem {
+            best: DetectionSummary {
+                id,
+                detected_at,
+                source_name: r.source_name,
+                model: r.model_name,
+                model_version: r.model_version,
+                species: SpeciesInfo {
+                    scientific_name: r.scientific_name.unwrap_or_default(),
+                    common_name: r.common_name,
+                    taxon_code: r.taxon_code,
+                },
+                confidence: r.confidence as f32,
+                has_embedding: r.has_embedding,
+                has_audio: r.snippet_path.is_some(),
+                rarity: self.best_rarity,
+                range_unverified: match r.range_status.as_deref() {
+                    Some("not_in_meta_model") => Some(true),
+                    Some("allowed") | Some("force_allowed") => Some(false),
+                    _ => None,
+                },
+            },
+            first_detected_at,
+            last_detected_at,
+            count: self.count,
+        })
+    }
 }
 
 async fn get_detection(

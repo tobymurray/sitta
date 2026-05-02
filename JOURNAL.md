@@ -4,6 +4,96 @@ Decisions, insights, and lessons learned during development.
 
 ---
 
+## 2026-05-02: Bucketed dashboard live feed
+
+### Problem
+
+Constant singers (Red-winged Blackbird, Northern Cardinal) were dominating
+the dashboard scroll. Twelve identical RWBL cards squeezed everything else
+out of view, draining the variety that makes the feed fun to watch.
+
+### Solution: server-side species buckets with rarity short-circuit
+
+- New `GET /api/v1/dashboard/feed?bucket_seconds=1800&since=…&limit=50`
+  endpoint returns species buckets, not raw detections. Two consecutive
+  non-rare detections of the same species fold into one bucket if they're
+  within `bucket_seconds` of each other (default 30 min). The bucket carries
+  the **highest-confidence** detection's full data (so the card renders its
+  spectrogram, audio, etc.) plus `first_detected_at`, `last_detected_at`,
+  and `count`.
+- **Rarity short-circuit:** any detection with a rarity flag
+  (`first_ever`/`first_season`/`first_week`/`first_day`/`score >= 0.6`)
+  always emits as its own card and *closes* any open bucket of that
+  species — the rare moment doesn't get buried under bucketed sightings.
+- The walk is in `detected_at DESC` order with one open bucket per
+  species; gaps wider than the window flush the existing bucket and open
+  a new one.
+
+### Card layout
+
+When `count == 1` the card looks the same as before (singletons including
+rare detections). When `count > 1` the meta time becomes "**last heard
+0:42 ago**" instead of "0:42 ago", and a new footer row shows
+"**N detections in the last 30 min**" with an "All detections of this
+species →" link to `/species/{name}`. The species name in the title and
+all other links remain consistent with slice 1.
+
+### SSE handling: client-side merge
+
+The SSE stream still emits one event per detection. The dashboard now does
+client-side merging on each event:
+
+1. If the new detection is rare → always prepend a new card.
+2. Otherwise scan visible cards (newest-first); fold into the first card
+   where `data-species` matches AND `(new.detected_at - first_ms)` is
+   within the bucket window.
+3. On fold: bump `count`, update `last_detected_at`, swap the "best" if
+   the new detection has higher confidence (full re-render in place);
+   otherwise just update the count + last-heard text. Move the card to
+   the top with a brief `slide-in` re-trigger so the user notices it
+   sang again.
+4. If no fold target → prepend a new single-detection card.
+
+Each card carries the bucket state as `data-*` attributes
+(`data-species`, `data-first-ms`, `data-last-ms`, `data-count`,
+`data-best-confidence`, `data-rare`) so the merge logic doesn't need a
+parallel JS state structure.
+
+### Design decisions
+
+- **Server-side bucketing for initial load** so the user doesn't see a
+  flash of unbucketed cards that then collapse. SSE keeps the
+  client-side merge path because pushing "bucket update" events from
+  the server would complicate the wire format with little gain.
+- **Best-by-confidence**, not best-by-rarity. Rarity already gets its
+  own card via the short-circuit, so within a non-rare bucket the
+  highest-confidence detection is the right one to feature (cleanest
+  spectrogram, most likely correct ID).
+- **Bucket is sized to the window of the bucket's earliest entry**
+  (`new.detected_at - first_ms <= bucket_seconds`), not its latest.
+  This bounds bucket span — a chatty species can't stretch one bucket
+  across an entire day; once the window from the first detection
+  expires, a new bucket opens.
+- **N+1 rarity lookup** kept (matches `list_detections`). For typical
+  station volume (a few hundred detections/24h) this is fine. If it
+  ever shows up in profiling, a `LEFT JOIN detection_rarity` on the
+  recent-detections query would collapse it.
+- **Card `count` shown vs bucket cap.** The header still says "N shown"
+  where N is the *total* detection count (sum of all bucket counts).
+  The visible card cap stays at 50 cards via the existing
+  `feed.children.length > 50` trim — but with bucketing, those 50
+  cards represent many more detections.
+
+### What's next
+
+- A "Every detection" toggle that bypasses bucketing for power users
+  who want firehose mode. Not implemented yet — easy to add as a query
+  param + UI switch when needed.
+- Co-occurrence panel on the detection detail ("what else was singing
+  in this 5-min window across all sources?"). Stretch goal.
+
+---
+
 ## 2026-05-02: /rare page (navigation slice 2)
 
 ### Problem

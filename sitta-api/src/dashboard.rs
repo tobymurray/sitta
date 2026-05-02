@@ -531,13 +531,38 @@ ACTIVITY_PANEL_PLACEHOLDER
     }});
   }}
 
-  function createCard(d) {{
+  // Bucketing window: matches the server-side default for /api/v1/dashboard/feed.
+  // Two non-rare detections of the same species fold into one card if they
+  // arrive within this many seconds of each other.
+  const BUCKET_SECONDS = 1800;
+
+  function isRare(rar) {{
+    return !!rar && (rar.first_ever || rar.first_season || rar.first_week || rar.first_day || rar.score >= 0.6);
+  }}
+
+  // Build (or rebuild) a bucket card. `item` shape:
+  //   {{ best: <detection>, first_detected_at: ISO, last_detected_at: ISO, count: N }}
+  // `existing` is an optional DOM element to replace in-place (preserves
+  // animation classes etc.); otherwise a new element is created.
+  function createCard(item, existing) {{
+    const d = item.best;
     const [badge, bar] = confColor(d.confidence);
     const pct = Math.round(d.confidence * 100);
-    const card = document.createElement('div');
-    card.className = 'slide-in bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4 transition-all';
+    const card = existing || document.createElement('div');
+    if (!existing) {{
+      card.className = 'slide-in bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4 transition-all';
+    }}
     card.dataset.id = d.id;
+    card.dataset.species = d.species.scientific_name;
+    card.dataset.firstMs = String(new Date(item.first_detected_at).getTime());
+    card.dataset.lastMs = String(new Date(item.last_detected_at).getTime());
+    card.dataset.count = String(item.count);
+    card.dataset.bestConfidence = String(d.confidence);
+    card.dataset.rare = isRare(d.rarity) ? '1' : '0';
+
     const sciEnc = encodeURIComponent(d.species.scientific_name);
+    const lastTimeAgo = timeAgo(item.last_detected_at);
+    const multi = item.count > 1;
     card.innerHTML = `
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 flex-1">
@@ -549,10 +574,10 @@ ACTIVITY_PANEL_PLACEHOLDER
           <p class="text-sm text-gray-500 dark:text-plumage-400 italic mt-0.5">
             <a href="/species/${{sciEnc}}" class="hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${{window.sitta.esc(d.species.scientific_name)}}</a>
           </p>
-          <div class="flex items-center gap-3 mt-2 text-xs text-gray-400 dark:text-plumage-500">
+          <div class="flex items-center gap-3 mt-2 text-xs text-gray-400 dark:text-plumage-500 flex-wrap">
             <span>${{d.model}} ${{d.model_version}}</span>
             ${{d.source_name ? '<span class="before:content-[\\\"\\u00b7\\\"] before:mr-3">' + window.sitta.esc(d.source_name) + '</span>' : ''}}
-            <a href="/detections/${{d.id}}" class="before:content-[\\\"\\u00b7\\\"] before:mr-3 hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${{timeAgo(d.detected_at)}}</a>
+            <a href="/detections/${{d.id}}" class="before:content-[\\\"\\u00b7\\\"] before:mr-3 hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${{multi ? 'last heard ' + lastTimeAgo : lastTimeAgo}}</a>
             ${{d.range_unverified ? '<span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700 ring-1 ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-300 dark:ring-amber-400/20" title="Species not in BirdNET range model — not verified by geographic filter">Range unverified</span>' : ''}}
           </div>
         </div>
@@ -592,6 +617,11 @@ ACTIVITY_PANEL_PLACEHOLDER
         </div>
         <div class="review-strip"></div>
       </div>
+      ${{multi ? `
+        <div class="mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800 flex items-center justify-between text-xs text-gray-500 dark:text-plumage-400">
+          <span><span class="font-semibold text-stone-700 dark:text-plumage-200">${{item.count}}</span> detections in the last 30 min</span>
+          <a href="/species/${{sciEnc}}" class="text-nuthatch-600 dark:text-nuthatch-400 hover:underline font-medium">All detections of this species &rarr;</a>
+        </div>` : ''}}
       ${{d.alternatives && d.alternatives.length > 0 ? `
         <div class="mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800">
           <p class="text-xs text-gray-400 dark:text-plumage-500 mb-1.5">Alternatives</p>
@@ -600,6 +630,96 @@ ACTIVITY_PANEL_PLACEHOLDER
           </div>
         </div>` : ''}}`;
     return card;
+  }}
+
+  // Build a synthetic single-detection bucket from a raw SSE detection event.
+  function bucketFromDetection(d) {{
+    return {{
+      best: d,
+      first_detected_at: d.detected_at,
+      last_detected_at: d.detected_at,
+      count: 1,
+    }};
+  }}
+
+  // Reconstruct a bucket-shaped object from a card's data-* attributes so we
+  // can fold a new detection into it.
+  function bucketFromCard(card) {{
+    return {{
+      best: {{
+        id: card.dataset.id,
+        confidence: parseFloat(card.dataset.bestConfidence),
+        species: {{ scientific_name: card.dataset.species }},
+      }},
+      first_ms: parseInt(card.dataset.firstMs, 10),
+      last_ms: parseInt(card.dataset.lastMs, 10),
+      count: parseInt(card.dataset.count, 10),
+    }};
+  }}
+
+  // Try to fold detection `d` into one of the cards already in the feed.
+  // Returns the card it folded into (and re-renders + moves to top), or null
+  // if no fold target exists.
+  function foldIntoExisting(d) {{
+    if (isRare(d.rarity)) return null;
+    const sci = d.species.scientific_name;
+    const dMs = new Date(d.detected_at).getTime();
+    // Iterate from newest to oldest; first match wins.
+    const cards = feed.querySelectorAll(':scope > [data-species]');
+    for (const card of cards) {{
+      if (card.dataset.species !== sci) continue;
+      if (card.dataset.rare === '1') continue;
+      const firstMs = parseInt(card.dataset.firstMs, 10);
+      // The new detection extends the bucket forward in time. Allow folding
+      // when the new detection is within the bucket window of the bucket's
+      // earliest entry — which keeps the bucket span bounded.
+      if (dMs - firstMs > BUCKET_SECONDS * 1000) continue;
+      // Build the merged bucket and rebuild the card in place.
+      const existingBest = bucketFromCard(card);
+      const newBestIsBetter = d.confidence > existingBest.best.confidence;
+      const merged = {{
+        best: newBestIsBetter ? d : null, // we'll fill below if not new-best
+        first_detected_at: new Date(Math.min(firstMs, dMs)).toISOString(),
+        last_detected_at: new Date(Math.max(parseInt(card.dataset.lastMs, 10), dMs)).toISOString(),
+        count: existingBest.count + 1,
+      }};
+      if (newBestIsBetter) {{
+        createCard(merged, card);
+      }} else {{
+        // Best detection is unchanged. Keep its rendered content, just bump
+        // count/last/timeAgo. We rebuild from the existing best by parsing
+        // dataset values back — but we don't have full best data on the card.
+        // Simpler: shallow-update the data attributes and the visible bits.
+        card.dataset.lastMs = String(new Date(merged.last_detected_at).getTime());
+        card.dataset.firstMs = String(new Date(merged.first_detected_at).getTime());
+        card.dataset.count = String(merged.count);
+        // Re-render the meta + footer text bits via lightweight DOM edits.
+        const meta = card.querySelector('.flex.items-center.gap-3.mt-2');
+        if (meta) {{
+          const timeLink = meta.querySelector('a[href^="/detections/"]');
+          if (timeLink) timeLink.textContent = 'last heard ' + timeAgo(merged.last_detected_at);
+        }}
+        // Replace (or insert) the bucket footer.
+        let bucketFooter = card.querySelector('[data-bucket-footer]');
+        if (!bucketFooter) {{
+          bucketFooter = document.createElement('div');
+          bucketFooter.dataset.bucketFooter = '1';
+          bucketFooter.className = 'mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800 flex items-center justify-between text-xs text-gray-500 dark:text-plumage-400';
+          card.appendChild(bucketFooter);
+        }}
+        const sciEnc2 = encodeURIComponent(sci);
+        bucketFooter.innerHTML =
+          '<span><span class="font-semibold text-stone-700 dark:text-plumage-200">' + merged.count + '</span> detections in the last 30 min</span>' +
+          '<a href="/species/' + sciEnc2 + '" class="text-nuthatch-600 dark:text-nuthatch-400 hover:underline font-medium">All detections of this species &rarr;</a>';
+      }}
+      // Move to top with a brief glow so the user notices it just sang again.
+      if (feed.firstChild !== card) feed.prepend(card);
+      card.classList.remove('slide-in');
+      void card.offsetWidth; // restart animation
+      card.classList.add('slide-in');
+      return card;
+    }}
+    return null;
   }}
 
   // Keyboard shortcuts for review: hover a card, press c/f.
@@ -612,17 +732,18 @@ ACTIVITY_PANEL_PLACEHOLDER
     reviewDetection(id, e.key === 'c' ? 'correct' : 'false_positive', hovered);
   }});
 
-  // Load initial detections from REST
-  fetch('/api/v1/detections?limit=20')
+  // Initial load: fetch already-bucketed feed from server.
+  fetch('/api/v1/dashboard/feed?bucket_seconds=' + BUCKET_SECONDS + '&limit=50')
     .then(r => r.json())
-    .then(resp => {{
-      const data = resp.items || resp;
-      if (data.length > 0 && emptyState) emptyState.remove();
-      data.reverse().forEach(d => {{
-        const card = createCard(d);
+    .then(items => {{
+      if (!Array.isArray(items)) return;
+      if (items.length > 0 && emptyState) emptyState.remove();
+      // Append in returned order (already DESC by last_detected_at).
+      items.forEach(item => {{
+        const card = createCard(item);
         card.classList.remove('slide-in');
-        feed.prepend(card);
-        count++;
+        feed.appendChild(card);
+        count += item.count;
       }});
       document.getElementById('detection-count').textContent = count + ' shown';
     }})
@@ -645,14 +766,19 @@ ACTIVITY_PANEL_PLACEHOLDER
   loadStats();
   setInterval(loadStats, 30000);
 
-  // SSE live feed
+  // SSE live feed.
   const sse = new EventSource('/api/v1/stream/events');
   window.addEventListener('beforeunload', () => sse.close());
   sse.addEventListener('detection', (e) => {{
     const d = JSON.parse(e.data);
     if (emptyState) emptyState.remove();
-    const card = createCard(d);
-    feed.prepend(card);
+    // Try to fold into an existing same-species bucket within the window
+    // (rare detections always get their own card via isRare() inside).
+    const folded = foldIntoExisting(d);
+    if (!folded) {{
+      const card = createCard(bucketFromDetection(d));
+      feed.prepend(card);
+    }}
     count++;
     if (feed.children.length > 50) feed.lastChild.remove();
     document.getElementById('detection-count').textContent = count + ' shown';
