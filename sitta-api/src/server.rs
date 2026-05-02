@@ -213,6 +213,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/detections/{id}", get(detection_detail_page))
         .route("/species", get(species_page))
         .route("/species/{name}", get(species_detail_page))
+        .route("/rare", get(rare_page))
         .route("/status", get(status_page))
         .route("/diagnostics", get(diagnostics_page))
         .route("/individuals", get(individuals_page))
@@ -276,6 +277,9 @@ struct ListParams {
     limit: Option<i64>,
     /// Pagination offset.
     offset: Option<i64>,
+    /// If true, only return detections flagged as rare
+    /// (first_ever / first_season / first_week / first_day, or score >= 0.6).
+    rarity: Option<bool>,
 }
 
 async fn list_detections(
@@ -335,12 +339,20 @@ async fn list_detections(
         }
     }
 
+    if params.rarity.unwrap_or(false) {
+        detections.retain(|d| d.rarity.as_ref().is_some_and(is_rare));
+    }
+
     Ok(Json(PaginatedDetections {
         items: detections,
         offset,
         limit,
         has_more,
     }))
+}
+
+fn is_rare(r: &RarityInfo) -> bool {
+    r.first_ever || r.first_season || r.first_week || r.first_day || r.score >= 0.6
 }
 
 async fn get_detection(
@@ -2096,6 +2108,12 @@ async fn species_detail_page(
     let s = state.core.settings.load();
     let content = dashboard::species_detail_content(&name);
     dashboard::page(&format!("{name} — Species"), "species", &content, &s.timezone)
+}
+
+async fn rare_page(State(state): State<ApiState>) -> axum::response::Html<String> {
+    let s = state.core.settings.load();
+    let content = dashboard::rare_content();
+    dashboard::page("Rare moments", "rare", &content, &s.timezone)
 }
 
 async fn status_page(

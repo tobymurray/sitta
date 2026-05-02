@@ -68,6 +68,7 @@ tailwind.config = {{
     <div class="flex-1 py-4 px-3 space-y-1">
       {nav_dashboard}
       {nav_species}
+      {nav_rare}
       {nav_status}
       {nav_diagnostics}
       {nav_individuals}
@@ -97,6 +98,7 @@ tailwind.config = {{
         <nav class="ml-auto flex gap-0.5 overflow-x-auto no-scrollbar">
           <a href="/" class="px-2 py-1 text-xs rounded-md whitespace-nowrap {mob_dashboard}">Live</a>
           <a href="/species" class="px-2 py-1 text-xs rounded-md whitespace-nowrap {mob_species}">Species</a>
+          <a href="/rare" class="px-2 py-1 text-xs rounded-md whitespace-nowrap {mob_rare}">Rare</a>
           <a href="/status" class="px-2 py-1 text-xs rounded-md whitespace-nowrap {mob_status}">Status</a>
           <a href="/diagnostics" class="px-2 py-1 text-xs rounded-md whitespace-nowrap {mob_diagnostics}">Audio</a>
           <a href="/individuals" class="px-2 py-1 text-xs rounded-md whitespace-nowrap {mob_individuals}">Ind.</a>
@@ -174,18 +176,18 @@ window.sitta = (function() {{
     if (!d.rarity) return '';
     const r = d.rarity;
     let html = '';
-    const chip = (cls, label) => '<span class="px-1.5 py-0.5 text-[10px] font-semibold rounded ring-1 ' + cls + '">' + label + '</span>';
+    const chip = (filter, cls, label) => '<a href="/rare?filter=' + filter + '" title="See other ' + label.toLowerCase() + ' detections" class="px-1.5 py-0.5 text-[10px] font-semibold rounded ring-1 hover:opacity-90 transition-opacity ' + cls + '">' + label + '</a>';
     if (r.first_ever) {{
-      html += chip('bg-purple-100 text-purple-700 ring-purple-600/20 dark:bg-purple-900/40 dark:text-purple-300 dark:ring-purple-400/20', 'First ever');
+      html += chip('first_ever', 'bg-purple-100 text-purple-700 ring-purple-600/20 dark:bg-purple-900/40 dark:text-purple-300 dark:ring-purple-400/20', 'First ever');
     }} else if (r.first_season) {{
-      html += chip('bg-blue-100 text-blue-700 ring-blue-600/20 dark:bg-blue-900/40 dark:text-blue-300 dark:ring-blue-400/20', 'First of season');
+      html += chip('first_season', 'bg-blue-100 text-blue-700 ring-blue-600/20 dark:bg-blue-900/40 dark:text-blue-300 dark:ring-blue-400/20', 'First of season');
     }} else if (r.first_week) {{
-      html += chip('bg-teal-100 text-teal-700 ring-teal-600/20 dark:bg-teal-900/40 dark:text-teal-300 dark:ring-teal-400/20', 'First this week');
+      html += chip('first_week', 'bg-teal-100 text-teal-700 ring-teal-600/20 dark:bg-teal-900/40 dark:text-teal-300 dark:ring-teal-400/20', 'First this week');
     }} else if (r.first_day) {{
-      html += chip('bg-sky-100 text-sky-700 ring-sky-600/20 dark:bg-sky-900/40 dark:text-sky-300 dark:ring-sky-400/20', 'First today');
+      html += chip('first_day', 'bg-sky-100 text-sky-700 ring-sky-600/20 dark:bg-sky-900/40 dark:text-sky-300 dark:ring-sky-400/20', 'First today');
     }}
     if (r.score >= 0.6 && !r.first_ever) {{
-      html += chip('bg-amber-100 text-amber-700 ring-amber-600/20 dark:bg-amber-900/40 dark:text-amber-300 dark:ring-amber-400/20', 'Rare');
+      html += chip('high_score', 'bg-amber-100 text-amber-700 ring-amber-600/20 dark:bg-amber-900/40 dark:text-amber-300 dark:ring-amber-400/20', 'Rare');
     }}
     return html;
   }}
@@ -309,6 +311,8 @@ window.sitta = (function() {{
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/>"#),
         nav_species = nav_item("Species", "/species", "species", active,
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z"/>"#),
+        nav_rare = nav_item("Rare moments", "/rare", "rare", active,
+            r#"<path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z"/>"#),
         nav_status = nav_item("Status", "/status", "status", active,
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M9.348 14.651a3.75 3.75 0 010-5.303m5.304 0a3.75 3.75 0 010 5.303m-7.425 2.122a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.788m13.788 0c3.808 3.808 3.808 9.98 0 13.788M12 12h.008v.008H12V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/>"#),
         nav_diagnostics = nav_item("Audio Health", "/diagnostics", "diagnostics", active,
@@ -319,6 +323,7 @@ window.sitta = (function() {{
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>"#),
         mob_dashboard = if active == "dashboard" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
         mob_species = if active == "species" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
+        mob_rare = if active == "rare" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
         mob_status = if active == "status" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
         mob_diagnostics = if active == "diagnostics" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
         mob_individuals = if active == "individuals" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
@@ -750,6 +755,10 @@ pub fn detection_detail_content(detection_id: &str) -> String {
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/></svg>
       All detections of this species
     </a>
+    <a id="det-cta-rare" href="/rare" class="hidden inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 dark:hover:bg-amber-900/40 transition-colors">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z"/></svg>
+      Other rare moments
+    </a>
   </div>
 
   <!-- Review strip -->
@@ -835,6 +844,11 @@ pub fn detection_detail_content(detection_id: &str) -> String {
       if (rb) metaParts.push(rb);
       if (d.range_unverified) metaParts.push('<span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700 ring-1 ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-300 dark:ring-amber-400/20" title="Species not in BirdNET range model — not verified by geographic filter">Range unverified</span>');
       document.getElementById('det-meta').innerHTML = metaParts.join(' ' + sep + ' ');
+
+      // Surface "Other rare moments" CTA when this detection is itself rare.
+      if (d.rarity && (d.rarity.first_ever || d.rarity.first_season || d.rarity.first_week || d.rarity.first_day || d.rarity.score >= 0.6)) {{
+        document.getElementById('det-cta-rare').classList.remove('hidden');
+      }}
 
       // Review
       if (d.review) {{
@@ -1401,6 +1415,201 @@ pub fn species_detail_content(scientific_name: &str) -> String {
         scientific_name = scientific_name,
         sci_json = serde_json::to_string(scientific_name).unwrap_or_else(|_| "\"\"".to_string()),
     )
+}
+
+pub fn rare_content() -> String {
+    r##"<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Rare moments</h1>
+  <p class="text-sm text-gray-500 dark:text-plumage-400 mt-0.5">Notable detections from the last 14 days</p>
+</div>
+
+<div id="rare-filters" class="flex flex-wrap gap-2 mb-5"></div>
+
+<div id="rare-stats" class="hidden grid grid-cols-2 sm:grid-cols-5 gap-2 mb-5"></div>
+
+<div id="rare-list" class="space-y-3">
+  <div class="text-center py-12 text-gray-400 dark:text-plumage-500 text-sm">Loading...</div>
+</div>
+
+<script>
+(function() {
+  const _tz = document.body.dataset.tz || 'UTC';
+  const SINCE = Date.now() - 14 * 86400000;
+  const playSvg = '<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/></svg>';
+
+  // Read ?filter=foo from the URL so badge clicks land on the matching tab.
+  const params = new URLSearchParams(location.search);
+  let activeFilter = params.get('filter') || 'all';
+  const validFilters = ['all', 'first_ever', 'first_season', 'first_week', 'first_day', 'high_score'];
+  if (!validFilters.includes(activeFilter)) activeFilter = 'all';
+
+  function rarityRank(r) {
+    if (!r) return 99;
+    if (r.first_ever) return 0;
+    if (r.first_season) return 1;
+    if (r.first_week) return 2;
+    if (r.first_day) return 3;
+    return 4 - r.score; // 4 - score so higher score sorts earlier
+  }
+
+  function matchesFilter(r, f) {
+    if (!r) return false;
+    if (f === 'all') return r.first_ever || r.first_season || r.first_week || r.first_day || r.score >= 0.6;
+    if (f === 'first_ever') return r.first_ever;
+    if (f === 'first_season') return r.first_season;
+    if (f === 'first_week') return r.first_week;
+    if (f === 'first_day') return r.first_day;
+    if (f === 'high_score') return r.score >= 0.6;
+    return false;
+  }
+
+  function renderFilters(counts) {
+    const opts = [
+      { key: 'all', label: 'All' },
+      { key: 'first_ever', label: 'First ever', cls: 'purple' },
+      { key: 'first_season', label: 'First of season', cls: 'blue' },
+      { key: 'first_week', label: 'First this week', cls: 'teal' },
+      { key: 'first_day', label: 'First today', cls: 'sky' },
+      { key: 'high_score', label: 'High score', cls: 'amber' },
+    ];
+    const el = document.getElementById('rare-filters');
+    el.innerHTML = opts.map(o => {
+      const c = counts[o.key] || 0;
+      const isActive = o.key === activeFilter;
+      const base = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors';
+      const cls = isActive
+        ? 'bg-nuthatch-600 text-white hover:bg-nuthatch-700'
+        : 'bg-white dark:bg-plumage-900 text-stone-600 dark:text-plumage-300 ring-1 ring-stone-200 dark:ring-plumage-800 hover:bg-stone-50 dark:hover:bg-plumage-800/50';
+      return `<button type="button" data-filter="${o.key}" class="${base} ${cls}">
+        <span>${o.label}</span>
+        <span class="${isActive ? 'text-nuthatch-50' : 'text-stone-400 dark:text-plumage-500'}">${c}</span>
+      </button>`;
+    }).join('');
+    el.querySelectorAll('button[data-filter]').forEach(b => {
+      b.addEventListener('click', () => {
+        activeFilter = b.dataset.filter;
+        const url = new URL(location.href);
+        if (activeFilter === 'all') url.searchParams.delete('filter');
+        else url.searchParams.set('filter', activeFilter);
+        history.replaceState(null, '', url.toString());
+        renderFilters(counts);
+        renderList(allDetections);
+      });
+    });
+  }
+
+  function renderList(detections) {
+    const el = document.getElementById('rare-list');
+    const filtered = detections.filter(d => matchesFilter(d.rarity, activeFilter));
+
+    // Sort: first_ever > first_season > first_week > first_day > by score; then by recency.
+    filtered.sort((a, b) => {
+      const ra = rarityRank(a.rarity), rb = rarityRank(b.rarity);
+      if (ra !== rb) return ra - rb;
+      return new Date(b.detected_at) - new Date(a.detected_at);
+    });
+
+    if (filtered.length === 0) {
+      el.innerHTML = '<div class="text-center py-12 text-gray-400 dark:text-plumage-500 text-sm">No rare detections in this window.</div>';
+      return;
+    }
+
+    el.innerHTML = filtered.map(d => {
+      const sciEnc = encodeURIComponent(d.species.scientific_name);
+      const time = window.sitta.fmtDateTime(d.detected_at, _tz);
+      const hasAudio = d.has_audio || d.snippet_path;
+      return `<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-4">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2 flex-wrap">
+              <a href="/species/${sciEnc}" class="font-semibold text-base hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${window.sitta.esc(d.species.common_name)}</a>
+              ${window.sitta.confidenceBadge(d)}
+              ${window.sitta.rarityBadges(d)}
+            </div>
+            <p class="text-sm text-gray-500 dark:text-plumage-400 italic mt-0.5">
+              <a href="/species/${sciEnc}" class="hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${window.sitta.esc(d.species.scientific_name)}</a>
+            </p>
+            <div class="flex items-center gap-3 mt-2 text-xs text-gray-400 dark:text-plumage-500">
+              ${d.source_name ? '<span>' + window.sitta.esc(d.source_name) + '</span>' : ''}
+              <a href="/detections/${d.id}" class="${d.source_name ? 'before:content-[\"\\u00b7\"] before:mr-3' : ''} hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${time}</a>
+              ${d.rarity && d.rarity.local_count != null ? '<span class="before:content-[\"\\u00b7\"] before:mr-3">' + d.rarity.local_count + ' prior</span>' : ''}
+              ${d.rarity && d.rarity.days_since_last != null ? '<span class="before:content-[\"\\u00b7\"] before:mr-3">' + d.rarity.days_since_last + 'd since last</span>' : ''}
+            </div>
+          </div>
+        </div>
+        ${hasAudio ? `<div class="mt-3 relative cursor-pointer group" id="spect-${d.id}" onclick="seekSpectrogram(event, '${d.id}')">
+          <img src="/api/v1/detections/${d.id}/spectrogram" loading="lazy"
+               class="w-full h-20 rounded-lg object-cover bg-gray-100 dark:bg-plumage-800"
+               alt="spectrogram" onerror="this.parentElement.style.display='none'"/>
+          <div class="playhead absolute top-0 bottom-0 w-0.5 bg-white/80 dark:bg-nuthatch-400/80 pointer-events-none transition-none" style="left:0%;display:none"></div>
+          <div class="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/5 dark:group-hover:bg-white/5 transition-colors pointer-events-none"></div>
+        </div>` : `<div class="mt-3 px-3 py-2 rounded-lg bg-gray-50 dark:bg-plumage-800/50 text-xs text-gray-400 dark:text-plumage-500 italic">No audio clip on disk · <a href="/diagnostics" class="hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors not-italic">why?</a></div>`}
+        <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800">
+          <div class="flex items-center gap-3">
+            ${hasAudio ? `<button onclick="playClip('${d.id}', this)" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors">${playSvg} Play</button>` : ''}
+            <a href="/detections/${d.id}" class="text-xs text-stone-500 dark:text-plumage-400 hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">View detection &rarr;</a>
+          </div>
+          <span class="text-xs text-gray-400 dark:text-plumage-600 font-mono">${Math.round((d.rarity ? d.rarity.score : 0) * 100)}% rare</span>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  let allDetections = [];
+
+  fetch('/api/v1/detections?rarity=true&limit=500&since=' + SINCE)
+    .then(r => { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+    .then(resp => {
+      allDetections = resp.items || resp;
+
+      // Compute counts per filter for the chip labels.
+      const counts = { all: 0, first_ever: 0, first_season: 0, first_week: 0, first_day: 0, high_score: 0 };
+      allDetections.forEach(d => {
+        if (!d.rarity) return;
+        if (d.rarity.first_ever || d.rarity.first_season || d.rarity.first_week || d.rarity.first_day || d.rarity.score >= 0.6) counts.all++;
+        if (d.rarity.first_ever) counts.first_ever++;
+        if (d.rarity.first_season) counts.first_season++;
+        if (d.rarity.first_week) counts.first_week++;
+        if (d.rarity.first_day) counts.first_day++;
+        if (d.rarity.score >= 0.6) counts.high_score++;
+      });
+
+      renderFilters(counts);
+      renderList(allDetections);
+    })
+    .catch(() => {
+      document.getElementById('rare-list').innerHTML =
+        '<div class="text-center py-8 text-red-400 text-sm">Failed to load rare detections</div>';
+    });
+
+  // Lightweight playback fallback. The dashboard and species-detail pages
+  // each ship a richer player (with scrubbing). Here we just need clicks to
+  // make sound — the user can deep-link to /detections/{id} for full controls.
+  if (!window.playClip) {
+    let cur = null;
+    window.playClip = function(id, btn) {
+      if (cur && !cur.paused) { cur.pause(); cur = null; btn.disabled = false; return; }
+      cur = new Audio('/api/v1/detections/' + id + '/audio');
+      cur.play();
+      btn.disabled = true;
+      cur.onended = function() { btn.disabled = false; cur = null; };
+    };
+  }
+  if (!window.seekSpectrogram) {
+    // Click on the spectrogram = start playback from the corresponding offset.
+    window.seekSpectrogram = function(event, id) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+      const audio = new Audio('/api/v1/detections/' + id + '/audio');
+      audio.addEventListener('loadedmetadata', function() {
+        audio.currentTime = pct * audio.duration;
+        audio.play();
+      });
+    };
+  }
+})();
+</script>"##
+        .to_string()
 }
 
 pub fn status_content(station_name: &str) -> String {

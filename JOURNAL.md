@@ -4,6 +4,77 @@ Decisions, insights, and lessons learned during development.
 
 ---
 
+## 2026-05-02: /rare page (navigation slice 2)
+
+### Problem
+
+Rare and notable detections were hidden inside per-species pages. The
+detection event already carries a `rarity` blob (`first_ever`, `first_season`,
+`first_week`, `first_day`, `score`), but there was nowhere to *browse* by
+rarity — to see "what's the most unusual thing this station heard recently?"
+
+### Solution: `/rare` page + filter chips
+
+A new top-level page lists detections from the last 14 days that meet any
+rarity criterion. Filter chips along the top scope the list to a specific
+flavor of rare:
+
+- **All** — anything flagged
+- **First ever** — never seen at this station before
+- **First of season** — meteorological season debut
+- **First this week** — ISO week debut
+- **First today** — first detection today
+- **High score** — composite rarity score ≥ 0.6
+
+The active filter is stored in the URL (`?filter=first_ever` etc.) so the
+view is deep-linkable. Rarity badges everywhere else now link here:
+clicking a "First ever" badge on any card lands the user on
+`/rare?filter=first_ever`. Detection detail pages whose own detection is
+rare get an "Other rare moments" CTA pointing to `/rare`.
+
+### Backend
+
+`GET /api/v1/detections` gained a `rarity=true` query param. The handler
+populates the per-detection rarity blob (existing N+1 lookup), then drops
+rows that don't meet `is_rare()` — `first_ever || first_season ||
+first_week || first_day || score >= 0.6`. The filter is applied *after*
+the existing dedup + range-unverified filter so behavior is consistent.
+
+`has_more` is no longer accurate when `rarity=true` is set (filter is
+post-page), but the `/rare` page fetches a 14-day / 500-row window and
+doesn't paginate, so this isn't surfaced. If pagination becomes important
+later we'll need a SQL-level join with `detection_rarity` instead.
+
+### Design decisions
+
+- **Sorting** is by rarity tier first (`first_ever` > `first_season` >
+  `first_week` > `first_day` > by score), then by recency within tier.
+  This puts the most genuinely interesting detections at the top.
+
+- **Filter counts** are computed client-side from the same response so
+  every chip shows how many results that filter would produce — the user
+  knows up-front whether toggling will help.
+
+- **Per-page audio fallbacks**: the dashboard and species detail pages
+  ship rich `playClip` / `seekSpectrogram` IIFEs (with playhead
+  animation, scrubbing). `/rare` doesn't redefine the heavy version; it
+  installs a lightweight fallback that just plays the clip on click and
+  seeks-to-offset on spectrogram click. For full scrubbing, the user
+  follows the link to `/detections/{id}`. This keeps the page small and
+  avoids triplicating the player.
+
+- **No new endpoint** — `/api/v1/detections` already returns the right
+  shape; one query param does the job.
+
+### What's still page-shaped (next slices)
+
+- Co-occurrence: "what other species were heard at the same moment as
+  this rare one?" needs a `?neighbors` endpoint and a panel on the
+  detection detail page. (Slice 3.)
+- Species list as gallery (sparklines, rarity flags). (Slice 4.)
+
+---
+
 ## 2026-05-02: Cross-page detection navigation (slice 1: link strip + breadcrumbs)
 
 ### Problem
