@@ -618,8 +618,8 @@ ACTIVITY_PANEL_PLACEHOLDER
         <div class="review-strip"></div>
       </div>
       ${{multi ? `
-        <div class="mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800 flex items-center justify-between text-xs text-gray-500 dark:text-plumage-400">
-          <span><span class="font-semibold text-stone-700 dark:text-plumage-200">${{item.count}}</span> detections in the last 30 min</span>
+        <div class="mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800 flex items-center justify-between text-xs text-gray-500 dark:text-plumage-400" data-bucket-footer="1">
+          <span><span class="font-semibold text-stone-700 dark:text-plumage-200">${{item.count}}</span> detections &middot; first heard ${{timeAgo(item.first_detected_at)}}</span>
           <a href="/species/${{sciEnc}}" class="text-nuthatch-600 dark:text-nuthatch-400 hover:underline font-medium">All detections of this species &rarr;</a>
         </div>` : ''}}
       ${{d.alternatives && d.alternatives.length > 0 ? `
@@ -670,17 +670,20 @@ ACTIVITY_PANEL_PLACEHOLDER
       if (card.dataset.species !== sci) continue;
       if (card.dataset.rare === '1') continue;
       const firstMs = parseInt(card.dataset.firstMs, 10);
-      // The new detection extends the bucket forward in time. Allow folding
-      // when the new detection is within the bucket window of the bucket's
-      // earliest entry — which keeps the bucket span bounded.
-      if (dMs - firstMs > BUCKET_SECONDS * 1000) continue;
+      const lastMs = parseInt(card.dataset.lastMs, 10);
+      // Session-style merge: fold whenever the gap to the bucket's most
+      // recent detection is within the window. Matches the backend rule
+      // (a bucket stays open as long as consecutive detections keep
+      // arriving inside `bucket_seconds`), so a chatty species ends up
+      // on one card no matter how long the page is open.
+      if (dMs - lastMs > BUCKET_SECONDS * 1000) continue;
       // Build the merged bucket and rebuild the card in place.
       const existingBest = bucketFromCard(card);
       const newBestIsBetter = d.confidence > existingBest.best.confidence;
       const merged = {{
         best: newBestIsBetter ? d : null, // we'll fill below if not new-best
         first_detected_at: new Date(Math.min(firstMs, dMs)).toISOString(),
-        last_detected_at: new Date(Math.max(parseInt(card.dataset.lastMs, 10), dMs)).toISOString(),
+        last_detected_at: new Date(Math.max(lastMs, dMs)).toISOString(),
         count: existingBest.count + 1,
       }};
       if (newBestIsBetter) {{
@@ -709,7 +712,7 @@ ACTIVITY_PANEL_PLACEHOLDER
         }}
         const sciEnc2 = encodeURIComponent(sci);
         bucketFooter.innerHTML =
-          '<span><span class="font-semibold text-stone-700 dark:text-plumage-200">' + merged.count + '</span> detections in the last 30 min</span>' +
+          '<span><span class="font-semibold text-stone-700 dark:text-plumage-200">' + merged.count + '</span> detections &middot; first heard ' + timeAgo(merged.first_detected_at) + '</span>' +
           '<a href="/species/' + sciEnc2 + '" class="text-nuthatch-600 dark:text-nuthatch-400 hover:underline font-medium">All detections of this species &rarr;</a>';
       }}
       // Move to top with a brief glow so the user notices it just sang again.
