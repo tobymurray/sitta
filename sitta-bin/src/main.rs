@@ -255,6 +255,12 @@ async fn main() -> Result<()> {
                 Some(sitta_api::server::SnippetRetention {
                     retention_days: config.snippets.retention_days,
                     max_disk_mb: config.snippets.max_disk_mb,
+                    first_ever_multiplier: config.snippets.first_ever_multiplier,
+                    first_season_multiplier: config.snippets.first_season_multiplier,
+                    first_week_multiplier: config.snippets.first_week_multiplier,
+                    first_day_multiplier: config.snippets.first_day_multiplier,
+                    high_score_multiplier: config.snippets.high_score_multiplier,
+                    per_species_cap: config.snippets.per_species_cap,
                 })
             } else {
                 None

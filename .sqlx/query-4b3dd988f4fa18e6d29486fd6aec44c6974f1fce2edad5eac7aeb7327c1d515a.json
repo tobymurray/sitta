@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                l.scientific_name AS \"scientific_name!: String\",\n                MIN(l.common_name) AS \"common_name!: String\",\n                COUNT(*) AS \"clip_count!: i64\"\n              FROM detections d\n              JOIN labels l ON l.id = d.label_id\n              WHERE d.snippet_path IS NOT NULL\n                AND l.scientific_name IS NOT NULL\n              GROUP BY l.scientific_name\n              ORDER BY COUNT(*) DESC\n              LIMIT $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "scientific_name!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "common_name!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "clip_count!: i64",
+        "ordinal": 2,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "4b3dd988f4fa18e6d29486fd6aec44c6974f1fce2edad5eac7aeb7327c1d515a"
+}

@@ -166,6 +166,12 @@ pub struct SnippetMetrics {
 pub struct SnippetRetention {
     pub retention_days: u32,
     pub max_disk_mb: u64,
+    pub first_ever_multiplier: u32,
+    pub first_season_multiplier: u32,
+    pub first_week_multiplier: u32,
+    pub first_day_multiplier: u32,
+    pub high_score_multiplier: u32,
+    pub per_species_cap: u32,
 }
 
 /// Build the axum router with all routes.
@@ -1066,6 +1072,13 @@ struct AudioHealthResponse {
     daily: Vec<AudioHealthDay>,
     /// Window start for the daily breakdown (Unix ms).
     window_since_ms: i64,
+    /// Per-rarity-tier clip counts. Each clip falls in exactly one tier
+    /// (reviewed-correct overrides everything; otherwise tested most-protective
+    /// first). Lets the user see what retention is actually preserving.
+    tiers: AudioHealthTiers,
+    /// Top species by saved-clip count. Highlights who's dominating the
+    /// pool so the user can decide whether to enable `per_species_cap`.
+    top_species: Vec<AudioHealthSpeciesClips>,
 }
 
 #[derive(Serialize, Default)]
@@ -1079,6 +1092,31 @@ struct AudioHealthMetrics {
 struct AudioHealthRetention {
     retention_days: u32,
     max_disk_mb: u64,
+    first_ever_multiplier: u32,
+    first_season_multiplier: u32,
+    first_week_multiplier: u32,
+    first_day_multiplier: u32,
+    high_score_multiplier: u32,
+    per_species_cap: u32,
+}
+
+#[derive(Serialize)]
+struct AudioHealthTiers {
+    /// Reviewed `correct` — never evicted regardless of tier.
+    reviewed_correct: i64,
+    first_ever: i64,
+    first_season: i64,
+    first_week: i64,
+    first_day: i64,
+    high_score: i64,
+    common: i64,
+}
+
+#[derive(Serialize)]
+struct AudioHealthSpeciesClips {
+    scientific_name: String,
+    common_name: String,
+    clip_count: i64,
 }
 
 #[derive(Serialize)]
@@ -1139,7 +1177,44 @@ async fn audio_health_handler(
         .map(|r| AudioHealthRetention {
             retention_days: r.retention_days,
             max_disk_mb: r.max_disk_mb,
+            first_ever_multiplier: r.first_ever_multiplier,
+            first_season_multiplier: r.first_season_multiplier,
+            first_week_multiplier: r.first_week_multiplier,
+            first_day_multiplier: r.first_day_multiplier,
+            high_score_multiplier: r.high_score_multiplier,
+            per_species_cap: r.per_species_cap,
         });
+
+    let tiers_row = state
+        .core
+        .db
+        .clip_tier_breakdown()
+        .await
+        .map_err(ApiError::internal)?;
+    let tiers = AudioHealthTiers {
+        reviewed_correct: tiers_row.reviewed_correct,
+        first_ever: tiers_row.first_ever,
+        first_season: tiers_row.first_season,
+        first_week: tiers_row.first_week,
+        first_day: tiers_row.first_day,
+        high_score: tiers_row.high_score,
+        common: tiers_row.common,
+    };
+
+    let top_species_rows = state
+        .core
+        .db
+        .top_species_by_clip_count(10)
+        .await
+        .map_err(ApiError::internal)?;
+    let top_species: Vec<AudioHealthSpeciesClips> = top_species_rows
+        .into_iter()
+        .map(|r| AudioHealthSpeciesClips {
+            scientific_name: r.scientific_name,
+            common_name: r.common_name,
+            clip_count: r.clip_count,
+        })
+        .collect();
 
     let clip_dir = state
         .integrations
@@ -1171,6 +1246,8 @@ async fn audio_health_handler(
         },
         daily,
         window_since_ms: since_ms,
+        tiers,
+        top_species,
     }))
 }
 

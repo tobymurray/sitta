@@ -4,6 +4,102 @@ Decisions, insights, and lessons learned during development.
 
 ---
 
+## 2026-05-02: Rarity-aware clip retention
+
+### Problem
+
+Retention was species-blind. Both the age sweep (`retention_days`) and the
+disk-pressure sweep (`max_disk_mb`) walked detections in plain chronological
+order, with the only carve-out being clips reviewed as `correct`. So a
+30-day-old phoebe and a 30-day-old first-ever Wood Thrush both got evicted
+on the same day. With a couple of constant singers (RWBL, blackbird,
+phoebe, grackle) the clip pool ended up dominated by noise — the rare
+detection people actually want to revisit got swept by the time it
+mattered.
+
+The `detection_rarity` table was already populated for every detection;
+the retention worker just didn't read it.
+
+### Solution: tiered retention with multipliers + per-species cap
+
+`SnippetConfig` gains six new knobs (defaults baked in; users can override
+in `config.toml`):
+
+```toml
+first_ever_multiplier   = 999   # effectively forever — knob, not a hard policy
+first_season_multiplier = 8
+first_week_multiplier   = 4
+first_day_multiplier    = 2
+high_score_multiplier   = 2     # rarity score >= 0.6
+per_species_cap         = 0     # 0 = disabled
+```
+
+`run_retention` was rewritten around two helpers:
+
+- `tier(rarity)` — collapses a row's rarity flags into an integer (0=common
+  through 3=first_ever) used for the size-pressure ordering.
+- `effective_multiplier(rarity, cfg)` — picks the strictest applicable
+  multiplier (max across active flags). Clamped to ≥1 so a misconfigured
+  zero never shortens retention below the base.
+
+Three sweep phases, in order:
+
+1. **Age sweep.** Each row's cutoff is `retention_days × effective_multiplier`
+   days back. The "break on first row past cutoff" optimisation is gone
+   (cutoffs vary per row), but 10k rows is trivial.
+2. **Per-species cap pre-pass** (only fires when `per_species_cap > 0`
+   *and* `max_disk_mb > 0`). Groups remaining clips by `scientific_name`,
+   exempts reviewed-correct and `first_ever`, and evicts the oldest excess
+   from any species over the cap before disk-pressure logic touches
+   anything else. Caps a single noisy species' fair share without
+   needing the rarity tiers.
+3. **Size sweep**, when total disk usage still exceeds `max_disk_mb`.
+   Walks remaining rows in `(tier ASC, detected_at ASC)` order — least
+   protected, oldest first. Reviewed-correct skipped throughout.
+
+### Diagnostics surface
+
+`/api/v1/audio-health` gained:
+
+- `retention.first_*_multiplier`, `retention.high_score_multiplier`,
+  `retention.per_species_cap` so the page can compute "what's protected and
+  for how long."
+- `tiers` — clip counts bucketed by tier (`reviewed_correct`, `first_ever`,
+  `first_season`, `first_week`, `first_day`, `high_score`, `common`),
+  matching the retention worker's `tier()` ordering. Each clip falls in
+  exactly one tier.
+- `top_species` — top 10 species by saved-clip count, so the user can spot
+  who's dominating the pool and decide whether to enable the cap.
+
+The `/diagnostics` page renders both as small horizontal-bar charts. Tier
+rows show the effective span ("8 mo", "29 yr") computed from the
+multipliers, so the user sees protection durations rather than abstract
+multipliers. Top-species rows highlight in amber when a species is over
+the configured cap. Each row links to `/species/{name}`.
+
+### Design decisions
+
+- **Multipliers, not hard tiers.** Easier to tune than "first_ever
+  forever" — set `first_ever_multiplier = 999` for that effective
+  behaviour. The user can dial it back if they ever change their mind.
+- **Reviewed-correct is still inviolate.** Whatever else changes, an
+  explicit "yes, this matters" never gets evicted.
+- **Per-species cap is opt-in (default 0).** It composes with tiers but
+  has different semantics — users may want to enable just one. Cap
+  protects diversity (every species gets a fair share); tiers protect
+  rarity (rare species get longer survival). Both can be on.
+- **N+1 lookups in the retention worker.** Hourly job, not a hot path —
+  not worth a JOIN-everything query yet.
+
+### Tests
+
+Unit tests for the pure helpers in `sitta-bin/src/snippets.rs`:
+`tier()` ordering across all rarity flag combinations, and
+`effective_multiplier()` picking the strictest match (and floor-at-one
+for misconfigured zeros).
+
+---
+
 ## 2026-05-02: Bucketed dashboard live feed
 
 ### Problem

@@ -1851,6 +1851,25 @@ pub fn diagnostics_content() -> String {
     </div>
   </div>
 
+  <div class="grid gap-4 md:grid-cols-2">
+    <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+      <div class="flex items-baseline justify-between mb-3">
+        <h3 class="text-sm font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider">What's protected</h3>
+        <span id="ah-tiers-total" class="text-xs text-gray-400 dark:text-plumage-500"></span>
+      </div>
+      <div id="ah-tiers" class="space-y-1.5 text-sm"></div>
+      <p class="text-xs text-gray-400 dark:text-plumage-500 mt-3">Each clip falls in one tier. Lower tiers are evicted first under disk pressure.</p>
+    </div>
+
+    <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+      <div class="flex items-baseline justify-between mb-3">
+        <h3 class="text-sm font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider">Top species by clip count</h3>
+        <span id="ah-cap" class="text-xs text-gray-400 dark:text-plumage-500"></span>
+      </div>
+      <div id="ah-top-species" class="space-y-1.5 text-sm"></div>
+    </div>
+  </div>
+
   <div id="ah-tip" class="hidden rounded-xl p-4 text-sm"></div>
 
   <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
@@ -1934,6 +1953,66 @@ pub fn diagnostics_content() -> String {
       const dirEl = document.getElementById('ah-dir');
       dirEl.textContent = data.clip_dir || 'n/a';
       if (data.clip_dir) dirEl.title = data.clip_dir;
+
+      // ── Tier breakdown (what's protected) ──
+      function spanDays(mul) {
+        if (!data.retention || data.retention.retention_days === 0) return 'unlimited';
+        const days = data.retention.retention_days * mul;
+        if (days >= 365) return Math.round(days / 365 * 10) / 10 + ' yr';
+        if (days >= 30)  return Math.round(days / 30) + ' mo';
+        return days + ' d';
+      }
+      const tiersEl = document.getElementById('ah-tiers');
+      const tierTotal = (data.tiers ? (
+        data.tiers.reviewed_correct + data.tiers.first_ever + data.tiers.first_season +
+        data.tiers.first_week + data.tiers.first_day + data.tiers.high_score + data.tiers.common
+      ) : 0);
+      document.getElementById('ah-tiers-total').textContent = tierTotal.toLocaleString() + ' clip' + (tierTotal === 1 ? '' : 's');
+      const tiers = [
+        { label: 'Reviewed correct',  count: data.tiers ? data.tiers.reviewed_correct : 0, span: 'forever',                              cls: 'bg-emerald-500' },
+        { label: 'First ever',        count: data.tiers ? data.tiers.first_ever : 0,       span: spanDays(data.retention ? data.retention.first_ever_multiplier   : 0), cls: 'bg-purple-500' },
+        { label: 'First of season',   count: data.tiers ? data.tiers.first_season : 0,     span: spanDays(data.retention ? data.retention.first_season_multiplier : 0), cls: 'bg-blue-500'   },
+        { label: 'First this week',   count: data.tiers ? data.tiers.first_week : 0,       span: spanDays(data.retention ? data.retention.first_week_multiplier   : 0), cls: 'bg-teal-500'   },
+        { label: 'First today',       count: data.tiers ? data.tiers.first_day : 0,        span: spanDays(data.retention ? data.retention.first_day_multiplier    : 0), cls: 'bg-sky-500'    },
+        { label: 'High score (>= 0.6)', count: data.tiers ? data.tiers.high_score : 0,     span: spanDays(data.retention ? data.retention.high_score_multiplier   : 0), cls: 'bg-amber-500'  },
+        { label: 'Common',            count: data.tiers ? data.tiers.common : 0,           span: spanDays(1),                            cls: 'bg-stone-400'  },
+      ];
+      const tierMax = Math.max(1, ...tiers.map(t => t.count));
+      tiersEl.innerHTML = tiers.map(t => {
+        const pct = (t.count / tierMax) * 100;
+        return '<div class="flex items-center gap-3">' +
+               '  <span class="w-32 text-xs text-gray-600 dark:text-plumage-300 flex-shrink-0">' + t.label + '</span>' +
+               '  <div class="flex-1 h-3 bg-stone-100 dark:bg-plumage-800/60 rounded-sm overflow-hidden">' +
+               '    <div class="h-full ' + t.cls + '" style="width:' + pct + '%"></div>' +
+               '  </div>' +
+               '  <span class="w-10 text-right text-xs font-mono text-gray-600 dark:text-plumage-300">' + t.count.toLocaleString() + '</span>' +
+               '  <span class="w-14 text-right text-[10px] uppercase tracking-wider text-gray-400 dark:text-plumage-500">' + t.span + '</span>' +
+               '</div>';
+      }).join('');
+
+      // ── Top species by clip count ──
+      const topEl = document.getElementById('ah-top-species');
+      const cap = (data.retention && data.retention.per_species_cap) ? data.retention.per_species_cap : 0;
+      document.getElementById('ah-cap').textContent =
+        cap > 0 ? 'cap: ' + cap + ' / species' : 'no per-species cap';
+      const topSpecies = data.top_species || [];
+      if (topSpecies.length === 0) {
+        topEl.innerHTML = '<p class="text-xs text-gray-400 dark:text-plumage-500">No clips on disk yet.</p>';
+      } else {
+        const topMax = Math.max(1, ...topSpecies.map(s => s.clip_count));
+        topEl.innerHTML = topSpecies.map(s => {
+          const pct = (s.clip_count / topMax) * 100;
+          const overCap = cap > 0 && s.clip_count > cap;
+          const barCls = overCap ? 'bg-amber-500' : 'bg-nuthatch-500';
+          return '<a href="/species/' + encodeURIComponent(s.scientific_name) + '" class="flex items-center gap-3 -mx-1 px-1 py-0.5 rounded hover:bg-gray-50 dark:hover:bg-plumage-800/40 transition-colors">' +
+                 '  <span class="w-32 text-xs truncate text-stone-700 dark:text-plumage-200" title="' + s.scientific_name + '">' + s.common_name + '</span>' +
+                 '  <div class="flex-1 h-3 bg-stone-100 dark:bg-plumage-800/60 rounded-sm overflow-hidden">' +
+                 '    <div class="h-full ' + barCls + '" style="width:' + pct + '%"></div>' +
+                 '  </div>' +
+                 '  <span class="w-10 text-right text-xs font-mono ' + (overCap ? 'text-amber-600 dark:text-amber-400' : 'text-gray-600 dark:text-plumage-300') + '">' + s.clip_count.toLocaleString() + '</span>' +
+                 '</a>';
+        }).join('');
+      }
 
       // Diagnostic tip
       const tipEl = document.getElementById('ah-tip');

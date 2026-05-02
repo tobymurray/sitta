@@ -75,3 +75,20 @@ top_k = 10
 # Download from https://www.birds.cornell.edu/clementschecklist/introduction/updateindex/october-2025/2025-citation-checklist-downloads/
 [taxonomy]
 ebird_path = "/home/toby/.local/share/birda/taxonomy/eBird-Clements_v2025-integrated-checklist-October-2025.csv"
+
+# Audio clip retention. Defaults are applied when this section is omitted.
+# Multipliers extend `retention_days` for rare detections so common species
+# (Phoebes, Grackles, Blackbirds, ...) age out before notable ones.
+# `per_species_cap` (when > 0) trims noisy species back to N clips before
+# global eviction starts; reviewed-correct and first_ever are exempt.
+# [snippets]
+# enabled                 = true
+# clip_dir                = "./clips"
+# retention_days          = 30
+# max_disk_mb             = 2048
+# first_ever_multiplier   = 999    # effectively forever
+# first_season_multiplier = 8      # ~8 months at retention_days = 30
+# first_week_multiplier   = 4
+# first_day_multiplier    = 2
+# high_score_multiplier   = 2      # rarity score >= 0.6
+# per_species_cap         = 0      # 0 = disabled

@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                SUM(CASE WHEN reviewed_correct THEN 1 ELSE 0 END) AS \"reviewed_correct!: i64\",\n                SUM(CASE WHEN NOT reviewed_correct AND first_ever THEN 1 ELSE 0 END) AS \"first_ever!: i64\",\n                SUM(CASE WHEN NOT reviewed_correct AND NOT first_ever AND first_season THEN 1 ELSE 0 END) AS \"first_season!: i64\",\n                SUM(CASE WHEN NOT reviewed_correct AND NOT first_ever AND NOT first_season AND first_week THEN 1 ELSE 0 END) AS \"first_week!: i64\",\n                SUM(CASE WHEN NOT reviewed_correct AND NOT first_ever AND NOT first_season AND NOT first_week AND first_day THEN 1 ELSE 0 END) AS \"first_day!: i64\",\n                SUM(CASE WHEN NOT reviewed_correct AND NOT first_ever AND NOT first_season AND NOT first_week AND NOT first_day AND high_score THEN 1 ELSE 0 END) AS \"high_score!: i64\",\n                SUM(CASE WHEN NOT reviewed_correct AND NOT first_ever AND NOT first_season AND NOT first_week AND NOT first_day AND NOT high_score THEN 1 ELSE 0 END) AS \"common!: i64\"\n            FROM (\n                SELECT\n                    COALESCE(r.first_ever, 0) AS first_ever,\n                    COALESCE(r.first_season, 0) AS first_season,\n                    COALESCE(r.first_week, 0) AS first_week,\n                    COALESCE(r.first_day, 0) AS first_day,\n                    CASE WHEN COALESCE(r.score, 0) >= 0.6 THEN 1 ELSE 0 END AS high_score,\n                    EXISTS (SELECT 1 FROM detection_reviews v WHERE v.detection_id = d.id AND v.status = 'correct') AS reviewed_correct\n                FROM detections d\n                LEFT JOIN detection_rarity r ON r.detection_id = d.id\n                WHERE d.snippet_path IS NOT NULL\n            )",
+  "describe": {
+    "columns": [
+      {
+        "name": "reviewed_correct!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "first_ever!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "first_season!: i64",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "first_week!: i64",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "first_day!: i64",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "high_score!: i64",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "common!: i64",
+        "ordinal": 6,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e75926d431cb948f0e323e107c264658199c08858a599ea62130cfe57cecb565"
+}

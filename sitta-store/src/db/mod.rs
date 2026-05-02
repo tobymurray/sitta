@@ -11,7 +11,7 @@ mod sessions;
 mod snippets;
 mod species;
 
-pub use snippets::{AudioHealthTotals, DailyAudioHealth};
+pub use snippets::{AudioHealthTotals, ClipTierBreakdown, DailyAudioHealth, SpeciesClipCount};
 
 use std::path::Path;
 

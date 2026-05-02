@@ -171,6 +171,28 @@ pub struct SnippetConfig {
     /// Maximum total disk usage in MB. 0 = unlimited. Default: 2048.
     #[serde(default = "default_max_disk_mb")]
     pub max_disk_mb: u64,
+    /// Multiplier applied to `retention_days` for `first_ever` detections.
+    /// Default 999 (effectively forever — set lower if you'd rather these
+    /// age out eventually).
+    #[serde(default = "default_first_ever_multiplier")]
+    pub first_ever_multiplier: u32,
+    /// Multiplier applied to `retention_days` for `first_season` detections. Default 8.
+    #[serde(default = "default_first_season_multiplier")]
+    pub first_season_multiplier: u32,
+    /// Multiplier applied to `retention_days` for `first_week` detections. Default 4.
+    #[serde(default = "default_first_week_multiplier")]
+    pub first_week_multiplier: u32,
+    /// Multiplier applied to `retention_days` for `first_day` detections. Default 2.
+    #[serde(default = "default_first_day_multiplier")]
+    pub first_day_multiplier: u32,
+    /// Multiplier applied to `retention_days` for detections with rarity score >= 0.6. Default 2.
+    #[serde(default = "default_high_score_multiplier")]
+    pub high_score_multiplier: u32,
+    /// Per-species clip cap; in size-pressure sweeps, species exceeding this
+    /// count are trimmed (oldest first) before any global eviction. Reviewed
+    /// `correct` and `first_ever` clips are exempt. 0 = disabled. Default 0.
+    #[serde(default = "default_per_species_cap")]
+    pub per_species_cap: u32,
 }
 
 impl Default for SnippetConfig {
@@ -180,6 +202,12 @@ impl Default for SnippetConfig {
             clip_dir: default_snippet_dir(),
             retention_days: default_retention_days(),
             max_disk_mb: default_max_disk_mb(),
+            first_ever_multiplier: default_first_ever_multiplier(),
+            first_season_multiplier: default_first_season_multiplier(),
+            first_week_multiplier: default_first_week_multiplier(),
+            first_day_multiplier: default_first_day_multiplier(),
+            high_score_multiplier: default_high_score_multiplier(),
+            per_species_cap: default_per_species_cap(),
         }
     }
 }
@@ -254,6 +282,24 @@ fn default_retention_days() -> u32 {
 }
 fn default_max_disk_mb() -> u64 {
     2048
+}
+fn default_first_ever_multiplier() -> u32 {
+    999
+}
+fn default_first_season_multiplier() -> u32 {
+    8
+}
+fn default_first_week_multiplier() -> u32 {
+    4
+}
+fn default_first_day_multiplier() -> u32 {
+    2
+}
+fn default_high_score_multiplier() -> u32 {
+    2
+}
+fn default_per_species_cap() -> u32 {
+    0
 }
 fn default_birdnet_stride() -> f32 {
     1.0
