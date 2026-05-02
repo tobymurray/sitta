@@ -6,10 +6,11 @@
 //! async runtime on slow I/O (SD cards).
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use sitta_api::server::SnippetMetrics;
 use sitta_store::db::Database;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -24,23 +25,6 @@ pub struct SnippetJob {
     pub samples: Vec<f32>,
     pub sample_rate: u32,
     pub channels: u16,
-}
-
-/// Metrics for the snippet writer.
-pub struct SnippetMetrics {
-    pub clips_saved: AtomicU64,
-    pub clips_dropped: AtomicU64,
-    pub bytes_written: AtomicU64,
-}
-
-impl Default for SnippetMetrics {
-    fn default() -> Self {
-        Self {
-            clips_saved: AtomicU64::new(0),
-            clips_dropped: AtomicU64::new(0),
-            bytes_written: AtomicU64::new(0),
-        }
-    }
 }
 
 /// Handle for submitting snippet jobs to the background writer.

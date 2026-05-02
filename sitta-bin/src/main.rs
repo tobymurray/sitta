@@ -146,6 +146,7 @@ async fn main() -> Result<()> {
 
     // ── Snippet writer ──────────────────────────────────────────
     let shutdown = CancellationToken::new();
+    let mut snippet_metrics: Option<Arc<sitta_api::server::SnippetMetrics>> = None;
 
     if config.snippets.enabled {
         let writer = snippets::spawn_snippet_writer(
@@ -153,6 +154,7 @@ async fn main() -> Result<()> {
             db.clone(),
             shutdown.clone(),
         );
+        snippet_metrics = Some(writer.metrics.clone());
         persist_ctx.snippet_writer = Some(writer);
         snippets::spawn_retention_worker(
             config.snippets.clone(),
@@ -245,6 +247,15 @@ async fn main() -> Result<()> {
             mqtt_control: Some(mqtt_controller.clone()),
             clip_dir: if config.snippets.enabled {
                 Some(std::path::PathBuf::from(&config.snippets.clip_dir))
+            } else {
+                None
+            },
+            snippet_metrics: snippet_metrics.clone(),
+            snippet_retention: if config.snippets.enabled {
+                Some(sitta_api::server::SnippetRetention {
+                    retention_days: config.snippets.retention_days,
+                    max_disk_mb: config.snippets.max_disk_mb,
+                })
             } else {
                 None
             },

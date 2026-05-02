@@ -69,6 +69,7 @@ tailwind.config = {{
       {nav_dashboard}
       {nav_species}
       {nav_status}
+      {nav_diagnostics}
       {nav_individuals}
       {nav_settings}
     </div>
@@ -97,6 +98,7 @@ tailwind.config = {{
           <a href="/" class="px-2 py-1 text-xs rounded-md whitespace-nowrap {mob_dashboard}">Live</a>
           <a href="/species" class="px-2 py-1 text-xs rounded-md whitespace-nowrap {mob_species}">Species</a>
           <a href="/status" class="px-2 py-1 text-xs rounded-md whitespace-nowrap {mob_status}">Status</a>
+          <a href="/diagnostics" class="px-2 py-1 text-xs rounded-md whitespace-nowrap {mob_diagnostics}">Audio</a>
           <a href="/individuals" class="px-2 py-1 text-xs rounded-md whitespace-nowrap {mob_individuals}">Ind.</a>
           <a href="/settings" class="px-2 py-1 text-xs rounded-md whitespace-nowrap {mob_settings}">
             <svg class="w-3.5 h-3.5 inline-block" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -244,6 +246,8 @@ function toggleTheme() {{
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z"/>"#),
         nav_status = nav_item("Status", "/status", "status", active,
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M9.348 14.651a3.75 3.75 0 010-5.303m5.304 0a3.75 3.75 0 010 5.303m-7.425 2.122a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.788m13.788 0c3.808 3.808 3.808 9.98 0 13.788M12 12h.008v.008H12V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/>"#),
+        nav_diagnostics = nav_item("Audio Health", "/diagnostics", "diagnostics", active,
+            r#"<path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h.375c.621 0 1.125.504 1.125 1.125v6.75C5.625 20.496 5.121 21 4.5 21h-.375A1.125 1.125 0 013 19.875v-6.75zm6 0c0-.621.504-1.125 1.125-1.125h.375c.621 0 1.125.504 1.125 1.125v6.75c0 .621-.504 1.125-1.125 1.125h-.375A1.125 1.125 0 019 19.875v-6.75zm6-7.5c0-.621.504-1.125 1.125-1.125h.375c.621 0 1.125.504 1.125 1.125v14.25c0 .621-.504 1.125-1.125 1.125h-.375A1.125 1.125 0 0115 19.875V5.625z"/>"#),
         nav_individuals = nav_item("Individuals", "/individuals", "individuals", active,
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>"#),
         nav_settings = nav_item("Settings", "/settings", "settings", active,
@@ -251,6 +255,7 @@ function toggleTheme() {{
         mob_dashboard = if active == "dashboard" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
         mob_species = if active == "species" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
         mob_status = if active == "status" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
+        mob_diagnostics = if active == "diagnostics" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
         mob_individuals = if active == "individuals" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
         mob_settings = if active == "settings" { "bg-nuthatch-50 text-nuthatch-800 dark:bg-nuthatch-900/30 dark:text-nuthatch-400 font-medium" } else { "text-stone-500 dark:text-plumage-300" },
     ))
@@ -1387,6 +1392,186 @@ fetch('/api/v1/status')
 </script>"##,
         station_name = station_name,
     )
+}
+
+pub fn diagnostics_content() -> String {
+    r##"<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Audio Health</h1>
+  <p class="text-sm text-gray-500 dark:text-plumage-400 mt-0.5">Why some detections lack a playable spectrogram</p>
+</div>
+
+<div id="ah-loading" class="text-center py-16 text-gray-400 dark:text-plumage-500 text-sm">Loading...</div>
+<div id="ah-content" class="hidden space-y-4">
+
+  <div id="ah-disabled" class="hidden bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl p-4 text-sm text-amber-800 dark:text-amber-200">
+    Snippet saving is <strong>disabled</strong> in config. No audio clips or spectrograms are being saved for new detections.
+  </div>
+
+  <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+      <h3 class="text-sm font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider mb-3">All-time</h3>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Detections</dt><dd id="ah-total" class="font-medium">--</dd></div>
+        <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">With clip</dt><dd id="ah-with" class="font-medium">--</dd></div>
+        <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Missing audio</dt><dd id="ah-without" class="font-medium">--</dd></div>
+        <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Coverage</dt><dd id="ah-coverage" class="font-medium">--</dd></div>
+      </dl>
+    </div>
+
+    <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+      <h3 class="text-sm font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider mb-3">Snippet writer</h3>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Clips saved</dt><dd id="ah-saved" class="font-medium">--</dd></div>
+        <div class="flex justify-between">
+          <dt class="text-gray-500 dark:text-plumage-400" title="Clips dropped because the writer's bounded channel was full — disk I/O can't keep up. The detection row is still saved without audio.">Backpressure drops</dt>
+          <dd id="ah-dropped" class="font-medium">--</dd>
+        </div>
+        <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Bytes written</dt><dd id="ah-bytes" class="font-medium">--</dd></div>
+      </dl>
+      <p class="text-xs text-gray-400 dark:text-plumage-500 mt-3">Counters reset on process restart.</p>
+    </div>
+
+    <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+      <h3 class="text-sm font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider mb-3">Retention</h3>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Retention days</dt><dd id="ah-retention" class="font-medium">--</dd></div>
+        <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Disk cap</dt><dd id="ah-disk" class="font-medium">--</dd></div>
+        <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Clip dir</dt><dd id="ah-dir" class="font-medium font-mono text-xs truncate max-w-[10rem]" title="">--</dd></div>
+      </dl>
+      <p class="text-xs text-gray-400 dark:text-plumage-500 mt-3">Clips reviewed as <em>correct</em> are kept past retention.</p>
+    </div>
+  </div>
+
+  <div id="ah-tip" class="hidden rounded-xl p-4 text-sm"></div>
+
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="text-sm font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider">Missing audio by day</h3>
+        <p class="text-xs text-gray-400 dark:text-plumage-500 mt-0.5">Last 30 days. Bar height = detections; orange portion = no clip on disk.</p>
+      </div>
+      <div class="text-xs text-gray-400 dark:text-plumage-500 flex items-center gap-3">
+        <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-emerald-500 inline-block"></span>with clip</span>
+        <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-amber-500 inline-block"></span>missing</span>
+      </div>
+    </div>
+    <div id="ah-chart" class="flex items-end gap-1 h-32"></div>
+    <div id="ah-empty" class="hidden text-center py-8 text-gray-400 dark:text-plumage-500 text-sm">No detections in the last 30 days.</div>
+  </div>
+</div>
+
+<div id="ah-error" class="hidden text-center py-8 text-red-400 text-sm">Failed to load audio health data.</div>
+
+<script>
+(function() {
+  const _tz = document.body.dataset.tz || 'UTC';
+
+  function fmtBytes(n) {
+    if (!n) return '0 B';
+    const u = ['B','KB','MB','GB','TB'];
+    let i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return n.toFixed(i === 0 ? 0 : 1) + ' ' + u[i];
+  }
+  function fmtDay(d) {
+    const dt = new Date(d + 'T00:00:00Z');
+    return dt.toLocaleDateString('en-GB', { month: 'short', day: 'numeric', timeZone: _tz });
+  }
+
+  fetch('/api/v1/audio-health?days=30')
+    .then(r => { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+    .then(data => {
+      document.getElementById('ah-loading').classList.add('hidden');
+      document.getElementById('ah-content').classList.remove('hidden');
+
+      if (!data.enabled) {
+        document.getElementById('ah-disabled').classList.remove('hidden');
+      }
+
+      const t = data.totals;
+      document.getElementById('ah-total').textContent = t.total.toLocaleString();
+      document.getElementById('ah-with').textContent = t.with_clip.toLocaleString();
+      const missEl = document.getElementById('ah-without');
+      missEl.textContent = t.without_clip.toLocaleString();
+      if (t.without_clip > 0) {
+        missEl.classList.add('text-amber-600','dark:text-amber-400');
+      }
+      const cov = t.total > 0 ? Math.round(100 * t.with_clip / t.total) : 0;
+      const covEl = document.getElementById('ah-coverage');
+      covEl.textContent = t.total > 0 ? cov + '%' : '--';
+      if (t.total > 0) {
+        covEl.classList.add(cov >= 90 ? 'text-emerald-600' : cov >= 60 ? 'text-amber-600' : 'text-red-600');
+        covEl.classList.add(cov >= 90 ? 'dark:text-emerald-400' : cov >= 60 ? 'dark:text-amber-400' : 'dark:text-red-400');
+      }
+
+      const m = data.metrics;
+      document.getElementById('ah-saved').textContent = m.clips_saved.toLocaleString();
+      const drEl = document.getElementById('ah-dropped');
+      drEl.textContent = m.clips_dropped.toLocaleString();
+      if (m.clips_dropped > 0) {
+        drEl.classList.add('text-amber-600','dark:text-amber-400');
+      }
+      document.getElementById('ah-bytes').textContent = fmtBytes(m.bytes_written);
+
+      if (data.retention) {
+        document.getElementById('ah-retention').textContent =
+          data.retention.retention_days > 0 ? data.retention.retention_days + ' days' : 'unlimited';
+        document.getElementById('ah-disk').textContent =
+          data.retention.max_disk_mb > 0 ? data.retention.max_disk_mb + ' MB' : 'unlimited';
+      } else {
+        document.getElementById('ah-retention').textContent = 'n/a';
+        document.getElementById('ah-disk').textContent = 'n/a';
+      }
+      const dirEl = document.getElementById('ah-dir');
+      dirEl.textContent = data.clip_dir || 'n/a';
+      if (data.clip_dir) dirEl.title = data.clip_dir;
+
+      // Diagnostic tip
+      const tipEl = document.getElementById('ah-tip');
+      let tip = '';
+      if (!data.enabled) {
+        // Already covered by the disabled banner.
+      } else if (m.clips_dropped > 0 && m.clips_saved > 0 && m.clips_dropped / (m.clips_saved + m.clips_dropped) > 0.05) {
+        tip = '<strong>Backpressure detected.</strong> The snippet writer is dropping more than 5% of clips since the last restart. Disk I/O (SD card or USB) likely can\'t keep up with detection rate. New detections in this window have no audio.';
+        tipEl.className = 'rounded-xl p-4 text-sm bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-200';
+      } else if (data.retention && data.retention.retention_days > 0 && t.without_clip > t.with_clip) {
+        tip = '<strong>Retention is the likely cause.</strong> Most missing-audio detections are probably older than ' + data.retention.retention_days + ' days and were swept by the retention worker. Detections marked <em>correct</em> via review are spared.';
+        tipEl.className = 'rounded-xl p-4 text-sm bg-plumage-50 dark:bg-plumage-900/40 border border-plumage-200 dark:border-plumage-800/50 text-plumage-800 dark:text-plumage-200';
+      }
+      if (tip) {
+        tipEl.innerHTML = tip;
+        tipEl.classList.remove('hidden');
+      }
+
+      // Chart
+      const chart = document.getElementById('ah-chart');
+      const days = (data.daily || []).slice().reverse(); // oldest -> newest, left -> right
+      if (days.length === 0) {
+        chart.classList.add('hidden');
+        document.getElementById('ah-empty').classList.remove('hidden');
+        return;
+      }
+      const max = days.reduce((m, d) => Math.max(m, d.total), 0) || 1;
+      chart.innerHTML = days.map(d => {
+        const totalH = (d.total / max) * 100;
+        const withH = d.total > 0 ? (d.with_clip / d.total) * totalH : 0;
+        const missH = totalH - withH;
+        const pct = d.total > 0 ? Math.round(100 * d.with_clip / d.total) : 0;
+        const title = fmtDay(d.day) + ': ' + d.total + ' detections, ' + d.with_clip + ' with clip (' + pct + '%), ' + (d.total - d.with_clip) + ' missing';
+        return '<div class="flex-1 min-w-0 flex flex-col items-stretch justify-end gap-px" title="' + title.replace(/"/g, '&quot;') + '">' +
+                 '<div class="bg-amber-500/80 rounded-t-sm" style="height:' + missH + '%"></div>' +
+                 '<div class="bg-emerald-500/80" style="height:' + withH + '%"></div>' +
+                 '<div class="text-[9px] text-gray-400 dark:text-plumage-600 text-center mt-0.5 truncate">' + fmtDay(d.day).split(' ')[1] + '</div>' +
+               '</div>';
+      }).join('');
+    })
+    .catch(() => {
+      document.getElementById('ah-loading').classList.add('hidden');
+      document.getElementById('ah-error').classList.remove('hidden');
+    });
+})();
+</script>"##
+        .to_string()
 }
 
 pub fn individuals_content() -> String {

@@ -4,6 +4,74 @@ Decisions, insights, and lessons learned during development.
 
 ---
 
+## 2026-05-02: Audio Health diagnostics page
+
+### Problem
+
+Some detections render a playable spectrogram on the dashboard, detection detail, and
+species detail pages; others don't. The species detail page in particular shows a mix of
+"with clip" and "no clip" rows for a single species, with no indication of why. Users have
+no visibility into the three causes:
+
+1. **Backpressure drop** — `SnippetWriter`'s bounded `mpsc::channel(64)` is full, so
+   `try_send` fails and the clip is dropped at write time. The detection row is still
+   inserted, but `snippet_path` stays NULL forever.
+2. **Retention sweep** — the retention worker deletes old WAVs and clears their
+   `snippet_path` column. Detections marked `correct` via review are spared, which is why
+   curated species keep their spectrograms and uncurated ones lose them.
+3. **Snippets disabled** — `config.snippets.enabled = false` means no clips are saved at all.
+
+The UI gating is a single conditional (`d.has_audio || d.snippet_path`) — when it's false,
+the spectrogram and Play button are silently omitted. Without diagnostics, the only way to
+distinguish causes was reading logs and querying the database by hand.
+
+### Solution: `/diagnostics` page (Audio Health)
+
+A new sidebar page at `/diagnostics`, backed by `GET /api/v1/audio-health`, surfaces:
+
+- **All-time totals** — detections vs. detections with a saved clip, plus coverage %.
+- **Snippet writer counters** — `clips_saved`, `clips_dropped` (backpressure drops),
+  `bytes_written`. Reset on process restart.
+- **Retention config** — `retention_days`, `max_disk_mb`, clip directory.
+- **Daily breakdown chart** — last 30 days, stacked bars (green = with clip, amber =
+  missing). Reveals at a glance whether missing-audio rows cluster at the oldest end
+  (retention) or in bursts (backpressure).
+- **Diagnostic tip** — picks the most likely cause based on the data:
+  - Snippets disabled → banner.
+  - `clips_dropped / (saved + dropped) > 5%` → "backpressure detected."
+  - `without_clip > with_clip` and retention is finite → "retention is the likely cause."
+
+### Design decisions
+
+- **Moved `SnippetMetrics` from `sitta-bin/src/snippets.rs` to `sitta-api/src/server.rs`.**
+  `IntegrationState` now holds `Option<Arc<SnippetMetrics>>` and `Option<SnippetRetention>`,
+  populated from `main.rs` after `spawn_snippet_writer`. This avoids a circular dep
+  (sitta-api can't depend on sitta-bin) while letting the API read the same atomics the
+  writer increments. `None` for both fields means snippet saving was disabled in config.
+
+- **Single endpoint, not extended `/api/v1/status`.** The status page is a quick health
+  check; audio health is its own concern with its own data shape (daily series, retention
+  config, large-window aggregates). Mixing them would bloat the status response.
+
+- **Daily aggregate done in SQL.** `daily_audio_health(since_ms)` does the
+  `strftime + GROUP BY + SUM(CASE WHEN snippet_path IS NOT NULL …)` server-side rather than
+  fetching detections and bucketing in Rust. The query had to repeat the `strftime`
+  expression in `GROUP BY` (SQLite doesn't accept select aliases there) and use
+  `"day!: String"` for the sqlx column override (a bare `"day!"` was inferred as `()`).
+
+- **Page is self-contained vanilla JS.** Matches the rest of the dashboard — no template
+  engine, no framework. The chart is a flexbox row of stacked divs; no library.
+
+### What this does NOT fix
+
+- The species-detail spectrogram inconsistency itself. The cards still silently omit the
+  spectrogram when `has_audio` is false. A follow-up could replace the omission with a
+  small "no clip available" placeholder so users know whether a row has audio or not
+  without round-tripping through the diagnostics page.
+- The dashboard → animal → species-list navigation gap (separate task).
+
+---
+
 ## 2026-04-22: Presence confirmation — repeat-detection gating before alerts
 
 ### Problem

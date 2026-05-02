@@ -4,6 +4,21 @@ use crate::models::DetectionRow;
 
 use super::Database;
 
+/// One day's worth of detection counts split by whether a clip was saved.
+#[derive(Debug, Clone)]
+pub struct DailyAudioHealth {
+    pub day: String,
+    pub total: i64,
+    pub with_clip: i64,
+}
+
+/// Aggregate counts of detections with and without a saved clip.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AudioHealthTotals {
+    pub total: i64,
+    pub with_clip: i64,
+}
+
 impl Database {
     /// Update the snippet path for a detection after async clip saving.
     pub async fn update_snippet_path(
@@ -84,5 +99,52 @@ impl Database {
                 range_status: r.range_status,
             })
             .collect())
+    }
+
+    /// Daily breakdown of detections with vs. without a saved snippet,
+    /// for detections at or after `since_ms`. Most recent day first.
+    pub async fn daily_audio_health(
+        &self,
+        since_ms: i64,
+    ) -> Result<Vec<DailyAudioHealth>, crate::StoreError> {
+        let rows = sqlx::query!(
+            r#"SELECT
+                strftime('%Y-%m-%d', detected_at / 1000, 'unixepoch') AS "day!: String",
+                COUNT(*) AS "total!: i64",
+                SUM(CASE WHEN snippet_path IS NOT NULL THEN 1 ELSE 0 END) AS "with_clip!: i64"
+              FROM detections
+              WHERE detected_at >= $1
+              GROUP BY strftime('%Y-%m-%d', detected_at / 1000, 'unixepoch')
+              ORDER BY 1 DESC"#,
+            since_ms,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| DailyAudioHealth {
+                day: r.day,
+                total: r.total,
+                with_clip: r.with_clip,
+            })
+            .collect())
+    }
+
+    /// All-time totals of detections vs. detections with a saved snippet.
+    pub async fn audio_health_totals(&self) -> Result<AudioHealthTotals, crate::StoreError> {
+        let row = sqlx::query!(
+            r#"SELECT
+                COUNT(*) AS "total!: i64",
+                SUM(CASE WHEN snippet_path IS NOT NULL THEN 1 ELSE 0 END) AS "with_clip!: i64"
+              FROM detections"#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(AudioHealthTotals {
+            total: row.total,
+            with_clip: row.with_clip,
+        })
     }
 }

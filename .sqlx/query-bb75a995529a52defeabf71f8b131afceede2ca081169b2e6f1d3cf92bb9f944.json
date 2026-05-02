@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                strftime('%Y-%m-%d', detected_at / 1000, 'unixepoch') AS \"day!: String\",\n                COUNT(*) AS \"total!: i64\",\n                SUM(CASE WHEN snippet_path IS NOT NULL THEN 1 ELSE 0 END) AS \"with_clip!: i64\"\n              FROM detections\n              WHERE detected_at >= $1\n              GROUP BY strftime('%Y-%m-%d', detected_at / 1000, 'unixepoch')\n              ORDER BY 1 DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "day!: String",
+        "ordinal": 0,
+        "type_info": "Null"
+      },
+      {
+        "name": "total!: i64",
+        "ordinal": 1,
+        "type_info": "Null"
+      },
+      {
+        "name": "with_clip!: i64",
+        "ordinal": 2,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "bb75a995529a52defeabf71f8b131afceede2ca081169b2e6f1d3cf92bb9f944"
+}

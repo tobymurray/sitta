@@ -11,6 +11,8 @@ mod sessions;
 mod snippets;
 mod species;
 
+pub use snippets::{AudioHealthTotals, DailyAudioHealth};
+
 use std::path::Path;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};

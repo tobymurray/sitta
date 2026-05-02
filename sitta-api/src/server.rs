@@ -135,6 +135,10 @@ pub struct InferenceState {
 pub struct IntegrationState {
     pub mqtt_control: Option<Arc<dyn MqttControl>>,
     pub clip_dir: Option<PathBuf>,
+    /// Snippet writer metrics. `None` when snippet saving is disabled.
+    pub snippet_metrics: Option<Arc<SnippetMetrics>>,
+    /// Snippet retention configuration (for diagnostics).
+    pub snippet_retention: Option<SnippetRetention>,
 }
 
 /// Pipeline metrics tracked via atomic counters.
@@ -145,6 +149,22 @@ pub struct PipelineMetrics {
     pub birdnet_chunks_dropped: AtomicU64,
     pub perch_chunks_processed: AtomicU64,
     pub perch_chunks_dropped: AtomicU64,
+}
+
+/// Snippet writer metrics tracked via atomic counters.
+/// Owned by the snippet writer in `sitta-bin`; surfaced via the API.
+#[derive(Default)]
+pub struct SnippetMetrics {
+    pub clips_saved: AtomicU64,
+    pub clips_dropped: AtomicU64,
+    pub bytes_written: AtomicU64,
+}
+
+/// Snippet retention configuration snapshot for diagnostics.
+#[derive(Clone, Copy)]
+pub struct SnippetRetention {
+    pub retention_days: u32,
+    pub max_disk_mb: u64,
 }
 
 /// Build the axum router with all routes.
@@ -170,6 +190,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/v1/activity/hourly", get(hourly_activity))
         .route("/api/v1/species/{name}/insights", get(species_insights))
         .route("/api/v1/status", get(status_handler))
+        .route("/api/v1/audio-health", get(audio_health_handler))
         .route("/api/v1/settings", get(get_settings).put(update_settings))
         .route("/api/v1/individuals", get(list_individuals).post(enroll_individual).delete(delete_all_individuals))
         .route("/api/v1/individuals/{id}", get(get_individual))
@@ -193,6 +214,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/species", get(species_page))
         .route("/species/{name}", get(species_detail_page))
         .route("/status", get(status_page))
+        .route("/diagnostics", get(diagnostics_page))
         .route("/individuals", get(individuals_page))
         .route("/settings", get(settings_page))
         .with_state(state)
@@ -806,6 +828,134 @@ struct NotableDetection {
     rarity_score: f32,
     first_ever: bool,
     first_season: bool,
+}
+
+// ── REST: audio health ──────────────────────────────────────────
+
+#[derive(Serialize)]
+struct AudioHealthResponse {
+    /// Whether snippet saving is enabled in config.
+    enabled: bool,
+    /// Path of the clip directory (if enabled).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    clip_dir: Option<String>,
+    /// Snippet writer counters since process start.
+    metrics: AudioHealthMetrics,
+    /// Retention configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retention: Option<AudioHealthRetention>,
+    /// All-time totals: detections vs detections with a saved clip.
+    totals: AudioHealthTotalsView,
+    /// Daily breakdown for the requested window. Most recent day first.
+    daily: Vec<AudioHealthDay>,
+    /// Window start for the daily breakdown (Unix ms).
+    window_since_ms: i64,
+}
+
+#[derive(Serialize, Default)]
+struct AudioHealthMetrics {
+    clips_saved: u64,
+    clips_dropped: u64,
+    bytes_written: u64,
+}
+
+#[derive(Serialize)]
+struct AudioHealthRetention {
+    retention_days: u32,
+    max_disk_mb: u64,
+}
+
+#[derive(Serialize)]
+struct AudioHealthTotalsView {
+    total: i64,
+    with_clip: i64,
+    without_clip: i64,
+}
+
+#[derive(Serialize)]
+struct AudioHealthDay {
+    day: String,
+    total: i64,
+    with_clip: i64,
+    without_clip: i64,
+}
+
+#[derive(Deserialize)]
+struct AudioHealthParams {
+    /// Days to include in the daily breakdown. Default 30, clamped to [1, 365].
+    days: Option<u32>,
+}
+
+async fn audio_health_handler(
+    State(state): State<ApiState>,
+    Query(params): Query<AudioHealthParams>,
+) -> Result<Json<AudioHealthResponse>, ApiError> {
+    let days = params.days.unwrap_or(30).clamp(1, 365);
+    let since_ms = Utc::now().timestamp_millis() - i64::from(days) * 86_400_000;
+
+    let totals = state
+        .core
+        .db
+        .audio_health_totals()
+        .await
+        .map_err(ApiError::internal)?;
+    let daily_rows = state
+        .core
+        .db
+        .daily_audio_health(since_ms)
+        .await
+        .map_err(ApiError::internal)?;
+
+    let metrics = state
+        .integrations
+        .snippet_metrics
+        .as_ref()
+        .map(|m| AudioHealthMetrics {
+            clips_saved: m.clips_saved.load(Ordering::Relaxed),
+            clips_dropped: m.clips_dropped.load(Ordering::Relaxed),
+            bytes_written: m.bytes_written.load(Ordering::Relaxed),
+        })
+        .unwrap_or_default();
+
+    let retention = state
+        .integrations
+        .snippet_retention
+        .map(|r| AudioHealthRetention {
+            retention_days: r.retention_days,
+            max_disk_mb: r.max_disk_mb,
+        });
+
+    let clip_dir = state
+        .integrations
+        .clip_dir
+        .as_ref()
+        .map(|p| p.display().to_string());
+
+    let enabled = state.integrations.snippet_metrics.is_some();
+
+    let daily = daily_rows
+        .into_iter()
+        .map(|d| AudioHealthDay {
+            day: d.day,
+            total: d.total,
+            with_clip: d.with_clip,
+            without_clip: d.total - d.with_clip,
+        })
+        .collect();
+
+    Ok(Json(AudioHealthResponse {
+        enabled,
+        clip_dir,
+        metrics,
+        retention,
+        totals: AudioHealthTotalsView {
+            total: totals.total,
+            with_clip: totals.with_clip,
+            without_clip: totals.total - totals.with_clip,
+        },
+        daily,
+        window_since_ms: since_ms,
+    }))
 }
 
 // ── REST: status ────────────────────────────────────────────────
@@ -1954,6 +2104,14 @@ async fn status_page(
     let s = state.core.settings.load();
     let content = dashboard::status_content(&s.station_name);
     dashboard::page("Status", "status", &content, &s.timezone)
+}
+
+async fn diagnostics_page(
+    State(state): State<ApiState>,
+) -> axum::response::Html<String> {
+    let s = state.core.settings.load();
+    let content = dashboard::diagnostics_content();
+    dashboard::page("Audio Health", "diagnostics", &content, &s.timezone)
 }
 
 async fn individuals_page(

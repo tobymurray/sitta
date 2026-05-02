@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                COUNT(*) AS \"total!: i64\",\n                SUM(CASE WHEN snippet_path IS NOT NULL THEN 1 ELSE 0 END) AS \"with_clip!: i64\"\n              FROM detections",
+  "describe": {
+    "columns": [
+      {
+        "name": "total!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "with_clip!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "274823394e21fb780f531c22b98b11444f24d9dd7cd360da995d0c5789cb6d76"
+}
