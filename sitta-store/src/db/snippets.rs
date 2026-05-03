@@ -117,6 +117,10 @@ impl Database {
                 model_name: r.model_name,
                 model_version: r.model_version,
                 source_name: r.source_name,
+                // The retention worker doesn't read individual data; leave None.
+                individual_id: None,
+                individual_label: None,
+                individual_similarity: None,
                 has_embedding: r.has_embedding,
                 range_status: r.range_status,
             })

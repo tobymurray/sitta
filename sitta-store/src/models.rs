@@ -105,6 +105,11 @@ pub struct DetectionRow {
     pub source_name: Option<String>,
     pub has_embedding: bool,
     pub range_status: Option<String>,
+    /// Highest-similarity individual match for this detection, if any.
+    /// Populated by joining `individual_matches` + `individuals`.
+    pub individual_id: Option<Vec<u8>>,
+    pub individual_label: Option<String>,
+    pub individual_similarity: Option<f64>,
 }
 
 /// A secondary prediction row with label info.

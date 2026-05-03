@@ -111,11 +111,21 @@ impl Database {
                       m.name AS "model_name!", m.version AS "model_version!",
                       s.name AS "source_name?",
                       (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS "has_embedding!: bool",
-                      d.range_status
+                      d.range_status,
+                      im.individual_id AS "individual_id?: Vec<u8>",
+                      ind.label AS "individual_label?",
+                      im.similarity AS "individual_similarity?: f64"
                FROM detections d
                JOIN labels l ON l.id = d.label_id
                JOIN models m ON m.id = d.model_id
                LEFT JOIN audio_sources s ON s.id = d.source_id
+               LEFT JOIN individual_matches im ON im.detection_id = d.id
+                   AND im.id = (
+                       SELECT m2.id FROM individual_matches m2
+                       WHERE m2.detection_id = d.id
+                       ORDER BY m2.similarity DESC LIMIT 1
+                   )
+               LEFT JOIN individuals ind ON ind.id = im.individual_id
                WHERE d.detected_at >= $1 AND d.detected_at <= $2
                  AND d.confidence >= $6
                  AND ($5 IS NULL OR l.scientific_name = $5)
@@ -151,6 +161,9 @@ impl Database {
                     existing.id = r.id;
                     existing.detected_at = r.detected_at;
                     existing.snippet_path = r.snippet_path;
+                    existing.individual_id = r.individual_id;
+                    existing.individual_label = r.individual_label;
+                    existing.individual_similarity = r.individual_similarity;
                 }
                 if r.has_embedding {
                     existing.has_embedding = true;
@@ -171,6 +184,9 @@ impl Database {
                     source_name: r.source_name,
                     has_embedding: r.has_embedding,
                     range_status: r.range_status.clone(),
+                    individual_id: r.individual_id,
+                    individual_label: r.individual_label,
+                    individual_similarity: r.individual_similarity,
                 });
             }
         }
@@ -192,11 +208,21 @@ impl Database {
                       m.name AS "model_name!", m.version AS "model_version!",
                       s.name AS "source_name?",
                       (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS "has_embedding!: bool",
-                      d.range_status
+                      d.range_status,
+                      im.individual_id AS "individual_id?: Vec<u8>",
+                      ind.label AS "individual_label?",
+                      im.similarity AS "individual_similarity?: f64"
                FROM detections d
                JOIN labels l ON l.id = d.label_id
                JOIN models m ON m.id = d.model_id
                LEFT JOIN audio_sources s ON s.id = d.source_id
+               LEFT JOIN individual_matches im ON im.detection_id = d.id
+                   AND im.id = (
+                       SELECT m2.id FROM individual_matches m2
+                       WHERE m2.detection_id = d.id
+                       ORDER BY m2.similarity DESC LIMIT 1
+                   )
+               LEFT JOIN individuals ind ON ind.id = im.individual_id
                WHERE d.id = $1"#,
             id,
         )
@@ -217,6 +243,9 @@ impl Database {
             source_name: r.source_name,
             has_embedding: r.has_embedding,
             range_status: r.range_status,
+            individual_id: r.individual_id,
+            individual_label: r.individual_label,
+            individual_similarity: r.individual_similarity,
         }))
     }
 
@@ -300,6 +329,12 @@ impl Database {
                 source_name: r.source_name,
                 has_embedding: r.has_embedding,
                 range_status: r.range_status,
+                // Correlated detections render as a side panel showing
+                // species + confidence; individual data isn't surfaced here
+                // (the user clicks through to the detail page for that).
+                individual_id: None,
+                individual_label: None,
+                individual_similarity: None,
             })
             .collect())
     }

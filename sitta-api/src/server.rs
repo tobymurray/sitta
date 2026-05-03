@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
-use crate::event::{Alternative, DetectionEvent, RarityInfo, SpeciesInfo};
+use crate::event::{Alternative, DetectionEvent, IndividualInfo, RarityInfo, SpeciesInfo};
 use crate::settings::{
     self, InitialConfig, RuntimeSettings, SettingsResponse, SettingsUpdate,
     RESTART_REQUIRED_FIELDS,
@@ -314,6 +314,7 @@ async fn list_detections(
 
     let has_more = rows.len() as i64 > limit;
     let mut detections: Vec<DetectionSummary> = rows.into_iter().take(limit as usize).filter_map(|r| {
+        let individual = detection_row_individual(&r);
         Some(DetectionSummary {
             id: uuid_from_blob(r.id).ok()?.to_string(),
             detected_at: millis_to_rfc3339(r.detected_at)?,
@@ -328,6 +329,8 @@ async fn list_detections(
             confidence: r.confidence as f32,
             has_embedding: r.has_embedding,
             has_audio: r.snippet_path.is_some(),
+            alternatives: Vec::new(),
+            individual,
             rarity: None,
             range_unverified: match r.range_status.as_deref() {
                 Some("not_in_meta_model") => Some(true),
@@ -342,12 +345,27 @@ async fn list_detections(
         detections.retain(|d| d.range_unverified != Some(true));
     }
 
-    // Populate rarity scores for each detection.
+    // Populate rarity scores and alternatives for each detection. Both are
+    // per-row queries (N+1) — flagged in the roadmap as an indexing/JOIN
+    // cleanup. The retention worker has the same shape and the dashboard
+    // pages live with it for now.
     for det in &mut detections {
-        if let Ok(uuid) = det.id.parse::<uuid::Uuid>()
-            && let Ok(Some(r)) = state.core.db.get_rarity(uuid.as_bytes().as_slice()).await
-        {
-            det.rarity = Some(rarity_row_to_info(&r));
+        if let Ok(uuid) = det.id.parse::<uuid::Uuid>() {
+            let id_bytes = uuid.as_bytes().as_slice();
+            if let Ok(Some(r)) = state.core.db.get_rarity(id_bytes).await {
+                det.rarity = Some(rarity_row_to_info(&r));
+            }
+            if let Ok(preds) = state.core.db.get_predictions(id_bytes).await {
+                det.alternatives = preds
+                    .into_iter()
+                    .map(|p| Alternative {
+                        rank: p.rank as u32,
+                        scientific_name: p.scientific_name.unwrap_or_default(),
+                        common_name: p.common_name,
+                        confidence: p.confidence as f32,
+                    })
+                    .collect();
+            }
         }
     }
 
@@ -535,6 +553,7 @@ impl OpenBucket {
     }
 
     fn into_item(self) -> Option<DashboardFeedItem> {
+        let individual = detection_row_individual(&self.best_row);
         let r = self.best_row;
         let id = uuid_from_blob(r.id).ok()?.to_string();
         let detected_at = millis_to_rfc3339(r.detected_at)?;
@@ -555,6 +574,11 @@ impl OpenBucket {
                 confidence: r.confidence as f32,
                 has_embedding: r.has_embedding,
                 has_audio: r.snippet_path.is_some(),
+                // The bucketed feed favours scrolling speed over per-card
+                // alternatives — the user can click through to /detections/{id}
+                // for the full alternates list.
+                alternatives: Vec::new(),
+                individual,
                 rarity: self.best_rarity,
                 range_unverified: match r.range_status.as_deref() {
                     Some("not_in_meta_model") => Some(true),
@@ -638,6 +662,8 @@ async fn get_detection(
         .flatten()
         .map(|r| rarity_row_to_info(&r));
 
+    let individual = detection_row_individual(&row);
+
     let detail = DetectionDetail {
         id: uuid.to_string(),
         detected_at: millis_to_rfc3339(row.detected_at).unwrap_or_default(),
@@ -651,11 +677,13 @@ async fn get_detection(
         },
         confidence: row.confidence as f32,
         alternatives,
+        has_embedding: row.has_embedding,
         has_audio: row.snippet_path.is_some(),
         snippet_path: row.snippet_path,
         metadata: row.metadata,
         review,
         correlated,
+        individual,
         rarity,
         range_unverified: match row.range_status.as_deref() {
             Some("not_in_meta_model") => Some(true),
@@ -1355,23 +1383,30 @@ struct PaginatedDetections {
 }
 
 #[derive(Serialize)]
-struct DetectionSummary {
-    id: String,
-    detected_at: String,
+pub(crate) struct DetectionSummary {
+    pub id: String,
+    pub detected_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    source_name: Option<String>,
-    model: String,
-    model_version: String,
-    species: SpeciesInfo,
-    confidence: f32,
-    has_embedding: bool,
+    pub source_name: Option<String>,
+    pub model: String,
+    pub model_version: String,
+    pub species: SpeciesInfo,
+    pub confidence: f32,
+    pub has_embedding: bool,
     /// Whether this detection has a saved audio clip.
-    has_audio: bool,
+    pub has_audio: bool,
+    /// Ranked alternative predictions (rank 1 = second-best). Empty when
+    /// none above threshold.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<Alternative>,
+    /// Individual match info, if this detection matched a known individual.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub individual: Option<IndividualInfo>,
     /// Rarity scoring breakdown.
     #[serde(skip_serializing_if = "Option::is_none")]
-    rarity: Option<RarityInfo>,
+    pub rarity: Option<RarityInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    range_unverified: Option<bool>,
+    pub range_unverified: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -1386,6 +1421,7 @@ struct DetectionDetail {
     confidence: f32,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     alternatives: Vec<Alternative>,
+    has_embedding: bool,
     has_audio: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     snippet_path: Option<String>,
@@ -1396,6 +1432,9 @@ struct DetectionDetail {
     /// Detections from other models within ±5 seconds of this detection.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     correlated: Vec<CorrelatedDetection>,
+    /// Individual match info, if this detection matched a known individual.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    individual: Option<IndividualInfo>,
     /// Rarity scoring breakdown.
     #[serde(skip_serializing_if = "Option::is_none")]
     rarity: Option<RarityInfo>,
@@ -1468,5 +1507,23 @@ pub(crate) fn rarity_row_to_info(r: &sitta_store::models::RarityRow) -> RarityIn
         range_score: r.range_score.map(|s| s as f32),
         temporal_score: r.temporal_score as f32,
     }
+}
+
+/// Build an `IndividualInfo` from a `DetectionRow`'s match fields. Returns
+/// `None` unless all three match fields are populated.
+pub(crate) fn detection_row_individual(
+    r: &sitta_store::models::DetectionRow,
+) -> Option<IndividualInfo> {
+    let id_blob = r.individual_id.as_ref()?;
+    let label = r.individual_label.clone()?;
+    let similarity = r.individual_similarity?;
+    let id = sitta_store::models::uuid_from_blob(id_blob.clone())
+        .ok()?
+        .to_string();
+    Some(IndividualInfo {
+        individual_id: id,
+        label,
+        similarity: similarity as f32,
+    })
 }
 
