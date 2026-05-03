@@ -183,8 +183,79 @@ window.sitta = (function() {{
     return new Date(iso).toLocaleString('en-GB', {{ month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz || 'UTC' }});
   }}
 
-  return {{ esc, confidenceBadge, rarityBadges, fmtDateTime }};
+  // ── Audio player + spectrogram seek (shared across pages) ─────
+  // Buttons are rendered server-side (each page chooses its own SVG size /
+  // label), so the player saves the button's original innerHTML the first
+  // time it activates and restores it on stop. One global player at a time:
+  // playing a new clip stops the previous one. The spectrogram playhead
+  // syncs to the current play position via requestAnimationFrame.
+  let _audio = null, _id = null, _frame = null;
+  const _STOP_HTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><rect x="4" y="4" width="12" height="12" rx="1.5"/></svg> Stop';
+
+  function _stop() {{
+    if (_frame) {{ cancelAnimationFrame(_frame); _frame = null; }}
+    if (_audio) {{ _audio.pause(); _audio = null; }}
+    document.querySelectorAll('.clip-playing').forEach(b => {{
+      b.classList.remove('clip-playing');
+      if (b._sittaDefaultHtml != null) b.innerHTML = b._sittaDefaultHtml;
+    }});
+    document.querySelectorAll('.playhead').forEach(ph => ph.style.display = 'none');
+    _id = null;
+  }}
+
+  function _animatePlayhead() {{
+    if (!_audio || _audio.paused) return;
+    const ph = document.querySelector('#spect-' + CSS.escape(_id) + ' .playhead');
+    if (ph && _audio.duration) {{
+      ph.style.left = (_audio.currentTime / _audio.duration * 100) + '%';
+      ph.style.display = '';
+    }}
+    _frame = requestAnimationFrame(_animatePlayhead);
+  }}
+
+  function _markPlaying(btn) {{
+    if (!btn) return;
+    if (btn._sittaDefaultHtml == null) btn._sittaDefaultHtml = btn.innerHTML;
+    btn.classList.add('clip-playing');
+    btn.innerHTML = _STOP_HTML;
+  }}
+
+  function playClip(id, btn) {{
+    if (_id === id && _audio && !_audio.paused) {{ _stop(); return; }}
+    _stop();
+    _id = id;
+    _audio = new Audio('/api/v1/detections/' + id + '/audio');
+    _audio.play();
+    _markPlaying(btn);
+    _animatePlayhead();
+    _audio.onended = () => _stop();
+  }}
+
+  function seekSpectrogram(event, id) {{
+    const rect = event.currentTarget.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    if (_id === id && _audio) {{
+      _audio.currentTime = pct * _audio.duration;
+      if (_audio.paused) _audio.play();
+    }} else {{
+      _stop();
+      _id = id;
+      _audio = new Audio('/api/v1/detections/' + id + '/audio');
+      _audio.addEventListener('loadedmetadata', () => {{
+        _audio.currentTime = pct * _audio.duration;
+        _audio.play();
+        _animatePlayhead();
+      }});
+      const btn = event.currentTarget.parentElement.querySelector('[onclick*="playClip"]');
+      _markPlaying(btn);
+      _audio.onended = () => _stop();
+    }}
+  }}
+
+  return {{ esc, confidenceBadge, rarityBadges, fmtDateTime, playClip, seekSpectrogram }};
 }})();
+window.playClip = window.sitta.playClip;
+window.seekSpectrogram = window.sitta.seekSpectrogram;
 
 // ── Audio waveforms + player (global, runs on every page) ──────
 (function() {{
@@ -389,6 +460,10 @@ ACTIVITY_PANEL_PLACEHOLDER
   const connStatus = document.getElementById('connection-status');
   let count = 0;
 
+  // Rendered into static button markup; the shared player on window.sitta
+  // swaps it for a stop icon while playing and restores it on stop.
+  const playSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/></svg>';
+
   function setConnected(ok) {{
     connStatus.innerHTML = ok
       ? '<span class="relative flex h-2.5 w-2.5"><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span></span> Connected'
@@ -425,55 +500,8 @@ ACTIVITY_PANEL_PLACEHOLDER
     return new Date(iso).toLocaleTimeString('en-GB', _tf);
   }}
 
-  // Audio playback for detection clips with spectrogram sync.
-  let clipAudio = null, clipId = null, animFrame = null;
-  const playSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/></svg>';
-  const stopSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><rect x="4" y="4" width="12" height="12" rx="1.5"/></svg>';
-
-  function stopClip() {{
-    if (animFrame) {{ cancelAnimationFrame(animFrame); animFrame = null; }}
-    if (clipAudio) {{ clipAudio.pause(); clipAudio = null; }}
-    document.querySelectorAll('.clip-btn-playing').forEach(b => {{ b.classList.remove('clip-btn-playing'); b.innerHTML = playSvg; }});
-    document.querySelectorAll('.playhead').forEach(ph => ph.style.display = 'none');
-    clipId = null;
-  }}
-  function animatePlayhead() {{
-    if (!clipAudio || clipAudio.paused) return;
-    const ph = document.querySelector('#spect-' + CSS.escape(clipId) + ' .playhead');
-    if (ph && clipAudio.duration) {{ ph.style.left = (clipAudio.currentTime / clipAudio.duration * 100) + '%'; ph.style.display = ''; }}
-    animFrame = requestAnimationFrame(animatePlayhead);
-  }}
-  window.playClip = function(id, btn) {{
-    if (clipId === id && clipAudio && !clipAudio.paused) {{ stopClip(); return; }}
-    stopClip();
-    clipId = id;
-    clipAudio = new Audio('/api/v1/detections/' + id + '/audio');
-    clipAudio.play();
-    btn.classList.add('clip-btn-playing');
-    btn.innerHTML = stopSvg;
-    animatePlayhead();
-    clipAudio.onended = () => stopClip();
-  }};
-  window.seekSpectrogram = function(event, id) {{
-    const rect = event.currentTarget.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-    if (clipId === id && clipAudio) {{
-      clipAudio.currentTime = pct * clipAudio.duration;
-      if (clipAudio.paused) clipAudio.play();
-    }} else {{
-      stopClip();
-      clipId = id;
-      clipAudio = new Audio('/api/v1/detections/' + id + '/audio');
-      clipAudio.addEventListener('loadedmetadata', () => {{
-        clipAudio.currentTime = pct * clipAudio.duration;
-        clipAudio.play();
-        animatePlayhead();
-      }});
-      const btn = event.currentTarget.parentElement.querySelector('[onclick*="playClip"]');
-      if (btn) {{ btn.classList.add('clip-btn-playing'); btn.innerHTML = stopSvg; }}
-      clipAudio.onended = () => stopClip();
-    }}
-  }};
+  // Audio playback (window.playClip) and spectrogram seek (window.seekSpectrogram)
+  // are installed by the global window.sitta IIFE — see dashboard::page().
 
   // Review detection.
   window.reviewDetection = function(id, status, card) {{
@@ -1142,71 +1170,9 @@ pub fn species_detail_content(scientific_name: &str) -> String {
     }}
   }})();
 
+  // The play SVG is rendered into the static button markup below; the
+  // shared player on window.sitta handles toggle / stop / scrubbing.
   const playSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/></svg>';
-  const stopSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><rect x="4" y="4" width="12" height="12" rx="1.5"/></svg>';
-  let clipAudio = null;
-  let clipId = null;
-  let animFrame = null;
-
-  function stopClip() {{
-    if (animFrame) {{ cancelAnimationFrame(animFrame); animFrame = null; }}
-    if (clipAudio) {{ clipAudio.pause(); clipAudio = null; }}
-    document.querySelectorAll('.clip-playing').forEach(b => {{ b.classList.remove('clip-playing'); b.innerHTML = playSvg + ' Play'; }});
-    // Hide all playheads
-    document.querySelectorAll('.playhead').forEach(ph => ph.style.display = 'none');
-    clipId = null;
-  }}
-
-  function animatePlayhead() {{
-    if (!clipAudio || clipAudio.paused) return;
-    const ph = document.querySelector('#spect-' + CSS.escape(clipId) + ' .playhead');
-    if (ph && clipAudio.duration) {{
-      const pct = (clipAudio.currentTime / clipAudio.duration) * 100;
-      ph.style.left = pct + '%';
-      ph.style.display = '';
-    }}
-    animFrame = requestAnimationFrame(animatePlayhead);
-  }}
-
-  window.playClip = function(id, btn) {{
-    if (clipId === id && clipAudio && !clipAudio.paused) {{
-      stopClip();
-      return;
-    }}
-    stopClip();
-    clipId = id;
-    clipAudio = new Audio('/api/v1/detections/' + id + '/audio');
-    clipAudio.play();
-    btn.classList.add('clip-playing');
-    btn.innerHTML = stopSvg + ' Stop';
-    animatePlayhead();
-    clipAudio.onended = () => stopClip();
-  }};
-
-  window.seekSpectrogram = function(event, id) {{
-    const rect = event.currentTarget.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-
-    if (clipId === id && clipAudio) {{
-      // Already playing this clip — just seek
-      clipAudio.currentTime = pct * clipAudio.duration;
-      if (clipAudio.paused) clipAudio.play();
-    }} else {{
-      // Start playing from this position
-      stopClip();
-      clipId = id;
-      clipAudio = new Audio('/api/v1/detections/' + id + '/audio');
-      clipAudio.addEventListener('loadedmetadata', () => {{
-        clipAudio.currentTime = pct * clipAudio.duration;
-        clipAudio.play();
-        animatePlayhead();
-      }});
-      // Update button state
-      const btn = event.currentTarget.parentElement.querySelector('[onclick*="playClip"]');
-      if (btn) {{ btn.classList.add('clip-playing'); btn.innerHTML = stopSvg + ' Stop'; }}
-      clipAudio.onended = () => stopClip();
-    }}
-  }};
 
   // ── Behavioral insights ────────────────────────────────────────
   fetch('/api/v1/species/' + encodeURIComponent(sciName) + '/insights')
@@ -1690,31 +1656,8 @@ pub fn rare_content() -> String {
         '<div class="text-center py-8 text-red-400 text-sm">Failed to load rare detections</div>';
     });
 
-  // Lightweight playback fallback. The dashboard and species-detail pages
-  // each ship a richer player (with scrubbing). Here we just need clicks to
-  // make sound — the user can deep-link to /detections/{id} for full controls.
-  if (!window.playClip) {
-    let cur = null;
-    window.playClip = function(id, btn) {
-      if (cur && !cur.paused) { cur.pause(); cur = null; btn.disabled = false; return; }
-      cur = new Audio('/api/v1/detections/' + id + '/audio');
-      cur.play();
-      btn.disabled = true;
-      cur.onended = function() { btn.disabled = false; cur = null; };
-    };
-  }
-  if (!window.seekSpectrogram) {
-    // Click on the spectrogram = start playback from the corresponding offset.
-    window.seekSpectrogram = function(event, id) {
-      const rect = event.currentTarget.getBoundingClientRect();
-      const pct = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-      const audio = new Audio('/api/v1/detections/' + id + '/audio');
-      audio.addEventListener('loadedmetadata', function() {
-        audio.currentTime = pct * audio.duration;
-        audio.play();
-      });
-    };
-  }
+  // Audio playback (window.playClip + spectrogram scrubbing) is provided
+  // by the shared player on window.sitta — see dashboard::page().
 })();
 </script>"##
         .to_string()
