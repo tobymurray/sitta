@@ -35,8 +35,6 @@ pub fn spawn_perch_consumer(
             .expect("failed to create Perch resampler");
 
         let mut buf: Vec<f32> = Vec::with_capacity(WINDOW_SAMPLES_IN * 2);
-        // Track the latest chunk metadata for constructing window AudioChunks.
-        let mut last_source_name = String::new();
 
         loop {
             tokio::select! {
@@ -44,7 +42,6 @@ pub fn spawn_perch_consumer(
                     match result {
                         Ok(chunk) => {
                             buf.extend_from_slice(&chunk.samples);
-                            last_source_name.clone_from(&chunk.source_name);
 
                             while buf.len() >= WINDOW_SAMPLES_IN {
                                 metrics.perch_chunks_processed.fetch_add(1, Ordering::Relaxed);
@@ -90,7 +87,7 @@ pub fn spawn_perch_consumer(
                                 // pre-resample audio for snippet saving.
                                 let window_chunk = Arc::new(AudioChunk {
                                     id: Uuid::now_v7(),
-                                    source_name: last_source_name.clone(),
+                                    source_name: chunk.source_name.clone(),
                                     timestamp_ns: chunk.timestamp_ns,
                                     captured_at: chunk.captured_at,
                                     sample_rate: 48_000,
@@ -190,8 +187,6 @@ pub fn spawn_birdnet_consumer(
     let stride_samples = config.stride_samples;
     tokio::spawn(async move {
         let mut buf: Vec<f32> = Vec::with_capacity(window_samples * 2);
-        #[allow(unused_assignments)]
-        let mut last_chunk: Option<Arc<AudioChunk>> = None;
 
         loop {
             tokio::select! {
@@ -200,21 +195,19 @@ pub fn spawn_birdnet_consumer(
                         Ok(chunk) => {
                             metrics.birdnet_chunks_processed.fetch_add(1, Ordering::Relaxed);
                             buf.extend_from_slice(&chunk.samples);
-                            last_chunk = Some(chunk);
 
                             while buf.len() >= window_samples {
                                 let window: Vec<f32> = buf[..window_samples].to_vec();
-                                let ref_chunk = last_chunk.as_ref().unwrap();
 
                                 // Construct a window AudioChunk for this
                                 // specific analysis window.
                                 let window_chunk = Arc::new(AudioChunk {
                                     id: Uuid::now_v7(),
-                                    source_name: ref_chunk.source_name.clone(),
-                                    timestamp_ns: ref_chunk.timestamp_ns,
+                                    source_name: chunk.source_name.clone(),
+                                    timestamp_ns: chunk.timestamp_ns,
                                     captured_at: Utc::now(),
-                                    sample_rate: ref_chunk.sample_rate,
-                                    channels: ref_chunk.channels,
+                                    sample_rate: chunk.sample_rate,
+                                    channels: chunk.channels,
                                     samples: window,
                                 });
 
@@ -237,8 +230,6 @@ pub fn spawn_birdnet_consumer(
                                 "BirdNET consumer lagged, clearing buffer"
                             );
                             buf.clear();
-                            #[allow(unused_assignments)]
-                            { last_chunk = None; }
                         }
                         Err(broadcast::error::RecvError::Closed) => break,
                     }
