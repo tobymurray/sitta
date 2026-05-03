@@ -140,7 +140,7 @@ async fn seed_with_detections() -> (Database, Uuid, i64, Vec<i64>, Vec<Uuid>) {
 async fn recent_detections_returns_all_in_range() {
     let (db, _, _, _, _) = seed_with_detections().await;
     let rows = db
-        .recent_detections(0, i64::MAX, 50, 0, None, None)
+        .recent_detections(0, i64::MAX, 50, 0, None, None, false)
         .await
         .unwrap();
     assert_eq!(rows.len(), 3);
@@ -152,7 +152,7 @@ async fn recent_detections_returns_all_in_range() {
 async fn recent_detections_respects_limit() {
     let (db, _, _, _, _) = seed_with_detections().await;
     let rows = db
-        .recent_detections(0, i64::MAX, 2, 0, None, None)
+        .recent_detections(0, i64::MAX, 2, 0, None, None, false)
         .await
         .unwrap();
     assert_eq!(rows.len(), 2);
@@ -162,7 +162,7 @@ async fn recent_detections_respects_limit() {
 async fn recent_detections_species_filter() {
     let (db, _, _, _, _) = seed_with_detections().await;
     let rows = db
-        .recent_detections(0, i64::MAX, 50, 0, Some("Strix aluco"), None)
+        .recent_detections(0, i64::MAX, 50, 0, Some("Strix aluco"), None, false)
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
@@ -173,7 +173,7 @@ async fn recent_detections_species_filter() {
 async fn recent_detections_joined_fields() {
     let (db, _, _, _, _) = seed_with_detections().await;
     let rows = db
-        .recent_detections(0, i64::MAX, 1, 0, None, None)
+        .recent_detections(0, i64::MAX, 1, 0, None, None, false)
         .await
         .unwrap();
     let row = &rows[0];

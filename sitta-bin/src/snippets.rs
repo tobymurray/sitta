@@ -313,26 +313,20 @@ async fn run_retention(
     let mut deleted = 0u64;
 
     // ── Build the candidate set with everything the policy needs.
-    // detections_with_snippets returns rows ordered ASC by detected_at and
-    // already filtered to those with a non-NULL snippet_path. Per-row rarity
-    // and review lookups are N+1 but the worker runs hourly, not per-request.
-    let rows = db.detections_with_snippets(10_000).await?;
-    let mut candidates: Vec<RetentionCandidate> = Vec::with_capacity(rows.len());
-    for r in rows {
-        let Some(snippet_path) = r.snippet_path.clone() else {
-            continue;
-        };
-        let rarity = db.get_rarity(&r.id).await?;
-        let reviewed_correct = db.is_review_correct(&r.id).await?;
-        candidates.push(RetentionCandidate {
+    // retention_candidates folds rarity + reviewed_correct into a single SELECT,
+    // so the worker no longer does N+1 round-trips on the SD card.
+    let rows = db.retention_candidates(10_000).await?;
+    let mut candidates: Vec<RetentionCandidate> = rows
+        .into_iter()
+        .map(|r| RetentionCandidate {
             id: r.id,
-            snippet_path,
+            snippet_path: r.snippet_path,
             detected_at: r.detected_at,
-            scientific_name: r.scientific_name.unwrap_or_default(),
-            rarity,
-            reviewed_correct,
-        });
-    }
+            scientific_name: r.scientific_name,
+            rarity: r.rarity,
+            reviewed_correct: r.reviewed_correct,
+        })
+        .collect();
 
     let now_ms = Utc::now().timestamp_millis();
 

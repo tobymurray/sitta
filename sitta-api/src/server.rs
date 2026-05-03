@@ -305,17 +305,21 @@ async fn list_detections(
     let limit = params.limit.unwrap_or(50).min(500);
     let offset = params.offset.unwrap_or(0);
 
-    // Request one extra to determine if more results exist.
+    // Request one extra to determine if more results exist. Rarity filter
+    // and rarity field both come back from the SQL, so has_more is truthful
+    // even when ?rarity=true.
     let display_conf = f64::from(state.core.settings.load().display_min_confidence);
+    let rare_only = params.rarity.unwrap_or(false);
     let rows = state
         .core.db
-        .recent_detections(since, until, limit + 1, offset, params.species.as_deref(), Some(display_conf))
+        .recent_detections(since, until, limit + 1, offset, params.species.as_deref(), Some(display_conf), rare_only)
         .await
         ?;
 
     let has_more = rows.len() as i64 > limit;
     let mut detections: Vec<DetectionSummary> = rows.into_iter().take(limit as usize).filter_map(|r| {
         let individual = detection_row_individual(&r);
+        let rarity = r.rarity.as_ref().map(rarity_row_to_info);
         Some(DetectionSummary {
             id: uuid_from_blob(r.id).ok()?.to_string(),
             detected_at: millis_to_rfc3339(r.detected_at)?,
@@ -332,7 +336,7 @@ async fn list_detections(
             has_audio: r.snippet_path.is_some(),
             alternatives: Vec::new(),
             individual,
-            rarity: None,
+            rarity,
             range_unverified: match r.range_status.as_deref() {
                 Some("not_in_meta_model") => Some(true),
                 Some("allowed") | Some("force_allowed") => Some(false),
@@ -346,32 +350,23 @@ async fn list_detections(
         detections.retain(|d| d.range_unverified != Some(true));
     }
 
-    // Populate rarity scores and alternatives for each detection. Both are
-    // per-row queries (N+1) — flagged in the roadmap as an indexing/JOIN
-    // cleanup. The retention worker has the same shape and the dashboard
-    // pages live with it for now.
+    // Alternatives are per-detection rows; fetch in a loop. This is still
+    // N+1 but smaller than the rarity loop was — and folding into the main
+    // SELECT would multiply rows (one per prediction rank).
     for det in &mut detections {
-        if let Ok(uuid) = det.id.parse::<uuid::Uuid>() {
-            let id_bytes = uuid.as_bytes().as_slice();
-            if let Ok(Some(r)) = state.core.db.get_rarity(id_bytes).await {
-                det.rarity = Some(rarity_row_to_info(&r));
-            }
-            if let Ok(preds) = state.core.db.get_predictions(id_bytes).await {
-                det.alternatives = preds
-                    .into_iter()
-                    .map(|p| Alternative {
-                        rank: p.rank as u32,
-                        scientific_name: p.scientific_name.unwrap_or_default(),
-                        common_name: p.common_name,
-                        confidence: p.confidence as f32,
-                    })
-                    .collect();
-            }
+        if let Ok(uuid) = det.id.parse::<uuid::Uuid>()
+            && let Ok(preds) = state.core.db.get_predictions(uuid.as_bytes().as_slice()).await
+        {
+            det.alternatives = preds
+                .into_iter()
+                .map(|p| Alternative {
+                    rank: p.rank as u32,
+                    scientific_name: p.scientific_name.unwrap_or_default(),
+                    common_name: p.common_name,
+                    confidence: p.confidence as f32,
+                })
+                .collect();
         }
-    }
-
-    if params.rarity.unwrap_or(false) {
-        detections.retain(|d| d.rarity.as_ref().is_some_and(is_rare));
     }
 
     Ok(Json(PaginatedDetections {
@@ -433,13 +428,14 @@ async fn dashboard_feed_handler(
 
     let display_conf = f64::from(state.core.settings.load().display_min_confidence);
     // recent_detections returns rows ordered by detected_at DESC, already
-    // dedup'd across overlapping inference windows. Pull a generous slice
-    // so chatty species don't crowd out everything else after bucketing.
+    // dedup'd across overlapping inference windows and with rarity folded
+    // into the SELECT. Pull a generous slice so chatty species don't crowd
+    // out everything else after bucketing.
     let raw_limit = (limit * 10).max(200);
     let rows = state
         .core
         .db
-        .recent_detections(since, until, raw_limit, 0, None, Some(display_conf))
+        .recent_detections(since, until, raw_limit, 0, None, Some(display_conf), false)
         .await?;
 
     let show_range = state.core.settings.load().show_range_unverified;
@@ -451,14 +447,6 @@ async fn dashboard_feed_handler(
             .collect()
     };
 
-    // Pre-fetch rarity for all rows (N+1 queries; matches list_detections).
-    let mut rarities: HashMap<Vec<u8>, RarityInfo> = HashMap::with_capacity(rows.len());
-    for r in &rows {
-        if let Ok(Some(rr)) = state.core.db.get_rarity(&r.id).await {
-            rarities.insert(r.id.clone(), rarity_row_to_info(&rr));
-        }
-    }
-
     // Walk DESC, building open buckets per species. A non-rare detection
     // folds into the species' open bucket if the time gap to the bucket's
     // earliest entry is within the window. Rare detections always emit
@@ -468,7 +456,7 @@ async fn dashboard_feed_handler(
 
     for r in rows {
         let sci = r.scientific_name.clone().unwrap_or_default();
-        let rarity = rarities.get(&r.id).cloned();
+        let rarity = r.rarity.as_ref().map(rarity_row_to_info);
         let rare = rarity.as_ref().is_some_and(is_rare);
 
         if rare {

@@ -4,9 +4,41 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
-use crate::models::{uuid_bytes, DetectionRow, NewDetection, NewPrediction, PredictionRow};
+use crate::models::{
+    uuid_bytes, DetectionRow, NewDetection, NewPrediction, PredictionRow, RarityRow,
+};
 
 use super::Database;
+
+/// Reconstruct a `RarityRow` from the columns produced by a
+/// `LEFT JOIN detection_rarity`. Returns `None` when the detection had no
+/// rarity row (the score column will be NULL).
+#[allow(clippy::too_many_arguments)]
+fn build_rarity_row(
+    detection_id: &[u8],
+    score: Option<f64>,
+    first_ever: Option<bool>,
+    first_season: Option<bool>,
+    first_week: Option<bool>,
+    first_day: Option<bool>,
+    days_since_last: Option<i64>,
+    local_count: Option<i64>,
+    range_score: Option<f64>,
+    temporal_score: Option<f64>,
+) -> Option<RarityRow> {
+    Some(RarityRow {
+        detection_id: detection_id.to_vec(),
+        score: score?,
+        first_ever: first_ever.unwrap_or(false),
+        first_season: first_season.unwrap_or(false),
+        first_week: first_week.unwrap_or(false),
+        first_day: first_day.unwrap_or(false),
+        days_since_last,
+        local_count: local_count.unwrap_or(0),
+        range_score,
+        temporal_score: temporal_score.unwrap_or(0.0),
+    })
+}
 
 impl Database {
     /// Insert a single detection.
@@ -87,10 +119,15 @@ impl Database {
         Ok(())
     }
 
-    /// Recent detections with joined label/model/source info.
+    /// Recent detections with joined label/model/source/rarity/individual info.
     /// Deduplicated: when multiple models detect the same species within a
     /// 5-second window, only the highest-confidence detection is returned.
     /// The `model_name` field contains all confirming models (comma-separated).
+    ///
+    /// When `rare_only` is true, the SQL filter retains only rows that meet
+    /// the rare predicate (any first_* flag, or composite score ≥ 0.6) so
+    /// the `has_more` calculation reflects post-filter counts.
+    #[allow(clippy::too_many_arguments)]
     pub async fn recent_detections(
         &self,
         since: i64,
@@ -99,10 +136,13 @@ impl Database {
         offset: i64,
         species: Option<&str>,
         min_confidence: Option<f64>,
+        rare_only: bool,
     ) -> Result<Vec<DetectionRow>, crate::StoreError> {
         let conf_floor = min_confidence.unwrap_or(0.0);
         // Fetch more rows than requested to have headroom for deduplication.
-        let fetch_limit = limit * 3;
+        // Rarity-filtered queries can lose proportionally more rows to dedup,
+        // so widen the headroom in that case.
+        let fetch_limit = if rare_only { limit * 6 } else { limit * 3 };
         let rows = sqlx::query!(
             r#"SELECT d.id, d.detected_at, d.confidence AS "confidence!: f64",
                       d.snippet_path, d.metadata,
@@ -114,7 +154,16 @@ impl Database {
                       d.range_status,
                       im.individual_id AS "individual_id?: Vec<u8>",
                       ind.label AS "individual_label?",
-                      im.similarity AS "individual_similarity?: f64"
+                      im.similarity AS "individual_similarity?: f64",
+                      r.score AS "rarity_score?: f64",
+                      r.first_ever AS "first_ever?: bool",
+                      r.first_season AS "first_season?: bool",
+                      r.first_week AS "first_week?: bool",
+                      r.first_day AS "first_day?: bool",
+                      r.days_since_last AS "days_since_last?: i64",
+                      r.local_count AS "local_count?: i64",
+                      r.range_score AS "range_score?: f64",
+                      r.temporal_score AS "temporal_score?: f64"
                FROM detections d
                JOIN labels l ON l.id = d.label_id
                JOIN models m ON m.id = d.model_id
@@ -126,9 +175,11 @@ impl Database {
                        ORDER BY m2.similarity DESC LIMIT 1
                    )
                LEFT JOIN individuals ind ON ind.id = im.individual_id
+               LEFT JOIN detection_rarity r ON r.detection_id = d.id
                WHERE d.detected_at >= $1 AND d.detected_at <= $2
                  AND d.confidence >= $6
                  AND ($5 IS NULL OR l.scientific_name = $5)
+                 AND ($7 = 0 OR (r.first_ever OR r.first_season OR r.first_week OR r.first_day OR r.score >= 0.6))
                ORDER BY d.detected_at DESC
                LIMIT $3 OFFSET $4"#,
             since,
@@ -137,6 +188,7 @@ impl Database {
             offset,
             species,
             conf_floor,
+            rare_only,
         )
         .fetch_all(&self.pool)
         .await?;
@@ -150,6 +202,18 @@ impl Database {
             let sci = r.scientific_name.clone().unwrap_or_default();
             let bucket = r.detected_at / 5000;
             let key = (sci, bucket);
+            let rarity = build_rarity_row(
+                &r.id,
+                r.rarity_score,
+                r.first_ever,
+                r.first_season,
+                r.first_week,
+                r.first_day,
+                r.days_since_last,
+                r.local_count,
+                r.range_score,
+                r.temporal_score,
+            );
 
             if let Some(&idx) = seen.get(&key) {
                 let existing = &mut result[idx];
@@ -164,6 +228,7 @@ impl Database {
                     existing.individual_id = r.individual_id;
                     existing.individual_label = r.individual_label;
                     existing.individual_similarity = r.individual_similarity;
+                    existing.rarity = rarity;
                 }
                 if r.has_embedding {
                     existing.has_embedding = true;
@@ -187,6 +252,7 @@ impl Database {
                     individual_id: r.individual_id,
                     individual_label: r.individual_label,
                     individual_similarity: r.individual_similarity,
+                    rarity,
                 });
             }
         }
@@ -211,7 +277,16 @@ impl Database {
                       d.range_status,
                       im.individual_id AS "individual_id?: Vec<u8>",
                       ind.label AS "individual_label?",
-                      im.similarity AS "individual_similarity?: f64"
+                      im.similarity AS "individual_similarity?: f64",
+                      r.score AS "rarity_score?: f64",
+                      r.first_ever AS "first_ever?: bool",
+                      r.first_season AS "first_season?: bool",
+                      r.first_week AS "first_week?: bool",
+                      r.first_day AS "first_day?: bool",
+                      r.days_since_last AS "days_since_last?: i64",
+                      r.local_count AS "local_count?: i64",
+                      r.range_score AS "range_score?: f64",
+                      r.temporal_score AS "temporal_score?: f64"
                FROM detections d
                JOIN labels l ON l.id = d.label_id
                JOIN models m ON m.id = d.model_id
@@ -223,29 +298,45 @@ impl Database {
                        ORDER BY m2.similarity DESC LIMIT 1
                    )
                LEFT JOIN individuals ind ON ind.id = im.individual_id
+               LEFT JOIN detection_rarity r ON r.detection_id = d.id
                WHERE d.id = $1"#,
             id,
         )
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(|r| DetectionRow {
-            id: r.id,
-            detected_at: r.detected_at,
-            confidence: r.confidence,
-            snippet_path: r.snippet_path,
-            metadata: r.metadata,
-            scientific_name: r.scientific_name,
-            common_name: r.common_name,
-            taxon_code: r.taxon_code,
-            model_name: r.model_name,
-            model_version: r.model_version,
-            source_name: r.source_name,
-            has_embedding: r.has_embedding,
-            range_status: r.range_status,
-            individual_id: r.individual_id,
-            individual_label: r.individual_label,
-            individual_similarity: r.individual_similarity,
+        Ok(row.map(|r| {
+            let rarity = build_rarity_row(
+                &r.id,
+                r.rarity_score,
+                r.first_ever,
+                r.first_season,
+                r.first_week,
+                r.first_day,
+                r.days_since_last,
+                r.local_count,
+                r.range_score,
+                r.temporal_score,
+            );
+            DetectionRow {
+                id: r.id,
+                detected_at: r.detected_at,
+                confidence: r.confidence,
+                snippet_path: r.snippet_path,
+                metadata: r.metadata,
+                scientific_name: r.scientific_name,
+                common_name: r.common_name,
+                taxon_code: r.taxon_code,
+                model_name: r.model_name,
+                model_version: r.model_version,
+                source_name: r.source_name,
+                has_embedding: r.has_embedding,
+                range_status: r.range_status,
+                individual_id: r.individual_id,
+                individual_label: r.individual_label,
+                individual_similarity: r.individual_similarity,
+                rarity,
+            }
         }))
     }
 
@@ -330,11 +421,13 @@ impl Database {
                 has_embedding: r.has_embedding,
                 range_status: r.range_status,
                 // Correlated detections render as a side panel showing
-                // species + confidence; individual data isn't surfaced here
-                // (the user clicks through to the detail page for that).
+                // species + confidence; individual + rarity data isn't
+                // surfaced here (the user clicks through to the detail
+                // page for that).
                 individual_id: None,
                 individual_label: None,
                 individual_similarity: None,
+                rarity: None,
             })
             .collect())
     }

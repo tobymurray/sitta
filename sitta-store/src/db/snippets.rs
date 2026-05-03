@@ -1,7 +1,5 @@
 //! Audio snippet path management for the retention worker.
 
-use crate::models::DetectionRow;
-
 use super::Database;
 
 /// One day's worth of detection counts split by whether a clip was saved.
@@ -76,25 +74,32 @@ impl Database {
         Ok(())
     }
 
-    /// Fetch detections with non-NULL snippet_path ordered by detected_at ASC.
-    /// Used by the retention worker.
-    pub async fn detections_with_snippets(
+    /// Fetch retention candidates: detections with a saved snippet, joined
+    /// to their rarity row and a reviewed-correct flag. The retention worker
+    /// loops over the result directly without further per-row queries.
+    pub async fn retention_candidates(
         &self,
         limit: i64,
-    ) -> Result<Vec<DetectionRow>, crate::StoreError> {
+    ) -> Result<Vec<crate::models::RetentionCandidateRow>, crate::StoreError> {
         let rows = sqlx::query!(
-            r#"SELECT d.id, d.detected_at, d.confidence AS "confidence!: f64",
-                      d.snippet_path, d.metadata,
-                      l.scientific_name, l.common_name AS "common_name!",
-                      l.taxon_code,
-                      m.name AS "model_name!", m.version AS "model_version!",
-                      s.name AS "source_name?",
-                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS "has_embedding!: bool",
-                      d.range_status
+            r#"SELECT d.id, d.detected_at,
+                      d.snippet_path AS "snippet_path!",
+                      l.scientific_name AS "scientific_name?",
+                      r.score AS "rarity_score?: f64",
+                      r.first_ever AS "first_ever?: bool",
+                      r.first_season AS "first_season?: bool",
+                      r.first_week AS "first_week?: bool",
+                      r.first_day AS "first_day?: bool",
+                      r.days_since_last AS "days_since_last?: i64",
+                      r.local_count AS "local_count?: i64",
+                      r.range_score AS "range_score?: f64",
+                      r.temporal_score AS "temporal_score?: f64",
+                      (EXISTS (SELECT 1 FROM detection_reviews v
+                               WHERE v.detection_id = d.id
+                                 AND v.status = 'correct')) AS "reviewed_correct!: bool"
                FROM detections d
                JOIN labels l ON l.id = d.label_id
-               JOIN models m ON m.id = d.model_id
-               LEFT JOIN audio_sources s ON s.id = d.source_id
+               LEFT JOIN detection_rarity r ON r.detection_id = d.id
                WHERE d.snippet_path IS NOT NULL
                ORDER BY d.detected_at ASC
                LIMIT $1"#,
@@ -105,24 +110,27 @@ impl Database {
 
         Ok(rows
             .into_iter()
-            .map(|r| DetectionRow {
-                id: r.id,
-                detected_at: r.detected_at,
-                confidence: r.confidence,
-                snippet_path: r.snippet_path,
-                metadata: r.metadata,
-                scientific_name: r.scientific_name,
-                common_name: r.common_name,
-                taxon_code: r.taxon_code,
-                model_name: r.model_name,
-                model_version: r.model_version,
-                source_name: r.source_name,
-                // The retention worker doesn't read individual data; leave None.
-                individual_id: None,
-                individual_label: None,
-                individual_similarity: None,
-                has_embedding: r.has_embedding,
-                range_status: r.range_status,
+            .map(|r| {
+                let rarity = r.rarity_score.map(|score| crate::models::RarityRow {
+                    detection_id: r.id.clone(),
+                    score,
+                    first_ever: r.first_ever.unwrap_or(false),
+                    first_season: r.first_season.unwrap_or(false),
+                    first_week: r.first_week.unwrap_or(false),
+                    first_day: r.first_day.unwrap_or(false),
+                    days_since_last: r.days_since_last,
+                    local_count: r.local_count.unwrap_or(0),
+                    range_score: r.range_score,
+                    temporal_score: r.temporal_score.unwrap_or(0.0),
+                });
+                crate::models::RetentionCandidateRow {
+                    id: r.id,
+                    detected_at: r.detected_at,
+                    snippet_path: r.snippet_path,
+                    scientific_name: r.scientific_name.unwrap_or_default(),
+                    rarity,
+                    reviewed_correct: r.reviewed_correct,
+                }
             })
             .collect())
     }

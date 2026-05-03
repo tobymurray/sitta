@@ -110,6 +110,10 @@ pub struct DetectionRow {
     pub individual_id: Option<Vec<u8>>,
     pub individual_label: Option<String>,
     pub individual_similarity: Option<f64>,
+    /// Rarity scoring fields, populated by joining `detection_rarity`. All
+    /// `None` when the detection has no rarity row (older data, or scoring
+    /// disabled).
+    pub rarity: Option<RarityRow>,
 }
 
 /// A secondary prediction row with label info.
@@ -219,6 +223,7 @@ pub struct SpeciesStatsRow {
 }
 
 /// Rarity score breakdown for a detection.
+#[derive(Clone)]
 pub struct RarityRow {
     pub detection_id: Vec<u8>,
     pub score: f64,
@@ -271,6 +276,19 @@ pub struct SourceEffortRow {
     pub source_name: String,
     pub total_seconds: f64,
     pub session_count: i64,
+}
+
+/// One clip the retention worker may evict, with everything the policy
+/// needs already joined: rarity flags + reviewed-correct status. Replaces
+/// the per-row `get_rarity` + `is_review_correct` lookups the worker did
+/// previously.
+pub struct RetentionCandidateRow {
+    pub id: Vec<u8>,
+    pub detected_at: i64,
+    pub snippet_path: String,
+    pub scientific_name: String,
+    pub rarity: Option<RarityRow>,
+    pub reviewed_correct: bool,
 }
 
 /// Aggregated species summary for a date range.

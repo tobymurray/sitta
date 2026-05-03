@@ -1,0 +1,164 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT d.id, d.detected_at, d.confidence AS \"confidence!: f64\",\n                      d.snippet_path, d.metadata,\n                      l.scientific_name, l.common_name AS \"common_name!\",\n                      l.taxon_code,\n                      m.name AS \"model_name!\", m.version AS \"model_version!\",\n                      s.name AS \"source_name?\",\n                      (EXISTS (SELECT 1 FROM embeddings e WHERE e.detection_id = d.id)) AS \"has_embedding!: bool\",\n                      d.range_status,\n                      im.individual_id AS \"individual_id?: Vec<u8>\",\n                      ind.label AS \"individual_label?\",\n                      im.similarity AS \"individual_similarity?: f64\",\n                      r.score AS \"rarity_score?: f64\",\n                      r.first_ever AS \"first_ever?: bool\",\n                      r.first_season AS \"first_season?: bool\",\n                      r.first_week AS \"first_week?: bool\",\n                      r.first_day AS \"first_day?: bool\",\n                      r.days_since_last AS \"days_since_last?: i64\",\n                      r.local_count AS \"local_count?: i64\",\n                      r.range_score AS \"range_score?: f64\",\n                      r.temporal_score AS \"temporal_score?: f64\"\n               FROM detections d\n               JOIN labels l ON l.id = d.label_id\n               JOIN models m ON m.id = d.model_id\n               LEFT JOIN audio_sources s ON s.id = d.source_id\n               LEFT JOIN individual_matches im ON im.detection_id = d.id\n                   AND im.id = (\n                       SELECT m2.id FROM individual_matches m2\n                       WHERE m2.detection_id = d.id\n                       ORDER BY m2.similarity DESC LIMIT 1\n                   )\n               LEFT JOIN individuals ind ON ind.id = im.individual_id\n               LEFT JOIN detection_rarity r ON r.detection_id = d.id\n               WHERE d.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "detected_at",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "confidence!: f64",
+        "ordinal": 2,
+        "type_info": "Float"
+      },
+      {
+        "name": "snippet_path",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "metadata",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "scientific_name",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "common_name!",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "taxon_code",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "model_name!",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "model_version!",
+        "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "source_name?",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "has_embedding!: bool",
+        "ordinal": 11,
+        "type_info": "Null"
+      },
+      {
+        "name": "range_status",
+        "ordinal": 12,
+        "type_info": "Text"
+      },
+      {
+        "name": "individual_id?: Vec<u8>",
+        "ordinal": 13,
+        "type_info": "Blob"
+      },
+      {
+        "name": "individual_label?",
+        "ordinal": 14,
+        "type_info": "Text"
+      },
+      {
+        "name": "individual_similarity?: f64",
+        "ordinal": 15,
+        "type_info": "Float"
+      },
+      {
+        "name": "rarity_score?: f64",
+        "ordinal": 16,
+        "type_info": "Float"
+      },
+      {
+        "name": "first_ever?: bool",
+        "ordinal": 17,
+        "type_info": "Bool"
+      },
+      {
+        "name": "first_season?: bool",
+        "ordinal": 18,
+        "type_info": "Bool"
+      },
+      {
+        "name": "first_week?: bool",
+        "ordinal": 19,
+        "type_info": "Bool"
+      },
+      {
+        "name": "first_day?: bool",
+        "ordinal": 20,
+        "type_info": "Bool"
+      },
+      {
+        "name": "days_since_last?: i64",
+        "ordinal": 21,
+        "type_info": "Integer"
+      },
+      {
+        "name": "local_count?: i64",
+        "ordinal": 22,
+        "type_info": "Integer"
+      },
+      {
+        "name": "range_score?: f64",
+        "ordinal": 23,
+        "type_info": "Float"
+      },
+      {
+        "name": "temporal_score?: f64",
+        "ordinal": 24,
+        "type_info": "Float"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      null,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "520a165479dbbc6d63e047d1e92e95939472e72033edfff28f5127cf9bcd9282"
+}
