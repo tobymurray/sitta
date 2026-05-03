@@ -170,6 +170,89 @@ top_k = 10
 }
 
 #[test]
+fn apply_presence_min_detections() {
+    let current = base_settings();
+    let mut update = empty_update();
+    update.presence_min_detections = Some(5);
+    let (merged, changed) = apply_update(&current, &update);
+    assert_eq!(changed, vec!["presence_min_detections"]);
+    assert_eq!(merged.presence_min_detections, 5);
+}
+
+#[test]
+fn apply_presence_window_minutes() {
+    let current = base_settings();
+    let mut update = empty_update();
+    update.presence_window_minutes = Some(15);
+    let (merged, changed) = apply_update(&current, &update);
+    assert_eq!(changed, vec!["presence_window_minutes"]);
+    assert_eq!(merged.presence_window_minutes, 15);
+}
+
+#[test]
+fn apply_presence_immediate_threshold() {
+    let current = base_settings();
+    let mut update = empty_update();
+    update.presence_immediate_threshold = Some(0.92);
+    let (merged, changed) = apply_update(&current, &update);
+    assert_eq!(changed, vec!["presence_immediate_threshold"]);
+    assert_eq!(merged.presence_immediate_threshold, Some(0.92));
+}
+
+#[test]
+fn persist_presence_writes_section() {
+    // Confirm the [presence] table is created when missing and populated
+    // with the runtime settings.
+    let toml_content = r#"[station]
+id = "s1"
+name = "Test"
+"#;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    std::fs::write(&path, toml_content).unwrap();
+
+    let mut settings = base_settings();
+    settings.presence_min_detections = 3;
+    settings.presence_window_minutes = 15;
+    // Use 0.5 (exactly representable in both f32 and f64) so the assertion
+    // doesn't trip on the f32→f64 rounding (0.9 → 0.8999999761581421).
+    settings.presence_immediate_threshold = Some(0.5);
+
+    persist_to_toml(&path, &settings).unwrap();
+
+    let result = std::fs::read_to_string(&path).unwrap();
+    assert!(result.contains("[presence]"));
+    assert!(result.contains("min_detections = 3"));
+    assert!(result.contains("window_minutes = 15"));
+    assert!(result.contains("immediate_threshold = 0.5"));
+}
+
+#[test]
+fn persist_presence_clears_immediate_when_none() {
+    // When presence_immediate_threshold is None, the corresponding line
+    // should be absent (the persist code calls remove on the key).
+    let toml_content = r#"[station]
+id = "s1"
+name = "Test"
+
+[presence]
+min_detections = 2
+window_minutes = 10
+immediate_threshold = 0.85
+"#;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    std::fs::write(&path, toml_content).unwrap();
+
+    let mut settings = base_settings();
+    settings.presence_immediate_threshold = None;
+    persist_to_toml(&path, &settings).unwrap();
+
+    let result = std::fs::read_to_string(&path).unwrap();
+    assert!(!result.contains("immediate_threshold"));
+}
+
+#[test]
 fn persist_to_toml_missing_section_is_noop() {
     // Config with no [inference.birdnet] section — persist should not crash.
     let toml_content = r#"[station]

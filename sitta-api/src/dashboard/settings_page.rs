@@ -13,8 +13,19 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
     let lat = settings.station_latitude.map(|v| v.to_string()).unwrap_or_default();
     let lon = settings.station_longitude.map(|v| v.to_string()).unwrap_or_default();
 
+    let presence_min = settings.presence_min_detections;
+    let presence_window = settings.presence_window_minutes;
+    let presence_immediate = settings
+        .presence_immediate_threshold
+        .map(|v| v.to_string())
+        .unwrap_or_default();
+
     let has_birdnet = initial.birdnet_model_path.is_some();
     let has_perch = initial.perch_model_path.is_some();
+
+    // Build the "System info" rows: every read-only restart-required value
+    // we know about, with the file path or value rendered as a code chip.
+    let system_rows = render_system_rows(initial);
 
     format!(
         r##"<div class="mb-6">
@@ -112,6 +123,32 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
     </div>
   </div>
 
+  <!-- Detection Confirmation -->
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-1">Detection Confirmation</h3>
+    <p class="text-xs text-gray-400 dark:text-plumage-500 mb-4">A species must be heard repeatedly within a sliding window before alerts fire. Detections still land in the database individually; only the SSE / MQTT broadcast is gated.</p>
+    <div class="grid gap-4 sm:grid-cols-3">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Min Detections</label>
+        <input name="presence_min_detections" type="number" min="1" max="20" value="{presence_min}"
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+        <p class="mt-1 text-xs text-gray-400 dark:text-plumage-500">Set to 1 to disable confirmation (every detection broadcasts immediately).</p>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Window (minutes)</label>
+        <input name="presence_window_minutes" type="number" min="1" max="240" value="{presence_window}"
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+        <p class="mt-1 text-xs text-gray-400 dark:text-plumage-500">Sliding window for repeat-detection confirmation.</p>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Immediate Threshold</label>
+        <input name="presence_immediate_threshold" type="number" step="0.01" min="0" max="1" value="{presence_immediate}" placeholder="e.g. 0.90"
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+        <p class="mt-1 text-xs text-gray-400 dark:text-plumage-500">Single detection at or above this confidence bypasses the repeat requirement. Empty = disabled.</p>
+      </div>
+    </div>
+  </div>
+
   <!-- Audio Sources -->
   <div class="bg-white dark:bg-plumage-900 rounded-xl border border-stone-200 dark:border-plumage-800 p-5">
     <div class="flex items-center justify-between mb-4">
@@ -166,6 +203,20 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
     </button>
     <span id="save-status" class="text-sm text-gray-400 dark:text-plumage-500"></span>
   </div>
+
+  <!-- System info: read-only, restart-required values -->
+  <details class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 group">
+    <summary class="cursor-pointer p-5 select-none flex items-center justify-between">
+      <div>
+        <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider">System info</h3>
+        <p class="text-xs text-gray-400 dark:text-plumage-500 mt-0.5">Read-only — change in <code class="bg-gray-100 dark:bg-plumage-800 px-1 rounded">config.toml</code> and restart.</p>
+      </div>
+      <svg class="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
+    </summary>
+    <dl class="border-t border-gray-200 dark:border-plumage-800 px-5 py-4 space-y-2 text-sm">
+{system_rows}
+    </dl>
+  </details>
 </form>
 
 <script>
@@ -194,9 +245,10 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
       if (k === 'station_latitude' || k === 'station_longitude' ||
           k === 'display_min_confidence' ||
           k === 'birdnet_min_confidence' || k === 'birdnet_meta_threshold' ||
-          k === 'perch_min_confidence') {{
+          k === 'perch_min_confidence' || k === 'presence_immediate_threshold') {{
         body[k] = parseFloat(v);
-      }} else if (k === 'birdnet_top_k' || k === 'perch_top_k') {{
+      }} else if (k === 'birdnet_top_k' || k === 'perch_top_k' ||
+                 k === 'presence_min_detections' || k === 'presence_window_minutes') {{
         body[k] = parseInt(v, 10);
       }} else if (k === 'birdnet_force_allow') {{
         body[k] = v.split(',').map(s => s.trim()).filter(s => s);
@@ -219,7 +271,9 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
         if (n === 0) {{
           showToast('No changes detected', true);
         }} else {{
-          showToast(n + ' setting' + (n > 1 ? 's' : '') + ' updated' + (data.rebuild_triggered ? ' (rebuilding models...)' : ''), true);
+          // Inference-rebuild fields land in config.toml but consumer
+          // hot-reload isn't wired yet — be honest about that.
+          showToast(n + ' setting' + (n > 1 ? 's' : '') + ' saved' + (data.rebuild_triggered ? ' (inference changes apply on restart)' : ''), true);
         }}
         if (data.persist_error) {{
           status.textContent = 'Warning: ' + data.persist_error;
@@ -343,10 +397,14 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
             <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">First-of-Day Min Confidence</label>
             <input id="mqtt-fod" type="number" step="0.01" min="0" max="1" value="${{m.first_of_day_min_confidence}}" class="${{inp()}}">
           </div>
-          <div class="flex items-end">
+          <div>
+            <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">HA Discovery Prefix</label>
+            <input id="mqtt-ha-prefix" type="text" value="${{m.homeassistant_prefix || 'homeassistant'}}" placeholder="homeassistant" class="${{inp()}}">
+          </div>
+          <div class="flex items-end sm:col-span-2">
             <label class="flex items-center gap-2 text-sm cursor-pointer pb-2">
               <input id="mqtt-ha" type="checkbox" ${{m.homeassistant_discovery ? 'checked' : ''}} class="rounded border-stone-300 dark:border-plumage-700 text-nuthatch-600 focus:ring-nuthatch-500">
-              HA Discovery
+              Publish HA auto-discovery messages
             </label>
           </div>
         </div>
@@ -376,6 +434,7 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
   }});
 
   function getMqttFormBody() {{
+    const prefix = document.getElementById('mqtt-ha-prefix').value.trim() || 'homeassistant';
     return {{
       enabled: document.getElementById('mqtt-enabled').checked,
       host: document.getElementById('mqtt-host').value.trim(),
@@ -384,7 +443,7 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
       password: document.getElementById('mqtt-pass').value || null,
       first_of_day_min_confidence: parseFloat(document.getElementById('mqtt-fod').value) || 0.75,
       homeassistant_discovery: document.getElementById('mqtt-ha').checked,
-      homeassistant_prefix: 'homeassistant',
+      homeassistant_prefix: prefix,
     }};
   }}
 
@@ -443,6 +502,10 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
         display_min_confidence = display_min_confidence,
         species_image_url = settings.species_image_url.as_deref().unwrap_or(""),
         show_range_unverified_checked = if settings.show_range_unverified { "checked" } else { "" },
+        presence_min = presence_min,
+        presence_window = presence_window,
+        presence_immediate = presence_immediate,
+        system_rows = system_rows,
         birdnet_section = if has_birdnet {{ format!(
             r#"<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
     <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-4">BirdNET</h3>
@@ -496,4 +559,39 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
             perch_topk = perch_topk,
         )}} else { String::new() },
     )
+}
+
+/// Render the read-only "System info" rows. One <dt>/<dd> per known
+/// restart-required config value, with the value shown as a code chip
+/// (or "–" when unset).
+fn render_system_rows(initial: &InitialConfig) -> String {
+    fn row(label: &str, value: Option<&str>) -> String {
+        let v = value.filter(|s| !s.is_empty()).unwrap_or("–");
+        format!(
+            r#"      <div class="flex items-baseline justify-between gap-3">
+        <dt class="text-gray-500 dark:text-plumage-400 flex-shrink-0">{label}</dt>
+        <dd class="text-right"><code class="text-xs bg-gray-100 dark:bg-plumage-800 px-1.5 py-0.5 rounded break-all">{value}</code></dd>
+      </div>"#,
+            label = label,
+            value = html_escape(v),
+        )
+    }
+
+    let rows = [
+        row("Station ID", Some(&initial.station_id)),
+        row("API bind", Some(&initial.api_bind)),
+        row("Database", Some(&initial.store_path)),
+        row("BirdNET model", initial.birdnet_model_path.as_deref()),
+        row("BirdNET labels", initial.birdnet_labels_path.as_deref()),
+        row("BirdNET meta-model", initial.birdnet_meta_model_path.as_deref()),
+        row("Perch model", initial.perch_model_path.as_deref()),
+        row("Perch labels", initial.perch_labels_path.as_deref()),
+    ];
+    rows.join("\n")
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
