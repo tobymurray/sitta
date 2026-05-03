@@ -13,7 +13,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use arc_swap::ArcSwap;
 use sitta_api::server::{self, ApiState, PipelineMetrics};
-use sitta_api::settings::{InitialConfig, RuntimeSettings};
+use sitta_api::settings::{InitialConfig, LoadedModelInfo, RuntimeSettings};
 use sitta_audio::chunk::AudioChunk;
 use sitta_audio::manager::SourceManager;
 use sitta_inference::rangefilter::RangeFilter;
@@ -173,6 +173,63 @@ async fn main() -> Result<()> {
     let metrics = Arc::new(PipelineMetrics::default());
     let (settings_notify_tx, _settings_notify_rx) = tokio::sync::watch::channel(());
 
+    // Snapshot the loaded inference models for the settings UI.
+    let mut loaded_models: Vec<LoadedModelInfo> = Vec::new();
+    for c in classifiers.iter() {
+        let path = match c.name() {
+            n if n.starts_with("BirdNET") => config.inference.birdnet.as_ref().map(|b| b.model_path.clone()),
+            n if n.starts_with("Perch") => config.inference.perch.as_ref().map(|p| p.model_path.clone()),
+            _ => None,
+        };
+        let path = path.unwrap_or_default();
+        let (size, mtime) = file_stat(&path);
+        // Embedding-producing models per birdnet-onnx: Perch v2 always emits
+        // 1536-dim, BirdNET v3.0 emits 1024-dim, BirdNET v2.4 / BSG do not.
+        let has_embeddings = c.name().starts_with("Perch") || c.name().starts_with("BirdNET v3");
+        loaded_models.push(LoadedModelInfo {
+            name: c.name().to_string(),
+            kind: "classifier",
+            model_path: path,
+            file_size_bytes: size,
+            file_modified_ms: mtime,
+            sample_rate: Some(c.sample_rate()),
+            window_samples: Some(c.window_samples()),
+            has_embeddings: Some(has_embeddings),
+        });
+    }
+    if let Some(p) = perch_model.as_ref() {
+        let path = config.inference.perch.as_ref().map(|p| p.model_path.clone()).unwrap_or_default();
+        let (size, mtime) = file_stat(&path);
+        loaded_models.push(LoadedModelInfo {
+            name: p.name().to_string(),
+            kind: "classifier",
+            model_path: path,
+            file_size_bytes: size,
+            file_modified_ms: mtime,
+            sample_rate: Some(p.sample_rate()),
+            window_samples: Some(p.window_samples()),
+            has_embeddings: Some(true),
+        });
+    }
+    if let Some(meta_path) = config
+        .inference
+        .birdnet
+        .as_ref()
+        .and_then(|b| b.meta_model_path.clone())
+    {
+        let (size, mtime) = file_stat(&meta_path);
+        loaded_models.push(LoadedModelInfo {
+            name: "BirdNET range filter (meta-model)".to_string(),
+            kind: "meta_model",
+            model_path: meta_path,
+            file_size_bytes: size,
+            file_modified_ms: mtime,
+            sample_rate: None,
+            window_samples: None,
+            has_embeddings: None,
+        });
+    }
+
     let initial_config = Arc::new(InitialConfig {
         station_id: config.station.id.clone(),
         mqtt_host: config.mqtt.as_ref().map(|m| m.host.clone()),
@@ -188,6 +245,7 @@ async fn main() -> Result<()> {
         perch_labels_path: config.inference.perch.as_ref().map(|p| p.labels_path.clone()),
         store_path: config.store.path.clone(),
         api_bind: config.api.bind.clone(),
+        loaded_models,
         min_cluster_size: config
             .inference
             .perch
@@ -392,4 +450,23 @@ async fn main() -> Result<()> {
     db.close().await;
 
     Ok(())
+}
+
+/// Read (file_size_bytes, file_modified_ms) for a model file. Returns
+/// `(None, None)` if the path is empty, missing, or unreadable — the row
+/// still renders so the user can see the path that *should* have been there.
+fn file_stat(path: &str) -> (Option<u64>, Option<i64>) {
+    if path.is_empty() {
+        return (None, None);
+    }
+    let Ok(meta) = std::fs::metadata(path) else {
+        return (None, None);
+    };
+    let size = Some(meta.len());
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .and_then(|d| i64::try_from(d.as_millis()).ok());
+    (size, mtime)
 }

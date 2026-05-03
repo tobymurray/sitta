@@ -84,12 +84,50 @@ pub struct InitialConfig {
     pub perch_labels_path: Option<String>,
     pub store_path: String,
     pub api_bind: String,
+    /// Snapshot of every inference model loaded at startup: classifiers
+    /// (BirdNET, Perch, ...) and the optional BirdNET meta-model. Used by
+    /// the settings page "System info" panel so the user can see which
+    /// model versions are running and confirm file integrity (size + mtime).
+    #[serde(default)]
+    pub loaded_models: Vec<LoadedModelInfo>,
     /// Minimum cluster size for candidate enrollment suggestions.
     #[serde(skip_serializing)]
     pub min_cluster_size: i64,
     /// Minimum distinct days for candidate enrollment suggestions.
     #[serde(skip_serializing)]
     pub min_distinct_days: i64,
+}
+
+/// Snapshot of one loaded inference model. Built at startup from the
+/// `Classifier` instance (or the range filter) plus disk metadata, then
+/// surfaced read-only by the settings page.
+#[derive(Debug, Clone, Serialize)]
+pub struct LoadedModelInfo {
+    /// Display name including version, e.g. "BirdNET v2.4" or
+    /// "BirdNET range filter (meta-model V2)".
+    pub name: String,
+    /// "classifier" for primary inference models, "meta_model" for the
+    /// BirdNET range filter. Helps the UI group them.
+    pub kind: &'static str,
+    /// Absolute path of the ONNX file on disk.
+    pub model_path: String,
+    /// File size in bytes from `std::fs::metadata`. None if the path is
+    /// unreadable (the binary failed to load it, but we still want to
+    /// render the row so the user can see *why* the model is missing).
+    pub file_size_bytes: Option<u64>,
+    /// Last-modified time in Unix ms. None if unreadable.
+    pub file_modified_ms: Option<i64>,
+    /// Audio sample rate the model expects, in Hz. None for the meta-model
+    /// (it consumes lat/lon/week, not audio).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sample_rate: Option<u32>,
+    /// Window length in samples. None for the meta-model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_samples: Option<usize>,
+    /// Whether the model produces embedding vectors usable for individual
+    /// matching. None for the meta-model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_embeddings: Option<bool>,
 }
 
 /// Full response for GET /api/v1/settings.

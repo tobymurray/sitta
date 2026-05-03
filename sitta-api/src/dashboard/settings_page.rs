@@ -26,6 +26,7 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
     // Build the "System info" rows: every read-only restart-required value
     // we know about, with the file path or value rendered as a code chip.
     let system_rows = render_system_rows(initial);
+    let model_rows = render_model_rows(initial);
 
     format!(
         r##"<div class="mb-6">
@@ -213,9 +214,12 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
       </div>
       <svg class="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
     </summary>
-    <dl class="border-t border-gray-200 dark:border-plumage-800 px-5 py-4 space-y-2 text-sm">
+    <div class="border-t border-gray-200 dark:border-plumage-800 px-5 py-4 space-y-5">
+{model_rows}
+      <dl class="space-y-2 text-sm">
 {system_rows}
-    </dl>
+      </dl>
+    </div>
   </details>
 </form>
 
@@ -506,6 +510,7 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
         presence_window = presence_window,
         presence_immediate = presence_immediate,
         system_rows = system_rows,
+        model_rows = model_rows,
         birdnet_section = if has_birdnet {{ format!(
             r#"<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
     <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-4">BirdNET</h3>
@@ -594,4 +599,98 @@ fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+/// Render the "Loaded models" subsection for the System info collapsible.
+/// One card per model with name, file path, file size, mtime, and the
+/// audio characteristics (sample rate, window, embedding flag) when
+/// available.
+fn render_model_rows(initial: &InitialConfig) -> String {
+    if initial.loaded_models.is_empty() {
+        return String::new();
+    }
+
+    let cards: Vec<String> = initial
+        .loaded_models
+        .iter()
+        .map(|m| {
+            let kind_label = match m.kind {
+                "meta_model" => "Range filter",
+                _ => "Classifier",
+            };
+            let size_str = m
+                .file_size_bytes
+                .map(format_bytes)
+                .unwrap_or_else(|| "–".into());
+            let mtime_str = m
+                .file_modified_ms
+                .and_then(|ms| {
+                    chrono::DateTime::from_timestamp_millis(ms)
+                        .map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string())
+                })
+                .unwrap_or_else(|| "–".into());
+
+            let mut audio_chip = String::new();
+            if let (Some(sr), Some(ws)) = (m.sample_rate, m.window_samples) {
+                let secs = ws as f64 / f64::from(sr);
+                audio_chip = format!(
+                    r#"<span class="text-[11px] text-gray-500 dark:text-plumage-500">{} Hz · {:.0}s window</span>"#,
+                    sr, secs
+                );
+            }
+            let mut emb_chip = String::new();
+            if let Some(true) = m.has_embeddings {
+                emb_chip = r#"<span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20 dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-emerald-400/20">embeddings</span>"#.to_string();
+            }
+            let path_value = if m.model_path.is_empty() { "–" } else { &m.model_path };
+
+            format!(
+                r#"<div class="rounded-lg border border-gray-200 dark:border-plumage-800 p-3">
+        <div class="flex items-center justify-between gap-2 mb-1.5">
+          <div class="min-w-0">
+            <span class="font-medium text-sm">{name}</span>
+            <span class="ml-1.5 text-[10px] uppercase tracking-wider text-gray-400 dark:text-plumage-500">{kind}</span>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">{emb_chip}{audio_chip}</div>
+        </div>
+        <div class="text-xs"><code class="bg-gray-100 dark:bg-plumage-800 px-1.5 py-0.5 rounded break-all">{path}</code></div>
+        <div class="mt-1.5 text-[11px] text-gray-500 dark:text-plumage-500">{size} · modified {mtime}</div>
+      </div>"#,
+                name = html_escape(&m.name),
+                kind = kind_label,
+                emb_chip = emb_chip,
+                audio_chip = audio_chip,
+                path = html_escape(path_value),
+                size = size_str,
+                mtime = mtime_str,
+            )
+        })
+        .collect();
+
+    format!(
+        r#"      <div>
+        <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-plumage-400 mb-2">Loaded models</h4>
+        <div class="space-y-2">
+{cards}
+        </div>
+      </div>"#,
+        cards = cards.join("\n"),
+    )
+}
+
+/// Format bytes as a short, human-readable string (e.g. "29.1 MB").
+fn format_bytes(b: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+    let bytes = b as f64;
+    if bytes >= GB {
+        format!("{:.2} GB", bytes / GB)
+    } else if bytes >= MB {
+        format!("{:.1} MB", bytes / MB)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes / KB)
+    } else {
+        format!("{} B", b)
+    }
 }

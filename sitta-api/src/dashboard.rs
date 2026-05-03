@@ -102,7 +102,7 @@ tailwind.config = {{
         <svg class="w-4 h-4 block dark:hidden" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z"/></svg>
         <span class="dark:hidden">Dark mode</span><span class="hidden dark:inline">Light mode</span>
       </button>
-      <p class="text-xs text-stone-400 dark:text-plumage-600 mt-2">Sitta v0.1.0</p>
+      <p class="text-xs text-stone-400 dark:text-plumage-600 mt-2">Sitta v{sitta_version}</p>
     </div>
   </nav>
 
@@ -415,6 +415,7 @@ window.seekSpectrogram = window.sitta.seekSpectrogram;
         title = title,
         content = content,
         timezone = timezone,
+        sitta_version = env!("CARGO_PKG_VERSION"),
         nav_dashboard = nav_item("Dashboard", "/", "dashboard", active,
             r#"<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/>"#),
         nav_today = nav_item("Today", "/today", "today", active,
