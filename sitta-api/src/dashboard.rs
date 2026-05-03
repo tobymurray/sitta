@@ -148,19 +148,6 @@ function toggleTheme() {{
 // share these primitives so links are consistent app-wide.
 window.sitta = (function() {{
   function esc(s) {{ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c])); }}
-  function speciesUrl(d) {{ return '/species/' + encodeURIComponent(d.species.scientific_name); }}
-  function detectionUrl(d) {{ return '/detections/' + encodeURIComponent(d.id); }}
-  function individualUrl(d) {{ return d.individual ? '/individuals/' + encodeURIComponent(d.individual.individual_id) : null; }}
-
-  function speciesLink(d, opts) {{
-    opts = opts || {{}};
-    const cls = opts.class || 'font-semibold text-base hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors';
-    return '<a href="' + speciesUrl(d) + '" class="' + cls + '">' + esc(d.species.common_name) + '</a>';
-  }}
-
-  function timeLink(d, label) {{
-    return '<a href="' + detectionUrl(d) + '" class="hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">' + esc(label) + '</a>';
-  }}
 
   function confidenceBadge(d) {{
     const pct = Math.round(d.confidence * 100);
@@ -192,19 +179,11 @@ window.sitta = (function() {{
     return html;
   }}
 
-  function fmtTime(iso, tz) {{
-    return new Date(iso).toLocaleTimeString('en-GB', {{ hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz || 'UTC' }});
-  }}
   function fmtDateTime(iso, tz) {{
     return new Date(iso).toLocaleString('en-GB', {{ month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz || 'UTC' }});
   }}
 
-  return {{
-    esc, speciesUrl, detectionUrl,
-    speciesLink, timeLink,
-    confidenceBadge, rarityBadges,
-    fmtTime, fmtDateTime,
-  }};
+  return {{ esc, confidenceBadge, rarityBadges, fmtDateTime }};
 }})();
 
 // ── Audio waveforms + player (global, runs on every page) ──────
