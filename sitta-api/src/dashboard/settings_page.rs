@@ -1,0 +1,499 @@
+//! /settings page content.
+
+use crate::settings::{InitialConfig, RuntimeSettings};
+
+pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> String {
+    let display_min_confidence = settings.display_min_confidence;
+    let birdnet_conf = settings.birdnet_min_confidence.unwrap_or(0.25);
+    let birdnet_topk = settings.birdnet_top_k.unwrap_or(10);
+    let birdnet_meta = settings.birdnet_meta_threshold.unwrap_or(0.01);
+    let birdnet_allow = settings.birdnet_force_allow.as_deref().unwrap_or(&[]).join(", ");
+    let perch_conf = settings.perch_min_confidence.unwrap_or(0.25);
+    let perch_topk = settings.perch_top_k.unwrap_or(10);
+    let lat = settings.station_latitude.map(|v| v.to_string()).unwrap_or_default();
+    let lon = settings.station_longitude.map(|v| v.to_string()).unwrap_or_default();
+
+    let has_birdnet = initial.birdnet_model_path.is_some();
+    let has_perch = initial.perch_model_path.is_some();
+
+    format!(
+        r##"<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Settings</h1>
+  <p class="text-sm text-gray-500 dark:text-plumage-400 mt-0.5">Runtime-changeable configuration</p>
+</div>
+
+<div id="toast" class="fixed top-4 right-4 z-50 hidden"></div>
+
+<form id="settings-form" class="space-y-6" onsubmit="return false;">
+
+  <!-- Station -->
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-4">Station</h3>
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Name</label>
+        <input name="station_name" type="text" value="{station_name}"
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+      </div>
+      <div class="hidden sm:block"></div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Latitude</label>
+        <input name="station_latitude" type="number" step="any" value="{lat}" placeholder="e.g. 44.5868"
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Longitude</label>
+        <input name="station_longitude" type="number" step="any" value="{lon}" placeholder="e.g. -76.0283"
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+      </div>
+    </div>
+    <div class="sm:col-span-2">
+        <label class="block text-sm font-medium text-stone-700 dark:text-plumage-300 mb-1">Timezone</label>
+        <input name="timezone" id="tz-input" type="text" list="tz-list" value="{timezone}"
+          class="w-full rounded-lg border border-stone-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none"
+          placeholder="Start typing to search...">
+        <datalist id="tz-list"></datalist>
+        <p class="mt-1 text-xs text-stone-400 dark:text-plumage-500">IANA timezone. Derived from coordinates if empty.</p>
+        <script>
+        (function(){{
+          var dl = document.getElementById('tz-list');
+          try {{
+            Intl.supportedValuesOf('timeZone').forEach(function(tz) {{
+              var o = document.createElement('option');
+              o.value = tz;
+              dl.appendChild(o);
+            }});
+          }} catch(e) {{
+            // Fallback for older browsers: common timezones
+            ['UTC','America/New_York','America/Chicago','America/Denver','America/Los_Angeles',
+             'America/Toronto','America/Vancouver','America/Sao_Paulo','America/Argentina/Buenos_Aires',
+             'Europe/London','Europe/Berlin','Europe/Paris','Europe/Moscow',
+             'Asia/Tokyo','Asia/Shanghai','Asia/Kolkata','Asia/Dubai',
+             'Australia/Sydney','Australia/Melbourne','Australia/Perth',
+             'Pacific/Auckland','Africa/Johannesburg','Africa/Cairo'
+            ].forEach(function(tz) {{
+              var o = document.createElement('option');
+              o.value = tz;
+              dl.appendChild(o);
+            }});
+          }}
+        }})();
+        </script>
+      </div>
+    </div>
+    <p class="mt-2 text-xs text-stone-400 dark:text-plumage-500">Station ID <code class="bg-stone-100 dark:bg-plumage-800 px-1 rounded">{station_id}</code> requires restart to change.</p>
+  </div>
+
+  <!-- Display -->
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-4">Display</h3>
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Min Confidence (UI)</label>
+        <input name="display_min_confidence" type="number" step="0.01" min="0" max="1" value="{display_min_confidence}"
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+      </div>
+    </div>
+    <p class="mt-2 text-xs text-gray-400 dark:text-plumage-500">Detections below this confidence are still captured in the database but hidden from the dashboard, SSE feed, and species summary. Lower this to see more detections; raise it to reduce noise.</p>
+    <div class="mt-4">
+      <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Species Image URL (optional)</label>
+      <input name="species_image_url" type="text" value="{species_image_url}"
+        class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none"
+        placeholder="e.g. http://192.168.1.50/birds or https://my-cdn.com/species">
+      <p class="mt-1 text-xs text-gray-400 dark:text-plumage-500">Base URL for custom species images. The UI will try <code>{{url}}/{{Scientific_name}}.jpg</code> before falling back to Wikipedia. Leave empty to use Wikipedia only.</p>
+    </div>
+    <div class="mt-4 flex items-center justify-between">
+      <div>
+        <label class="text-sm font-medium text-gray-700 dark:text-plumage-300">Show range-unverified detections</label>
+        <p class="text-xs text-gray-400 dark:text-plumage-500 mt-0.5">Perch species not in BirdNET's geographic model. These bypass the range filter because no occurrence data exists.</p>
+      </div>
+      <input name="show_range_unverified" type="checkbox" {show_range_unverified_checked}
+        class="h-4 w-4 rounded border-gray-300 text-nuthatch-600 focus:ring-nuthatch-500 ml-4 flex-shrink-0">
+    </div>
+  </div>
+
+  <!-- Audio Sources -->
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-stone-200 dark:border-plumage-800 p-5">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider">Audio Sources</h3>
+      <button onclick="document.getElementById('add-source-form').classList.toggle('hidden')"
+        class="text-xs text-nuthatch-600 dark:text-nuthatch-400 hover:underline">+ Add source</button>
+    </div>
+    <div id="sources-list" class="space-y-2 text-sm">Loading...</div>
+    <div id="add-source-form" class="hidden mt-4 pt-4 border-t border-stone-200 dark:border-plumage-800 space-y-3">
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">Type</label>
+          <select id="new-source-type" class="w-full rounded-lg border border-stone-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm">
+            <option value="rtsp">RTSP</option>
+            <option value="remote">Remote (Sitta)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">Name</label>
+          <input id="new-source-name" type="text" placeholder="e.g. south_dam"
+            class="w-full rounded-lg border border-stone-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm">
+        </div>
+        <div class="sm:col-span-2">
+          <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">URL</label>
+          <input id="new-source-url" type="text" placeholder="rtsp://... or http://..."
+            class="w-full rounded-lg border border-stone-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm">
+        </div>
+      </div>
+      <button onclick="addSource()" class="px-3 py-1.5 rounded-lg bg-nuthatch-600 text-white text-sm font-medium hover:bg-nuthatch-700 transition-colors">Add</button>
+      <span id="add-source-status" class="text-xs ml-2"></span>
+    </div>
+  </div>
+
+  {birdnet_section}
+
+  {perch_section}
+
+  <!-- MQTT -->
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider">MQTT</h3>
+      <span id="mqtt-status" class="text-xs text-stone-400 dark:text-plumage-500"></span>
+    </div>
+    <div id="mqtt-form-area"></div>
+  </div>
+
+  <!-- Actions -->
+  <div class="flex items-center gap-3">
+    <button type="submit" id="save-btn"
+      class="inline-flex items-center px-4 py-2 rounded-lg bg-nuthatch-600 text-white text-sm font-medium hover:bg-nuthatch-700 focus:ring-2 focus:ring-nuthatch-500 focus:ring-offset-2 dark:focus:ring-offset-plumage-950 transition-colors">
+      Save Changes
+    </button>
+    <span id="save-status" class="text-sm text-gray-400 dark:text-plumage-500"></span>
+  </div>
+</form>
+
+<script>
+(function() {{
+  const form = document.getElementById('settings-form');
+  const btn = document.getElementById('save-btn');
+  const status = document.getElementById('save-status');
+  const toast = document.getElementById('toast');
+
+  function showToast(msg, ok) {{
+    toast.className = 'fixed top-4 right-4 z-50 px-4 py-2.5 rounded-lg text-sm font-medium shadow-lg transition-opacity ' +
+      (ok ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white');
+    toast.textContent = msg;
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 3000);
+  }}
+
+  form.addEventListener('submit', async () => {{
+    btn.disabled = true;
+    status.textContent = 'Saving...';
+
+    const body = {{}};
+    const fd = new FormData(form);
+    for (const [k, v] of fd.entries()) {{
+      if (v === '') continue;
+      if (k === 'station_latitude' || k === 'station_longitude' ||
+          k === 'display_min_confidence' ||
+          k === 'birdnet_min_confidence' || k === 'birdnet_meta_threshold' ||
+          k === 'perch_min_confidence') {{
+        body[k] = parseFloat(v);
+      }} else if (k === 'birdnet_top_k' || k === 'perch_top_k') {{
+        body[k] = parseInt(v, 10);
+      }} else if (k === 'birdnet_force_allow') {{
+        body[k] = v.split(',').map(s => s.trim()).filter(s => s);
+      }} else {{
+        body[k] = v;
+      }}
+    }}
+    // Checkboxes: unchecked inputs are absent from FormData; set explicitly.
+    body.show_range_unverified = form.querySelector('[name=show_range_unverified]').checked;
+
+    try {{
+      const res = await fetch('/api/v1/settings', {{
+        method: 'PUT',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify(body),
+      }});
+      const data = await res.json();
+      if (res.ok) {{
+        const n = data.updated.length;
+        if (n === 0) {{
+          showToast('No changes detected', true);
+        }} else {{
+          showToast(n + ' setting' + (n > 1 ? 's' : '') + ' updated' + (data.rebuild_triggered ? ' (rebuilding models...)' : ''), true);
+        }}
+        if (data.persist_error) {{
+          status.textContent = 'Warning: ' + data.persist_error;
+          status.className = 'text-sm text-amber-500';
+        }} else {{
+          status.textContent = '';
+        }}
+      }} else {{
+        showToast('Failed to save: ' + (data.persist_error || res.statusText), false);
+      }}
+    }} catch (e) {{
+      showToast('Network error: ' + e.message, false);
+    }} finally {{
+      btn.disabled = false;
+    }}
+  }});
+}})();
+
+// Source management
+(function() {{
+  function loadSources() {{
+    fetch('/api/v1/sources')
+      .then(r => r.json())
+      .then(data => {{
+        const el = document.getElementById('sources-list');
+        if (data.length === 0) {{
+          el.innerHTML = '<p class="text-stone-400 dark:text-plumage-500">No audio sources configured</p>';
+          return;
+        }}
+        el.innerHTML = data.map(s => `<div class="flex items-center justify-between py-2 px-3 rounded-lg bg-stone-50 dark:bg-plumage-800">
+          <div>
+            <span class="font-medium">${{s.name}}</span>
+            <span class="ml-2 text-xs px-1.5 py-0.5 rounded bg-stone-200 dark:bg-plumage-700 text-stone-600 dark:text-plumage-300">${{s.source_type}}</span>
+            ${{s.url ? '<span class="ml-2 text-xs text-stone-400 dark:text-plumage-500 truncate max-w-xs inline-block align-bottom">' + s.url + '</span>' : ''}}
+          </div>
+          <button onclick="removeSource('${{s.name}}')" class="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">Remove</button>
+        </div>`).join('');
+      }})
+      .catch(() => {{
+        document.getElementById('sources-list').innerHTML = '<p class="text-red-400 text-xs">Failed to load sources</p>';
+      }});
+  }}
+  loadSources();
+
+  window.addSource = function() {{
+    const t = document.getElementById('new-source-type').value;
+    const n = document.getElementById('new-source-name').value.trim();
+    const u = document.getElementById('new-source-url').value.trim();
+    const st = document.getElementById('add-source-status');
+    if (!n || !u) {{ st.innerHTML = '<span class="text-amber-500">Name and URL required</span>'; return; }}
+
+    const body = t === 'rtsp'
+      ? {{ type: 'rtsp', name: n, url: u }}
+      : {{ type: 'remote', name: n, url: u }};
+
+    st.textContent = 'Adding...';
+    fetch('/api/v1/sources', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify(body),
+    }})
+    .then(async r => {{
+      const text = await r.text();
+      if (!r.ok) throw new Error(text || r.statusText);
+      return text;
+    }})
+    .then(() => {{
+      st.innerHTML = '<span class="text-emerald-500">Added</span>';
+      document.getElementById('new-source-name').value = '';
+      document.getElementById('new-source-url').value = '';
+      setTimeout(() => document.getElementById('add-source-form').classList.add('hidden'), 500);
+      loadSources();
+    }})
+    .catch(e => {{ st.innerHTML = '<span class="text-red-500">' + e.message + '</span>'; }});
+  }};
+
+  window.removeSource = function(name) {{
+    if (!confirm('Remove source "' + name + '"?')) return;
+    fetch('/api/v1/sources/' + encodeURIComponent(name), {{ method: 'DELETE' }})
+      .then(r => {{ if (!r.ok) return r.text().then(t => Promise.reject(t)); loadSources(); }})
+      .catch(e => alert('Failed: ' + e));
+  }};
+}})();
+
+// MQTT config form
+(function() {{
+  const area = document.getElementById('mqtt-form-area');
+  const status = document.getElementById('mqtt-status');
+  if (!area) return;
+
+  function inp(cls) {{ return 'w-full rounded-lg border border-stone-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none'; }}
+
+  fetch('/api/v1/mqtt').then(r => r.json()).then(m => {{
+    area.innerHTML = `<div class="space-y-3">
+      <div class="flex items-center gap-3">
+        <label class="flex items-center gap-2 text-sm cursor-pointer">
+          <input id="mqtt-enabled" type="checkbox" ${{m.enabled ? 'checked' : ''}} class="rounded border-stone-300 dark:border-plumage-700 text-nuthatch-600 focus:ring-nuthatch-500">
+          Enable MQTT
+        </label>
+      </div>
+      <div id="mqtt-fields" class="${{m.enabled ? '' : 'opacity-50 pointer-events-none'}}">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">Host</label>
+            <input id="mqtt-host" type="text" value="${{m.host || ''}}" placeholder="e.g. 192.168.1.50 or localhost" class="${{inp()}}">
+            <p class="mt-0.5 text-[10px] text-stone-400 dark:text-plumage-600">Hostname or IP only — no protocol prefix (not tcp:// or http://)</p>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">Port</label>
+            <input id="mqtt-port" type="number" value="${{m.port || 1883}}" class="${{inp()}}">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">Username (optional)</label>
+            <input id="mqtt-user" type="text" value="${{m.username || ''}}" placeholder="" class="${{inp()}}">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">Password (optional)</label>
+            <input id="mqtt-pass" type="password" value="${{m.password || ''}}" class="${{inp()}}">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-stone-600 dark:text-plumage-300 mb-1">First-of-Day Min Confidence</label>
+            <input id="mqtt-fod" type="number" step="0.01" min="0" max="1" value="${{m.first_of_day_min_confidence}}" class="${{inp()}}">
+          </div>
+          <div class="flex items-end">
+            <label class="flex items-center gap-2 text-sm cursor-pointer pb-2">
+              <input id="mqtt-ha" type="checkbox" ${{m.homeassistant_discovery ? 'checked' : ''}} class="rounded border-stone-300 dark:border-plumage-700 text-nuthatch-600 focus:ring-nuthatch-500">
+              HA Discovery
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 mt-2">
+        <button onclick="testMqtt()" class="px-3 py-1.5 rounded-lg border border-stone-300 dark:border-plumage-700 text-sm font-medium hover:bg-stone-100 dark:hover:bg-plumage-800 transition-colors">Test Connection</button>
+        <button onclick="saveMqtt()" class="px-3 py-1.5 rounded-lg bg-nuthatch-600 text-white text-sm font-medium hover:bg-nuthatch-700 transition-colors">Save MQTT</button>
+        <span id="mqtt-save-status" class="text-xs"></span>
+      </div>
+      <p id="mqtt-running-status" class="text-xs text-stone-400 dark:text-plumage-500"></p>
+    </div>`;
+
+    document.getElementById('mqtt-enabled').addEventListener('change', function() {{
+      document.getElementById('mqtt-fields').classList.toggle('opacity-50', !this.checked);
+      document.getElementById('mqtt-fields').classList.toggle('pointer-events-none', !this.checked);
+    }});
+
+    if (m.running) {{
+      status.innerHTML = '<span class="text-emerald-500">&#x2022;</span> ' + m.host + ':' + m.port;
+      const rs = document.getElementById('mqtt-running-status');
+      if (rs) rs.innerHTML = '<span class="text-emerald-500">&#x2022; Connected</span>';
+    }} else if (m.enabled && m.host) {{
+      status.innerHTML = '<span class="text-amber-500">&#x2022;</span> ' + m.host + ':' + m.port;
+    }}
+  }}).catch(() => {{
+    area.innerHTML = '<p class="text-sm text-red-400">Failed to load MQTT config</p>';
+  }});
+
+  function getMqttFormBody() {{
+    return {{
+      enabled: document.getElementById('mqtt-enabled').checked,
+      host: document.getElementById('mqtt-host').value.trim(),
+      port: parseInt(document.getElementById('mqtt-port').value, 10) || 1883,
+      username: document.getElementById('mqtt-user').value.trim() || null,
+      password: document.getElementById('mqtt-pass').value || null,
+      first_of_day_min_confidence: parseFloat(document.getElementById('mqtt-fod').value) || 0.75,
+      homeassistant_discovery: document.getElementById('mqtt-ha').checked,
+      homeassistant_prefix: 'homeassistant',
+    }};
+  }}
+
+  window.testMqtt = function() {{
+    const st = document.getElementById('mqtt-save-status');
+    const body = getMqttFormBody();
+    if (!body.host) {{ st.innerHTML = '<span class="text-amber-500">Enter a host first</span>'; return; }}
+    st.innerHTML = '<span class="text-stone-400 dark:text-plumage-500">Testing...</span>';
+    fetch('/api/v1/mqtt/test', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify(body),
+    }}).then(r => r.json()).then(d => {{
+      st.innerHTML = d.success
+        ? '<span class="text-emerald-500">' + d.message + '</span>'
+        : '<span class="text-red-500">' + d.message + '</span>';
+    }}).catch(e => {{
+      st.innerHTML = '<span class="text-red-500">Test failed: ' + e.message + '</span>';
+    }});
+  }};
+
+  window.saveMqtt = function() {{
+    const st = document.getElementById('mqtt-save-status');
+    const body = getMqttFormBody();
+    st.textContent = 'Saving...';
+    fetch('/api/v1/mqtt', {{
+      method: 'PUT',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify(body),
+    }}).then(async r => {{
+      const text = await r.text();
+      if (!r.ok) throw new Error(text);
+      st.innerHTML = '<span class="text-emerald-500">Saved &amp; applied</span>';
+      // Refresh running status after a brief delay for connection to establish
+      setTimeout(() => {{
+        fetch('/api/v1/mqtt').then(r => r.json()).then(d => {{
+          const rs = document.getElementById('mqtt-running-status');
+          if (rs) rs.innerHTML = d.running
+            ? '<span class="text-emerald-500">&#x2022; Connected</span>'
+            : d.enabled ? '<span class="text-amber-500">&#x2022; Connecting...</span>' : '';
+          const hs = document.getElementById('mqtt-status');
+          if (hs) hs.innerHTML = d.running ? '<span class="text-emerald-500">&#x2022;</span> ' + d.host + ':' + d.port : '';
+        }});
+      }}, 2000);
+    }}).catch(e => {{
+      st.innerHTML = '<span class="text-red-500">' + e.message + '</span>';
+    }});
+  }};
+}})();
+</script>"##,
+        station_name = settings.station_name,
+        lat = lat,
+        lon = lon,
+        station_id = initial.station_id,
+        timezone = settings.timezone,
+        display_min_confidence = display_min_confidence,
+        species_image_url = settings.species_image_url.as_deref().unwrap_or(""),
+        show_range_unverified_checked = if settings.show_range_unverified { "checked" } else { "" },
+        birdnet_section = if has_birdnet {{ format!(
+            r#"<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-4">BirdNET</h3>
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Min Confidence</label>
+        <input name="birdnet_min_confidence" type="number" step="0.01" min="0" max="1" value="{birdnet_conf}"
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Top K</label>
+        <input name="birdnet_top_k" type="number" min="1" max="100" value="{birdnet_topk}"
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Meta Threshold</label>
+        <input name="birdnet_meta_threshold" type="number" step="0.001" min="0" max="1" value="{birdnet_meta}"
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Force Allow (eBird codes)</label>
+        <input name="birdnet_force_allow" type="text" value="{birdnet_allow}" placeholder="e.g. helgui1, redjun1"
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+      </div>
+    </div>
+    <p class="mt-2 text-xs text-gray-400 dark:text-plumage-500">Model and labels paths require restart to change.</p>
+  </div>"#,
+            birdnet_conf = birdnet_conf,
+            birdnet_topk = birdnet_topk,
+            birdnet_meta = birdnet_meta,
+            birdnet_allow = birdnet_allow,
+        )}} else { String::new() },
+        perch_section = if has_perch {{ format!(
+            r#"<div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-4">Perch</h3>
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Min Confidence</label>
+        <input name="perch_min_confidence" type="number" step="0.01" min="0" max="1" value="{perch_conf}"
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-plumage-300 mb-1">Top K</label>
+        <input name="perch_top_k" type="number" min="1" max="100" value="{perch_topk}"
+          class="w-full rounded-lg border border-gray-300 dark:border-plumage-700 bg-white dark:bg-plumage-800 px-3 py-2 text-sm focus:ring-2 focus:ring-nuthatch-500 focus:border-nuthatch-500 outline-none">
+      </div>
+    </div>
+    <p class="mt-2 text-xs text-gray-400 dark:text-plumage-500">Model and labels paths require restart to change.</p>
+  </div>"#,
+            perch_conf = perch_conf,
+            perch_topk = perch_topk,
+        )}} else { String::new() },
+    )
+}
