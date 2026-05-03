@@ -236,6 +236,75 @@ struct RetentionCandidate {
     reviewed_correct: bool,
 }
 
+const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+
+/// Pick candidates whose age exceeds their tier-adjusted cutoff. Reviewed-correct
+/// rows are exempt. Returns indices into `candidates`.
+fn select_age_evictions(
+    candidates: &[RetentionCandidate],
+    config: &SnippetConfig,
+    now_ms: i64,
+) -> Vec<usize> {
+    let mut out = Vec::new();
+    for (i, c) in candidates.iter().enumerate() {
+        if c.reviewed_correct {
+            continue;
+        }
+        let mul = effective_multiplier(c.rarity.as_ref(), config);
+        let span_days = i64::from(config.retention_days).saturating_mul(i64::from(mul));
+        let cutoff = now_ms.saturating_sub(span_days.saturating_mul(DAY_MS));
+        if c.detected_at < cutoff {
+            out.push(i);
+        }
+    }
+    out
+}
+
+/// Pick the oldest excess clips for any species exceeding `cap`. Reviewed-correct
+/// and first_ever rows don't count toward the cap and are never returned. Caller
+/// must check that the cap is enabled before invoking.
+fn select_species_cap_evictions(
+    candidates: &[RetentionCandidate],
+    cap: usize,
+) -> Vec<usize> {
+    let mut by_species: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (i, c) in candidates.iter().enumerate() {
+        if c.reviewed_correct {
+            continue;
+        }
+        if c.rarity.as_ref().is_some_and(|r| r.first_ever) {
+            continue;
+        }
+        by_species
+            .entry(c.scientific_name.as_str())
+            .or_default()
+            .push(i);
+    }
+    let mut out = Vec::new();
+    for (_, mut indices) in by_species {
+        if indices.len() <= cap {
+            continue;
+        }
+        indices.sort_by_key(|&i| candidates[i].detected_at);
+        let excess = indices.len() - cap;
+        out.extend(indices.into_iter().take(excess));
+    }
+    out
+}
+
+/// Order candidates for size-sweep eviction: least-protected tier first, then
+/// oldest within tier. Reviewed-correct rows are kept in the order so the size
+/// sweep can skip them inline (the actual skip happens at eviction time so
+/// disk-free accounting stays accurate against partial metadata).
+fn size_sweep_order(candidates: &[RetentionCandidate]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..candidates.len()).collect();
+    order.sort_by_key(|&i| {
+        let c = &candidates[i];
+        (tier(c.rarity.as_ref()), c.detected_at)
+    });
+    order
+}
+
 async fn run_retention(
     config: &SnippetConfig,
     clip_dir: &Path,
@@ -266,24 +335,10 @@ async fn run_retention(
     }
 
     let now_ms = Utc::now().timestamp_millis();
-    let day_ms: i64 = 24 * 60 * 60 * 1000;
 
-    // ── Age sweep: each row gets its own tier-adjusted cutoff. The old
-    // "break on first row past cutoff" optimisation is gone because the
-    // cutoff varies per row, but 10k iterations is trivial.
+    // ── Age sweep: each row gets its own tier-adjusted cutoff.
     if config.retention_days > 0 {
-        let mut to_evict: Vec<usize> = Vec::new();
-        for (i, c) in candidates.iter().enumerate() {
-            if c.reviewed_correct {
-                continue;
-            }
-            let mul = effective_multiplier(c.rarity.as_ref(), config);
-            let span_days = i64::from(config.retention_days).saturating_mul(i64::from(mul));
-            let cutoff = now_ms.saturating_sub(span_days.saturating_mul(day_ms));
-            if c.detected_at < cutoff {
-                to_evict.push(i);
-            }
-        }
+        let mut to_evict = select_age_evictions(&candidates, config, now_ms);
         for &i in &to_evict {
             let c = &candidates[i];
             delete_clip(clip_dir, &c.snippet_path).await;
@@ -300,32 +355,10 @@ async fn run_retention(
 
     // ── Per-species cap pre-pass: when the cap is set and disk pressure is
     // a concern, trim noisy species back to the cap before global eviction
-    // touches anything else. Reviewed-correct and first_ever clips are
-    // exempt — they don't count toward the cap and won't be evicted by it.
+    // touches anything else.
     if config.per_species_cap > 0 && config.max_disk_mb > 0 {
         let cap = config.per_species_cap as usize;
-        let mut by_species: HashMap<String, Vec<usize>> = HashMap::new();
-        for (i, c) in candidates.iter().enumerate() {
-            if c.reviewed_correct {
-                continue;
-            }
-            if c.rarity.as_ref().is_some_and(|r| r.first_ever) {
-                continue;
-            }
-            by_species
-                .entry(c.scientific_name.clone())
-                .or_default()
-                .push(i);
-        }
-        let mut to_evict: Vec<usize> = Vec::new();
-        for (_, mut indices) in by_species {
-            if indices.len() <= cap {
-                continue;
-            }
-            indices.sort_by_key(|&i| candidates[i].detected_at);
-            let excess = indices.len() - cap;
-            to_evict.extend(indices.into_iter().take(excess));
-        }
+        let mut to_evict = select_species_cap_evictions(&candidates, cap);
         for &i in &to_evict {
             let c = &candidates[i];
             delete_clip(clip_dir, &c.snippet_path).await;
@@ -345,11 +378,7 @@ async fn run_retention(
         let total = dir_size(clip_dir).await;
         if total > max_bytes {
             let mut to_free = total - max_bytes;
-            let mut order: Vec<usize> = (0..candidates.len()).collect();
-            order.sort_by_key(|&i| {
-                let c = &candidates[i];
-                (tier(c.rarity.as_ref()), c.detected_at)
-            });
+            let order = size_sweep_order(&candidates);
             for i in order {
                 if to_free == 0 {
                     break;
@@ -456,6 +485,17 @@ mod tests {
         }
     }
 
+    fn candidate(species: &str, age_days: i64, rarity: Option<RarityRow>, reviewed_correct: bool) -> RetentionCandidate {
+        RetentionCandidate {
+            id: vec![],
+            snippet_path: format!("{species}/{age_days}.wav"),
+            detected_at: -age_days * DAY_MS, // negative = "this many days before now=0"
+            scientific_name: species.to_string(),
+            rarity,
+            reviewed_correct,
+        }
+    }
+
     #[test]
     fn tier_orders_by_protection() {
         // Common (no flags, low score) is the easiest to evict.
@@ -504,5 +544,181 @@ mod tests {
         c.first_day_multiplier = 0;
         c.high_score_multiplier = 0;
         assert_eq!(effective_multiplier(Some(&rr(false, false, false, true, 0.7)), &c), 1);
+    }
+
+    // ── Age sweep ─────────────────────────────────────────────────
+
+    #[test]
+    fn age_sweep_evicts_only_past_cutoff() {
+        let c = cfg(); // retention_days = 30
+        let candidates = vec![
+            candidate("RWBL", 10, None, false),  // young — keep
+            candidate("RWBL", 31, None, false),  // past 30 days — evict
+            candidate("RWBL", 60, None, false),  // way past — evict
+        ];
+        let evicted = select_age_evictions(&candidates, &c, 0);
+        assert_eq!(evicted, vec![1, 2]);
+    }
+
+    #[test]
+    fn age_sweep_skips_reviewed_correct_even_when_ancient() {
+        let c = cfg();
+        let candidates = vec![
+            candidate("RWBL", 365, None, true),  // year-old but pinned — keep
+            candidate("RWBL", 31, None, false),  // ordinary aged-out — evict
+        ];
+        let evicted = select_age_evictions(&candidates, &c, 0);
+        assert_eq!(evicted, vec![1]);
+    }
+
+    #[test]
+    fn age_sweep_extends_first_ever_via_multiplier() {
+        let c = cfg(); // first_ever_multiplier = 999
+        let candidates = vec![
+            // 1000 days × no rarity = past 30-day cutoff → evict
+            candidate("RWBL", 1000, None, false),
+            // 1000 days × first_ever (999×30 = 29970) → keep
+            candidate("BAOW", 1000, Some(rr(true, false, false, false, 0.9)), false),
+            // 100 days × first_day (2×30 = 60) → still past cutoff, evict
+            candidate("PHOE", 100, Some(rr(false, false, false, true, 0.0)), false),
+        ];
+        let evicted = select_age_evictions(&candidates, &c, 0);
+        assert_eq!(evicted, vec![0, 2]);
+    }
+
+    #[test]
+    fn age_sweep_uses_strictest_multiplier_for_multi_flag_rows() {
+        let c = cfg();
+        // first_season=8 + first_day=2 + score=0.7 → strictest is 8 (first_season)
+        // 200 days × 8 × 30 = 240 effective span → keep at 200 days
+        let row = rr(false, true, false, true, 0.7);
+        let candidates = vec![candidate("RWBL", 200, Some(row), false)];
+        let evicted = select_age_evictions(&candidates, &c, 0);
+        assert!(evicted.is_empty());
+    }
+
+    #[test]
+    fn age_sweep_respects_disabled_retention() {
+        // retention_days = 0 means "no age sweep". The helper computes
+        // span_days = 0 × multiplier = 0, so cutoff = now, and any row
+        // with detected_at < now evicts. The caller (run_retention) gates
+        // the sweep with `if config.retention_days > 0` — this test
+        // documents the gate's role.
+        let mut c = cfg();
+        c.retention_days = 0;
+        let candidates = vec![candidate("RWBL", 10, None, false)];
+        let evicted = select_age_evictions(&candidates, &c, 0);
+        // Without the caller-side gate, ancient rows would all be picked.
+        // The helper returns them; the gate prevents the sweep entirely.
+        assert_eq!(evicted, vec![0]);
+    }
+
+    // ── Per-species cap ───────────────────────────────────────────
+
+    #[test]
+    fn species_cap_evicts_oldest_excess_per_species() {
+        let candidates = vec![
+            candidate("RWBL", 10, None, false), // 0
+            candidate("RWBL", 20, None, false), // 1
+            candidate("RWBL", 30, None, false), // 2 — oldest, evict
+            candidate("RWBL", 40, None, false), // 3 — older,  evict
+            candidate("BAOW", 50, None, false), // 4 — only one, keep
+        ];
+        let mut evicted = select_species_cap_evictions(&candidates, 2);
+        evicted.sort();
+        assert_eq!(evicted, vec![2, 3]);
+    }
+
+    #[test]
+    fn species_cap_exempts_first_ever() {
+        let candidates = vec![
+            candidate("RWBL", 10, None, false),                                          // 0
+            candidate("RWBL", 20, None, false),                                          // 1
+            candidate("RWBL", 30, Some(rr(true, false, false, false, 0.9)), false),      // 2 — first_ever, exempt
+            candidate("RWBL", 40, None, false),                                          // 3 — oldest non-exempt, evict
+        ];
+        // cap = 2: 3 non-exempt rows → 1 excess. The oldest non-exempt evicts.
+        let evicted = select_species_cap_evictions(&candidates, 2);
+        assert_eq!(evicted, vec![3]);
+    }
+
+    #[test]
+    fn species_cap_exempts_reviewed_correct() {
+        let candidates = vec![
+            candidate("RWBL", 10, None, false),  // 0
+            candidate("RWBL", 20, None, false),  // 1
+            candidate("RWBL", 30, None, true),   // 2 — pinned, exempt
+            candidate("RWBL", 40, None, false),  // 3 — oldest non-exempt, evict
+        ];
+        let evicted = select_species_cap_evictions(&candidates, 2);
+        assert_eq!(evicted, vec![3]);
+    }
+
+    #[test]
+    fn species_cap_independent_per_species() {
+        let candidates = vec![
+            candidate("RWBL", 10, None, false), // 0
+            candidate("RWBL", 20, None, false), // 1
+            candidate("RWBL", 30, None, false), // 2 — RWBL excess, evict
+            candidate("BAOW", 5, None, false),  // 3
+            candidate("BAOW", 8, None, false),  // 4 — BAOW within cap
+        ];
+        let evicted = select_species_cap_evictions(&candidates, 2);
+        assert_eq!(evicted, vec![2]);
+    }
+
+    #[test]
+    fn species_cap_no_op_when_under_cap() {
+        let candidates = vec![
+            candidate("RWBL", 10, None, false),
+            candidate("BAOW", 20, None, false),
+        ];
+        let evicted = select_species_cap_evictions(&candidates, 5);
+        assert!(evicted.is_empty());
+    }
+
+    // ── Size sweep order ──────────────────────────────────────────
+
+    #[test]
+    fn size_sweep_orders_by_tier_then_age() {
+        let candidates = vec![
+            // Tier 0 (common): index 0 oldest, index 1 newest
+            candidate("RWBL", 30, None, false),  // 0 — oldest tier-0
+            candidate("RWBL", 10, None, false),  // 1 — newest tier-0
+            // Tier 1 (first_day)
+            candidate("PHOE", 50, Some(rr(false, false, false, true, 0.0)), false), // 2
+            // Tier 2 (first_week)
+            candidate("BAOW", 100, Some(rr(false, false, true, false, 0.0)), false), // 3
+            // Tier 3 (first_ever)
+            candidate("WTSP", 200, Some(rr(true, false, false, false, 0.9)), false), // 4
+        ];
+        // Expected: oldest tier-0, then newest tier-0, then tier-1, tier-2, tier-3.
+        let order = size_sweep_order(&candidates);
+        assert_eq!(order, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn size_sweep_within_tier_oldest_first() {
+        let candidates = vec![
+            candidate("RWBL", 5, None, false),   // 0 — newest
+            candidate("RWBL", 50, None, false),  // 1 — oldest
+            candidate("RWBL", 25, None, false),  // 2 — middle
+        ];
+        let order = size_sweep_order(&candidates);
+        assert_eq!(order, vec![1, 2, 0]);
+    }
+
+    #[test]
+    fn size_sweep_keeps_reviewed_correct_in_order() {
+        // The size sweep skips reviewed_correct inline at eviction time so
+        // disk accounting can use partial metadata. The order helper itself
+        // is purely positional — it doesn't filter.
+        let candidates = vec![
+            candidate("RWBL", 30, None, false),  // 0 — oldest tier-0, evictable
+            candidate("RWBL", 10, None, true),   // 1 — pinned, but still in order
+            candidate("BAOW", 100, Some(rr(true, false, false, false, 0.9)), false), // 2 — first_ever
+        ];
+        let order = size_sweep_order(&candidates);
+        assert_eq!(order, vec![0, 1, 2]); // tier 0,0,3 with index 0 older than 1
     }
 }
