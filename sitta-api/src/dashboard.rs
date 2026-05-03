@@ -183,6 +183,33 @@ window.sitta = (function() {{
     return new Date(iso).toLocaleString('en-GB', {{ month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz || 'UTC' }});
   }}
 
+  // ── Detection card sub-components ─────────────────────────────
+  // Markup duplicated across the dashboard live feed, species detail,
+  // /rare, and the detection-detail correlated panel. Page-level layouts
+  // around the card frame differ (donut/no-donut, alternatives, footers),
+  // so we expose the genuinely-shared pieces rather than one mega-card.
+  const _PLAY_SVG = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/></svg>';
+
+  function spectrogramBlock(d, opts) {{
+    opts = opts || {{}};
+    const heightCls = opts.height || 'h-20';
+    const showPlaceholder = opts.showPlaceholder !== false;
+    if (d.has_audio || d.snippet_path) {{
+      return '<div class="mt-3 relative cursor-pointer group" id="spect-' + d.id + '" onclick="seekSpectrogram(event, \\'' + d.id + '\\')">' +
+        '<img src="/api/v1/detections/' + d.id + '/spectrogram" loading="lazy" class="w-full ' + heightCls + ' rounded-lg object-cover bg-gray-100 dark:bg-plumage-800" alt="spectrogram" onerror="this.parentElement.style.display=\\'none\\'"/>' +
+        '<div class="playhead absolute top-0 bottom-0 w-0.5 bg-white/80 dark:bg-nuthatch-400/80 pointer-events-none transition-none" style="left:0%;display:none"></div>' +
+        '<div class="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/5 dark:group-hover:bg-white/5 transition-colors pointer-events-none"></div>' +
+      '</div>';
+    }}
+    if (!showPlaceholder) return '';
+    return '<div class="mt-3 px-3 py-2 rounded-lg bg-gray-50 dark:bg-plumage-800/50 text-xs text-gray-400 dark:text-plumage-500 italic">No audio clip on disk &middot; <a href="/diagnostics" class="hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors not-italic">why?</a></div>';
+  }}
+
+  function playButton(d) {{
+    if (!(d.has_audio || d.snippet_path)) return '';
+    return '<button onclick="playClip(\\'' + d.id + '\\', this)" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors">' + _PLAY_SVG + ' Play</button>';
+  }}
+
   // ── Audio player + spectrogram seek (shared across pages) ─────
   // Buttons are rendered server-side (each page chooses its own SVG size /
   // label), so the player saves the button's original innerHTML the first
@@ -252,7 +279,7 @@ window.sitta = (function() {{
     }}
   }}
 
-  return {{ esc, confidenceBadge, rarityBadges, fmtDateTime, playClip, seekSpectrogram }};
+  return {{ esc, confidenceBadge, rarityBadges, fmtDateTime, spectrogramBlock, playButton, playClip, seekSpectrogram }};
 }})();
 window.playClip = window.sitta.playClip;
 window.seekSpectrogram = window.sitta.seekSpectrogram;
@@ -460,10 +487,6 @@ ACTIVITY_PANEL_PLACEHOLDER
   const connStatus = document.getElementById('connection-status');
   let count = 0;
 
-  // Rendered into static button markup; the shared player on window.sitta
-  // swaps it for a stop icon while playing and restores it on stop.
-  const playSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/></svg>';
-
   function setConnected(ok) {{
     connStatus.innerHTML = ok
       ? '<span class="relative flex h-2.5 w-2.5"><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span></span> Connected'
@@ -601,17 +624,10 @@ ACTIVITY_PANEL_PLACEHOLDER
           </div>
         </div>
       </div>
-      ${{d.has_audio || d.snippet_path ? `
-        <div class="mt-3 relative cursor-pointer group" id="spect-${{d.id}}" onclick="seekSpectrogram(event, '${{d.id}}')">
-          <img src="/api/v1/detections/${{d.id}}/spectrogram" loading="lazy"
-               class="w-full h-16 rounded-lg object-cover bg-gray-100 dark:bg-plumage-800"
-               alt="spectrogram" onerror="this.parentElement.style.display='none'"/>
-          <div class="playhead absolute top-0 bottom-0 w-0.5 bg-white/80 dark:bg-nuthatch-400/80 pointer-events-none transition-none" style="left:0%;display:none"></div>
-          <div class="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/5 dark:group-hover:bg-white/5 transition-colors pointer-events-none"></div>
-        </div>` : ''}}
+      ${{window.sitta.spectrogramBlock(d, {{ height: 'h-16', showPlaceholder: false }})}}
       <div class="mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800 flex items-center justify-between">
         <div class="flex items-center gap-2">
-          ${{d.has_audio || d.snippet_path ? `<button onclick="playClip('${{d.id}}', this)" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors">${{playSvg}} Play</button><a href="/api/v1/detections/${{d.id}}/audio" download="${{(d.species?.common_name || 'clip').replace(/[^a-zA-Z0-9 ]/g, '').replace(/ +/g, '_')}}_${{(d.detected_at || '').replace(/[:.]/g, '-').slice(0, 19)}}.wav" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors" title="Download audio clip"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg></a>` : ''}}
+          ${{window.sitta.playButton(d)}}${{d.has_audio || d.snippet_path ? `<a href="/api/v1/detections/${{d.id}}/audio" download="${{(d.species?.common_name || 'clip').replace(/[^a-zA-Z0-9 ]/g, '').replace(/ +/g, '_')}}_${{(d.detected_at || '').replace(/[:.]/g, '-').slice(0, 19)}}.wav" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors" title="Download audio clip"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg></a>` : ''}}
           <button onclick="reviewDetection('${{d.id}}', 'correct', this.closest('[data-id]'))" class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-900/30 transition-colors" title="Mark correct (c)">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
           </button>
@@ -1170,10 +1186,6 @@ pub fn species_detail_content(scientific_name: &str) -> String {
     }}
   }})();
 
-  // The play SVG is rendered into the static button markup below; the
-  // shared player on window.sitta handles toggle / stop / scrubbing.
-  const playSvg = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/></svg>';
-
   // ── Behavioral insights ────────────────────────────────────────
   fetch('/api/v1/species/' + encodeURIComponent(sciName) + '/insights')
     .then(r => r.json())
@@ -1462,16 +1474,10 @@ pub fn species_detail_content(scientific_name: &str) -> String {
             </div>
             <a href="/detections/${{d.id}}" class="text-xs text-gray-400 dark:text-plumage-600 font-mono hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors flex-shrink-0">${{d.id.slice(0, 8)}}</a>
           </div>
-          ${{hasAudio ? `<div class="mt-3 relative cursor-pointer group" id="spect-${{d.id}}" onclick="seekSpectrogram(event, '${{d.id}}')">
-            <img src="/api/v1/detections/${{d.id}}/spectrogram" loading="lazy"
-                 class="w-full h-20 rounded-lg object-cover bg-gray-100 dark:bg-plumage-800"
-                 alt="spectrogram" onerror="this.parentElement.style.display='none'"/>
-            <div class="playhead absolute top-0 bottom-0 w-0.5 bg-white/80 dark:bg-nuthatch-400/80 pointer-events-none transition-none" style="left:0%;display:none"></div>
-            <div class="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/5 dark:group-hover:bg-white/5 transition-colors pointer-events-none"></div>
-          </div>` : `<div class="mt-3 px-3 py-2 rounded-lg bg-gray-50 dark:bg-plumage-800/50 text-xs text-gray-400 dark:text-plumage-500 italic">No audio clip on disk · <a href="/diagnostics" class="hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors not-italic">why?</a></div>`}}
+          ${{window.sitta.spectrogramBlock(d)}}
           <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800">
             <div class="flex items-center gap-3">
-              ${{hasAudio ? `<button onclick="playClip('${{d.id}}', this)" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors">${{playSvg}} Play</button>` : ''}}
+              ${{window.sitta.playButton(d)}}
               <span class="text-xs text-gray-400 dark:text-plumage-500">${{d.model}} ${{d.model_version}}</span>
               ${{d.source_name ? '<span class="text-xs text-gray-400 dark:text-plumage-500 before:content-[\\u00b7] before:mr-2">' + window.sitta.esc(d.source_name) + '</span>' : ''}}
             </div>
@@ -1509,7 +1515,6 @@ pub fn rare_content() -> String {
 (function() {
   const _tz = document.body.dataset.tz || 'UTC';
   const SINCE = Date.now() - 14 * 86400000;
-  const playSvg = '<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.891a1.5 1.5 0 000-2.538L6.3 2.841z"/></svg>';
 
   // Read ?filter=foo from the URL so badge clicks land on the matching tab.
   const params = new URLSearchParams(location.search);
@@ -1611,16 +1616,10 @@ pub fn rare_content() -> String {
             </div>
           </div>
         </div>
-        ${hasAudio ? `<div class="mt-3 relative cursor-pointer group" id="spect-${d.id}" onclick="seekSpectrogram(event, '${d.id}')">
-          <img src="/api/v1/detections/${d.id}/spectrogram" loading="lazy"
-               class="w-full h-20 rounded-lg object-cover bg-gray-100 dark:bg-plumage-800"
-               alt="spectrogram" onerror="this.parentElement.style.display='none'"/>
-          <div class="playhead absolute top-0 bottom-0 w-0.5 bg-white/80 dark:bg-nuthatch-400/80 pointer-events-none transition-none" style="left:0%;display:none"></div>
-          <div class="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/5 dark:group-hover:bg-white/5 transition-colors pointer-events-none"></div>
-        </div>` : `<div class="mt-3 px-3 py-2 rounded-lg bg-gray-50 dark:bg-plumage-800/50 text-xs text-gray-400 dark:text-plumage-500 italic">No audio clip on disk · <a href="/diagnostics" class="hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors not-italic">why?</a></div>`}
+        ${window.sitta.spectrogramBlock(d)}
         <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-plumage-800">
           <div class="flex items-center gap-3">
-            ${hasAudio ? `<button onclick="playClip('${d.id}', this)" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors">${playSvg} Play</button>` : ''}
+            ${window.sitta.playButton(d)}
             <a href="/detections/${d.id}" class="text-xs text-stone-500 dark:text-plumage-400 hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">View detection &rarr;</a>
           </div>
           <span class="text-xs text-gray-400 dark:text-plumage-600 font-mono">${Math.round((d.rarity ? d.rarity.score : 0) * 100)}% rare</span>
