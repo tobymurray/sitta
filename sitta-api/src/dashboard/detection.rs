@@ -117,6 +117,8 @@ pub fn detection_detail_content(detection_id: &str) -> String {
       if (d.source_name) metaParts.push('<span>' + window.sitta.esc(d.source_name) + '</span>');
       const rb = window.sitta.rarityBadges(d);
       if (rb) metaParts.push(rb);
+      const ib = window.sitta.individualBadge(d);
+      if (ib) metaParts.push(ib);
       if (d.range_unverified) metaParts.push('<span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700 ring-1 ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-300 dark:ring-amber-400/20" title="Species not in BirdNET range model — not verified by geographic filter">Range unverified</span>');
       document.getElementById('det-meta').innerHTML = metaParts.join(' ' + sep + ' ');
 

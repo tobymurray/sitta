@@ -365,6 +365,7 @@ pub fn species_detail_content(scientific_name: &str) -> String {
             <div class="flex items-center gap-2 flex-wrap min-w-0">
               ${{window.sitta.confidenceBadge(d)}}
               ${{window.sitta.rarityBadges(d)}}
+              ${{window.sitta.individualBadge(d)}}
               <a href="/detections/${{d.id}}" class="text-sm text-gray-600 dark:text-plumage-300 hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${{time}}</a>
             </div>
             <a href="/detections/${{d.id}}" class="text-xs text-gray-400 dark:text-plumage-600 font-mono hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors flex-shrink-0">${{d.id.slice(0, 8)}}</a>

@@ -107,6 +107,7 @@ pub fn rare_content() -> String {
               <a href="/species/${sciEnc}" class="font-semibold text-base hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${window.sitta.esc(d.species.common_name)}</a>
               ${window.sitta.confidenceBadge(d)}
               ${window.sitta.rarityBadges(d)}
+              ${window.sitta.individualBadge(d)}
             </div>
             <p class="text-sm text-gray-500 dark:text-plumage-400 italic mt-0.5">
               <a href="/species/${sciEnc}" class="hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">${window.sitta.esc(d.species.scientific_name)}</a>

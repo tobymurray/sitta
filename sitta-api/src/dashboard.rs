@@ -177,6 +177,15 @@ window.sitta = (function() {{
     return '<span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ' + cls + '">' + pct + '%</span>';
   }}
 
+  function individualBadge(d) {{
+    if (!d.individual) return '';
+    const sim = Math.round((d.individual.similarity || 0) * 100);
+    return '<a href="/individuals" title="Matched ' + esc(d.individual.label) + ' at ' + sim + '% similarity" class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded ring-1 bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-emerald-400/20 hover:opacity-90 transition-opacity">' +
+      '<svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"/></svg>' +
+      esc(d.individual.label) +
+    '</a>';
+  }}
+
   function rarityBadges(d) {{
     if (!d.rarity) return '';
     const r = d.rarity;
@@ -297,7 +306,7 @@ window.sitta = (function() {{
     }}
   }}
 
-  return {{ esc, confidenceBadge, rarityBadges, fmtDateTime, spectrogramBlock, playButton, playClip, seekSpectrogram }};
+  return {{ esc, confidenceBadge, individualBadge, rarityBadges, fmtDateTime, spectrogramBlock, playButton, playClip, seekSpectrogram }};
 }})();
 window.playClip = window.sitta.playClip;
 window.seekSpectrogram = window.sitta.seekSpectrogram;
