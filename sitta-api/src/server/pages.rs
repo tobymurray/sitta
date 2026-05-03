@@ -17,6 +17,14 @@ pub(super) async fn dashboard_page(
     dashboard::page("Dashboard", "dashboard", &content, &s.timezone)
 }
 
+pub(super) async fn today_page(
+    State(state): State<ApiState>,
+) -> axum::response::Html<String> {
+    let s = state.core.settings.load();
+    let content = dashboard::today_content(&s.station_name);
+    dashboard::page("Today", "today", &content, &s.timezone)
+}
+
 pub(super) async fn species_page(
     State(state): State<ApiState>,
 ) -> axum::response::Html<String> {

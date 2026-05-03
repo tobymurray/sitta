@@ -222,6 +222,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/v1/audio/stream/{source_name}", get(audio_stream_handler))
         // Dashboard pages
         .route("/", get(pages::dashboard_page))
+        .route("/today", get(pages::today_page))
         .route("/detections/{id}", get(pages::detection_detail_page))
         .route("/species", get(pages::species_page))
         .route("/species/{name}", get(pages::species_detail_page))
