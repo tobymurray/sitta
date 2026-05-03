@@ -1,3 +1,11 @@
+-- One-shot historical fix.
+--
+-- The seeding logic in `sitta-bin::seed::parse_label_for_seeding` now
+-- detects bare binomials and emits them as `label_type='species'` directly
+-- (see commit a7bc301), so this migration is a no-op against any database
+-- seeded after that change. It is preserved to repair existing rows on
+-- databases bootstrapped before the seed fix landed.
+--
 -- Repair labels that were seeded as `label_type='environment'` because the
 -- raw label string was a bare binomial (e.g. "Dryobates villosus") with no
 -- underscore-separated common-name suffix and no taxonomy match.
