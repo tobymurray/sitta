@@ -226,8 +226,8 @@ window.sitta = (function() {{
     const heightCls = opts.height || 'h-20';
     const showPlaceholder = opts.showPlaceholder !== false;
     if (d.has_audio || d.snippet_path) {{
-      return '<div class="mt-3 relative cursor-pointer group" id="spect-' + d.id + '" onclick="seekSpectrogram(event, \\'' + d.id + '\\')">' +
-        '<img src="/api/v1/detections/' + d.id + '/spectrogram" loading="lazy" class="w-full ' + heightCls + ' rounded-lg object-cover bg-gray-100 dark:bg-plumage-800" alt="spectrogram" onerror="this.parentElement.style.display=\\'none\\'"/>' +
+      return '<div class="mt-3 relative cursor-pointer group" id="spect-' + d.id + '" onclick="seekSpectrogram(event, \'' + d.id + '\')">' +
+        '<img src="/api/v1/detections/' + d.id + '/spectrogram" loading="lazy" class="w-full ' + heightCls + ' rounded-lg object-cover bg-gray-100 dark:bg-plumage-800" alt="spectrogram" onerror="this.parentElement.style.display=\'none\'"/>' +
         '<div class="playhead absolute top-0 bottom-0 w-0.5 bg-white/80 dark:bg-nuthatch-400/80 pointer-events-none transition-none" style="left:0%;display:none"></div>' +
         '<div class="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/5 dark:group-hover:bg-white/5 transition-colors pointer-events-none"></div>' +
       '</div>';
@@ -238,7 +238,7 @@ window.sitta = (function() {{
 
   function playButton(d) {{
     if (!(d.has_audio || d.snippet_path)) return '';
-    return '<button onclick="playClip(\\'' + d.id + '\\', this)" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors">' + _PLAY_SVG + ' Play</button>';
+    return '<button onclick="playClip(\'' + d.id + '\', this)" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-plumage-50 text-plumage-700 hover:bg-plumage-100 dark:bg-plumage-800 dark:text-plumage-300 dark:hover:bg-plumage-700 transition-colors">' + _PLAY_SVG + ' Play</button>';
   }}
 
   // ── Audio player + spectrogram seek (shared across pages) ─────
