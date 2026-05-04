@@ -16,8 +16,15 @@ pub(super) struct AudioHealthResponse {
     /// Path of the clip directory (if enabled).
     #[serde(skip_serializing_if = "Option::is_none")]
     clip_dir: Option<String>,
-    /// Snippet writer counters since process start.
+    /// Lifetime snippet writer counters. Persisted across restarts via
+    /// the `lifetime_metrics` table — reading 0 here means "really 0",
+    /// not "we just rebooted".
     metrics: AudioHealthMetrics,
+    /// Earliest / latest detected_at among detections with no saved clip,
+    /// plus the count. None when nothing is missing. Lets the user tell
+    /// at a glance whether the missing-audio gap is historical or ongoing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    clipless: Option<AudioHealthClipless>,
     /// Retention configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     retention: Option<AudioHealthRetention>,
@@ -39,8 +46,24 @@ pub(super) struct AudioHealthResponse {
 #[derive(Serialize, Default)]
 struct AudioHealthMetrics {
     clips_saved: u64,
+    /// Submission-time drops — the bounded mpsc channel was full when
+    /// `submit()` ran. Indicates SD-card backpressure.
     clips_dropped: u64,
+    /// Process-time errors — write_wav, fs metadata, or update_snippet_path
+    /// failed. The detection row exists but `snippet_path` stayed NULL.
+    /// Surfaced separately because the failure modes differ from drops.
+    clips_failed: u64,
     bytes_written: u64,
+}
+
+#[derive(Serialize)]
+struct AudioHealthClipless {
+    /// RFC3339 timestamp of the oldest detection without a clip.
+    first_detected_at: String,
+    /// RFC3339 timestamp of the most recent detection without a clip.
+    last_detected_at: String,
+    /// Total detections without a clip.
+    count: i64,
 }
 
 #[derive(Serialize)]
@@ -91,7 +114,9 @@ struct AudioHealthDay {
 
 #[derive(Deserialize)]
 pub(super) struct AudioHealthParams {
-    /// Days to include in the daily breakdown. Default 30, clamped to [1, 365].
+    /// Days to include in the daily breakdown. Default 90 so the chart
+    /// covers the typical 30-day retention period plus headroom; clamped
+    /// to [1, 365].
     days: Option<u32>,
 }
 
@@ -99,7 +124,7 @@ pub(super) async fn audio_health_handler(
     State(state): State<ApiState>,
     Query(params): Query<AudioHealthParams>,
 ) -> Result<Json<AudioHealthResponse>, ApiError> {
-    let days = params.days.unwrap_or(30).clamp(1, 365);
+    let days = params.days.unwrap_or(90).clamp(1, 365);
     let since_ms = Utc::now().timestamp_millis() - i64::from(days) * 86_400_000;
 
     let totals = state
@@ -114,6 +139,21 @@ pub(super) async fn audio_health_handler(
         .daily_audio_health(since_ms)
         .await
         .map_err(ApiError::internal)?;
+    let clipless_row = state
+        .core
+        .db
+        .clipless_range()
+        .await
+        .map_err(ApiError::internal)?;
+
+    let clipless = match (clipless_row.first_ms, clipless_row.last_ms) {
+        (Some(first), Some(last)) if clipless_row.count > 0 => Some(AudioHealthClipless {
+            first_detected_at: crate::server::millis_to_rfc3339(first).unwrap_or_default(),
+            last_detected_at: crate::server::millis_to_rfc3339(last).unwrap_or_default(),
+            count: clipless_row.count,
+        }),
+        _ => None,
+    };
 
     let metrics = state
         .integrations
@@ -122,6 +162,7 @@ pub(super) async fn audio_health_handler(
         .map(|m| AudioHealthMetrics {
             clips_saved: m.clips_saved.load(Ordering::Relaxed),
             clips_dropped: m.clips_dropped.load(Ordering::Relaxed),
+            clips_failed: m.clips_failed.load(Ordering::Relaxed),
             bytes_written: m.bytes_written.load(Ordering::Relaxed),
         })
         .unwrap_or_default();
@@ -193,6 +234,7 @@ pub(super) async fn audio_health_handler(
         enabled,
         clip_dir,
         metrics,
+        clipless,
         retention,
         totals: AudioHealthTotalsView {
             total: totals.total,

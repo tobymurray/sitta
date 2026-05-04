@@ -4,6 +4,7 @@ mod candidates;
 mod clustering;
 mod detections;
 mod individuals;
+mod metrics;
 mod rarity;
 mod reviews;
 mod seeding;
@@ -11,7 +12,7 @@ mod sessions;
 mod snippets;
 mod species;
 
-pub use snippets::{AudioHealthTotals, ClipTierBreakdown, DailyAudioHealth, SpeciesClipCount};
+pub use snippets::{AudioHealthTotals, ClipTierBreakdown, CliplessRange, DailyAudioHealth, SpeciesClipCount};
 
 use std::path::Path;
 

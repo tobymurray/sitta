@@ -153,7 +153,8 @@ async fn main() -> Result<()> {
             config.snippets.clone(),
             db.clone(),
             shutdown.clone(),
-        );
+        )
+        .await;
         snippet_metrics = Some(writer.metrics.clone());
         persist_ctx.snippet_writer = Some(writer);
         snippets::spawn_retention_worker(

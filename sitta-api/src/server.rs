@@ -158,10 +158,20 @@ pub struct PipelineMetrics {
 
 /// Snippet writer metrics tracked via atomic counters.
 /// Owned by the snippet writer in `sitta-bin`; surfaced via the API.
+///
+/// Atomics are seeded from the persistent `lifetime_metrics` table at
+/// startup and a background task in sitta-bin flushes them back every
+/// 30 seconds plus once on shutdown. Crashes lose at most ~30 s of
+/// counts; graceful restarts lose nothing.
 #[derive(Default)]
 pub struct SnippetMetrics {
     pub clips_saved: AtomicU64,
     pub clips_dropped: AtomicU64,
+    /// Process_job errors after submission — write_wav, fs metadata, or
+    /// update_snippet_path failures. The detection row exists in the DB
+    /// but `snippet_path` stays NULL. Distinct from `clips_dropped`,
+    /// which counts only mpsc-channel-full drops at submission time.
+    pub clips_failed: AtomicU64,
     pub bytes_written: AtomicU64,
 }
 

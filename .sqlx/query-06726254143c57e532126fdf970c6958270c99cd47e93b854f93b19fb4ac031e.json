@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO lifetime_metrics (key, value) VALUES ($1, $2)\n             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "06726254143c57e532126fdf970c6958270c99cd47e93b854f93b19fb4ac031e"
+}

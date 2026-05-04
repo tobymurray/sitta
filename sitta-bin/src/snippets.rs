@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -51,18 +51,71 @@ impl SnippetWriter {
 }
 
 /// Spawn the background snippet writer task. Returns a [`SnippetWriter`] handle.
-pub fn spawn_snippet_writer(
+///
+/// Seeds the metric atomics from the `lifetime_metrics` table so counters
+/// survive restarts, and starts a periodic flush task that mirrors them
+/// back every 30 seconds plus once on shutdown.
+pub async fn spawn_snippet_writer(
     config: SnippetConfig,
     db: Database,
     shutdown: CancellationToken,
 ) -> SnippetWriter {
     let (tx, rx) = mpsc::channel::<SnippetJob>(64);
-    let metrics = Arc::new(SnippetMetrics::default());
-    let writer_metrics = metrics.clone();
 
-    tokio::spawn(writer_loop(config, db, rx, shutdown, writer_metrics));
+    // Load lifetime metrics so the atomics start where we left off rather
+    // than at zero. Failures are downgraded to a warning — running with
+    // fresh counters is degraded but functional.
+    let initial = db.load_lifetime_metrics().await.unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "Failed to load lifetime metrics; starting at 0");
+        Default::default()
+    });
+    let metrics = Arc::new(SnippetMetrics {
+        clips_saved: AtomicU64::new(initial.get("clips_saved").copied().unwrap_or(0)),
+        clips_dropped: AtomicU64::new(initial.get("clips_dropped").copied().unwrap_or(0)),
+        clips_failed: AtomicU64::new(initial.get("clips_failed").copied().unwrap_or(0)),
+        bytes_written: AtomicU64::new(initial.get("bytes_written").copied().unwrap_or(0)),
+    });
+
+    tokio::spawn(writer_loop(config, db.clone(), rx, shutdown.clone(), metrics.clone()));
+    tokio::spawn(metrics_flush_loop(db, shutdown, metrics.clone()));
 
     SnippetWriter { tx, metrics }
+}
+
+/// Mirror the in-memory metric atomics back to `lifetime_metrics` every
+/// 30 seconds, and once more on shutdown. Reads are best-effort: a flush
+/// failure logs a warning and the loop continues with the next tick.
+async fn metrics_flush_loop(
+    db: Database,
+    shutdown: CancellationToken,
+    metrics: Arc<SnippetMetrics>,
+) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+    interval.tick().await; // skip immediate first tick
+    loop {
+        tokio::select! {
+            _ = interval.tick() => { flush_metrics(&db, &metrics).await; }
+            () = shutdown.cancelled() => {
+                flush_metrics(&db, &metrics).await;
+                tracing::info!("Snippet metrics flushed on shutdown");
+                break;
+            }
+        }
+    }
+}
+
+async fn flush_metrics(db: &Database, metrics: &SnippetMetrics) {
+    let pairs = [
+        ("clips_saved", metrics.clips_saved.load(Ordering::Relaxed)),
+        ("clips_dropped", metrics.clips_dropped.load(Ordering::Relaxed)),
+        ("clips_failed", metrics.clips_failed.load(Ordering::Relaxed)),
+        ("bytes_written", metrics.bytes_written.load(Ordering::Relaxed)),
+    ];
+    for (key, value) in pairs {
+        if let Err(e) = db.set_lifetime_metric(key, value).await {
+            tracing::warn!(key, error = %e, "Failed to persist lifetime metric");
+        }
+    }
 }
 
 async fn writer_loop(
@@ -79,9 +132,11 @@ async fn writer_loop(
             job = rx.recv() => {
                 let Some(job) = job else { break };
                 if let Err(e) = process_job(&clip_dir, &db, &job, &metrics).await {
+                    metrics.clips_failed.fetch_add(1, Ordering::Relaxed);
                     tracing::error!(
                         detection_id = %job.detection_id,
                         error = %e,
+                        total_failed = metrics.clips_failed.load(Ordering::Relaxed),
                         "Failed to save audio clip"
                     );
                 }
@@ -90,6 +145,7 @@ async fn writer_loop(
                 // Drain remaining jobs before exiting.
                 while let Ok(job) = rx.try_recv() {
                     if let Err(e) = process_job(&clip_dir, &db, &job, &metrics).await {
+                        metrics.clips_failed.fetch_add(1, Ordering::Relaxed);
                         tracing::error!(
                             detection_id = %job.detection_id,
                             error = %e,

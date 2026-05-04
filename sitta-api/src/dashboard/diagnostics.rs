@@ -32,9 +32,13 @@ pub fn diagnostics_content() -> String {
           <dt class="text-gray-500 dark:text-plumage-400" title="Clips dropped because the writer's bounded channel was full — disk I/O can't keep up. The detection row is still saved without audio.">Backpressure drops</dt>
           <dd id="ah-dropped" class="font-medium">--</dd>
         </div>
+        <div class="flex justify-between">
+          <dt class="text-gray-500 dark:text-plumage-400" title="Process-time errors after the job was accepted: write_wav failed, fs metadata failed, or update_snippet_path failed. The detection row exists but snippet_path stayed NULL.">Write failures</dt>
+          <dd id="ah-failed" class="font-medium">--</dd>
+        </div>
         <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Bytes written</dt><dd id="ah-bytes" class="font-medium">--</dd></div>
       </dl>
-      <p class="text-xs text-gray-400 dark:text-plumage-500 mt-3">Counters reset on process restart.</p>
+      <p class="text-xs text-gray-400 dark:text-plumage-500 mt-3">Lifetime counters — persisted across restarts via the <code class="bg-gray-100 dark:bg-plumage-800 px-1 rounded">lifetime_metrics</code> table.</p>
     </div>
 
     <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
@@ -69,19 +73,37 @@ pub fn diagnostics_content() -> String {
 
   <div id="ah-tip" class="hidden rounded-xl p-4 text-sm"></div>
 
+  <!-- Missing-audio range: tells the user at a glance whether the gap is
+       historical or still happening right now. -->
+  <div id="ah-clipless-card" class="hidden bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <h3 class="text-sm font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider mb-3">Missing-audio detections</h3>
+    <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+      <dt class="text-gray-500 dark:text-plumage-400">Count</dt>
+      <dd id="ah-clipless-count" class="font-medium">--</dd>
+      <dt class="text-gray-500 dark:text-plumage-400">Earliest</dt>
+      <dd id="ah-clipless-first" class="font-medium font-mono text-xs">--</dd>
+      <dt class="text-gray-500 dark:text-plumage-400">Most recent</dt>
+      <dd id="ah-clipless-last" class="font-medium font-mono text-xs">--</dd>
+    </dl>
+    <p id="ah-clipless-hint" class="text-xs text-gray-400 dark:text-plumage-500 mt-3"></p>
+  </div>
+
   <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
-    <div class="flex items-center justify-between mb-4">
-      <div>
+    <div class="flex items-start justify-between gap-3 mb-4 flex-wrap">
+      <div class="min-w-0">
         <h3 class="text-sm font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider">Missing audio by day</h3>
-        <p class="text-xs text-gray-400 dark:text-plumage-500 mt-0.5">Last 30 days. Bar height = detections; orange portion = no clip on disk.</p>
+        <p id="ah-chart-window-label" class="text-xs text-gray-400 dark:text-plumage-500 mt-0.5">Bar height = detections; orange portion = no clip on disk.</p>
       </div>
-      <div class="text-xs text-gray-400 dark:text-plumage-500 flex items-center gap-3">
-        <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-emerald-500 inline-block"></span>with clip</span>
-        <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-amber-500 inline-block"></span>missing</span>
+      <div class="flex items-center gap-3 flex-wrap text-xs text-gray-400 dark:text-plumage-500">
+        <div id="ah-window-buttons" class="inline-flex rounded-lg border border-gray-200 dark:border-plumage-700 overflow-hidden"></div>
+        <div class="flex items-center gap-3">
+          <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-emerald-500 inline-block"></span>with clip</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-amber-500 inline-block"></span>missing</span>
+        </div>
       </div>
     </div>
     <div id="ah-chart" class="flex items-end gap-1 h-32"></div>
-    <div id="ah-empty" class="hidden text-center py-8 text-gray-400 dark:text-plumage-500 text-sm">No detections in the last 30 days.</div>
+    <div id="ah-empty" class="hidden text-center py-8 text-gray-400 dark:text-plumage-500 text-sm">No detections in this window.</div>
   </div>
 </div>
 
@@ -103,7 +125,41 @@ pub fn diagnostics_content() -> String {
     return dt.toLocaleDateString('en-GB', { month: 'short', day: 'numeric', timeZone: _tz });
   }
 
-  fetch('/api/v1/audio-health?days=30')
+  // Chart window in days. The button row toggles between fixed values;
+  // the chart re-fetches with the selected value while the rest of the
+  // page stays put (totals + metrics + clipless are all-time).
+  const WINDOW_OPTIONS = [30, 90, 365];
+  const DEFAULT_WINDOW = 90;
+  let currentWindow = DEFAULT_WINDOW;
+
+  function renderWindowButtons() {
+    const el = document.getElementById('ah-window-buttons');
+    el.innerHTML = WINDOW_OPTIONS.map(d => {
+      const active = d === currentWindow;
+      const cls = active
+        ? 'bg-nuthatch-600 text-white'
+        : 'text-gray-500 dark:text-plumage-400 hover:bg-gray-50 dark:hover:bg-plumage-800/50';
+      const label = d === 365 ? '1y' : d + 'd';
+      return '<button type="button" data-days="' + d + '" class="px-2.5 py-1 text-xs font-medium ' + cls + '">' + label + '</button>';
+    }).join('');
+    el.querySelectorAll('button[data-days]').forEach(b => {
+      b.addEventListener('click', () => {
+        currentWindow = parseInt(b.dataset.days, 10);
+        renderWindowButtons();
+        loadAudioHealth(currentWindow);
+      });
+    });
+  }
+
+  function fmtDateTime(iso) {
+    return new Date(iso).toLocaleString('en-GB', {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: false, timeZone: _tz
+    });
+  }
+
+  function loadAudioHealth(days) {
+    fetch('/api/v1/audio-health?days=' + days)
     .then(r => { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
     .then(data => {
       document.getElementById('ah-loading').classList.add('hidden');
@@ -136,7 +192,36 @@ pub fn diagnostics_content() -> String {
       if (m.clips_dropped > 0) {
         drEl.classList.add('text-amber-600','dark:text-amber-400');
       }
+      const failEl = document.getElementById('ah-failed');
+      failEl.textContent = (m.clips_failed || 0).toLocaleString();
+      if (m.clips_failed > 0) {
+        failEl.classList.add('text-red-600','dark:text-red-400');
+      }
       document.getElementById('ah-bytes').textContent = fmtBytes(m.bytes_written);
+
+      // ── Clipless range card ──
+      const cl = data.clipless;
+      const clCard = document.getElementById('ah-clipless-card');
+      if (cl) {
+        document.getElementById('ah-clipless-count').textContent = cl.count.toLocaleString();
+        document.getElementById('ah-clipless-first').textContent = fmtDateTime(cl.first_detected_at);
+        document.getElementById('ah-clipless-last').textContent = fmtDateTime(cl.last_detected_at);
+        const ageMs = Date.now() - new Date(cl.last_detected_at).getTime();
+        const hint = document.getElementById('ah-clipless-hint');
+        if (ageMs < 6 * 3600 * 1000) {
+          hint.textContent = 'The most recent clipless detection is within the last 6 hours — missing-audio is happening NOW. Check the snippet writer logs for "Failed to save audio clip" or "channel full" entries.';
+          hint.className = 'text-xs text-red-600 dark:text-red-400 mt-3';
+        } else if (ageMs < 48 * 3600 * 1000) {
+          hint.textContent = 'Most recent clipless detection is within 48 hours — could be ongoing or a recent transient. Check Write failures + Backpressure drops above.';
+          hint.className = 'text-xs text-amber-600 dark:text-amber-400 mt-3';
+        } else {
+          hint.textContent = 'Most recent clipless detection is more than 48 hours old — the gap appears historical, not active. Older detections may have been written during a previous transient (look at logs from that period).';
+          hint.className = 'text-xs text-gray-400 dark:text-plumage-500 mt-3';
+        }
+        clCard.classList.remove('hidden');
+      } else {
+        clCard.classList.add('hidden');
+      }
 
       if (data.retention) {
         document.getElementById('ah-retention').textContent =
@@ -228,25 +313,35 @@ pub fn diagnostics_content() -> String {
         tipEl.classList.remove('hidden');
       }
 
-      // Chart
+      // ── Chart ──
+      document.getElementById('ah-chart-window-label').textContent =
+        (days === 365 ? 'Last 12 months. ' : 'Last ' + days + ' days. ') +
+        'Bar height = detections; orange portion = no clip on disk.';
       const chart = document.getElementById('ah-chart');
-      const days = (data.daily || []).slice().reverse(); // oldest -> newest, left -> right
-      if (days.length === 0) {
+      const empty = document.getElementById('ah-empty');
+      const series = (data.daily || []).slice().reverse(); // oldest -> newest, left -> right
+      if (series.length === 0) {
         chart.classList.add('hidden');
-        document.getElementById('ah-empty').classList.remove('hidden');
+        empty.classList.remove('hidden');
         return;
       }
-      const max = days.reduce((m, d) => Math.max(m, d.total), 0) || 1;
-      chart.innerHTML = days.map(d => {
+      chart.classList.remove('hidden');
+      empty.classList.add('hidden');
+      const max = series.reduce((m, d) => Math.max(m, d.total), 0) || 1;
+      chart.innerHTML = series.map(d => {
         const totalH = (d.total / max) * 100;
         const withH = d.total > 0 ? (d.with_clip / d.total) * totalH : 0;
         const missH = totalH - withH;
         const pct = d.total > 0 ? Math.round(100 * d.with_clip / d.total) : 0;
         const title = fmtDay(d.day) + ': ' + d.total + ' detections, ' + d.with_clip + ' with clip (' + pct + '%), ' + (d.total - d.with_clip) + ' missing';
+        // For 365-day windows the per-bar label is too dense; drop it.
+        const label = days <= 90
+          ? '<div class="text-[9px] text-gray-400 dark:text-plumage-600 text-center mt-0.5 truncate">' + fmtDay(d.day).split(' ')[1] + '</div>'
+          : '';
         return '<div class="flex-1 min-w-0 flex flex-col items-stretch justify-end gap-px" title="' + title.replace(/"/g, '&quot;') + '">' +
                  '<div class="bg-amber-500/80 rounded-t-sm" style="height:' + missH + '%"></div>' +
                  '<div class="bg-emerald-500/80" style="height:' + withH + '%"></div>' +
-                 '<div class="text-[9px] text-gray-400 dark:text-plumage-600 text-center mt-0.5 truncate">' + fmtDay(d.day).split(' ')[1] + '</div>' +
+                 label +
                '</div>';
       }).join('');
     })
@@ -254,6 +349,10 @@ pub fn diagnostics_content() -> String {
       document.getElementById('ah-loading').classList.add('hidden');
       document.getElementById('ah-error').classList.remove('hidden');
     });
+  }
+
+  renderWindowButtons();
+  loadAudioHealth(currentWindow);
 })();
 </script>"##
         .to_string()
