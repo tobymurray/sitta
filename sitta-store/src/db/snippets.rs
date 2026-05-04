@@ -20,11 +20,18 @@ pub struct AudioHealthTotals {
 /// Earliest and latest `detected_at` (Unix ms) among detections that have
 /// `snippet_path IS NULL`. Lets the diagnostics page answer
 /// "is missing-audio still happening now?" without scrolling a chart.
+///
+/// `recent_count` is the count of clipless detections younger than the
+/// caller-supplied cutoff (typically 15 minutes ago). The UI uses this
+/// directly: > 0 means *new* clipless rows are still being created, so
+/// the gap is active. == 0 means the writer is keeping up; the
+/// `first_ms` / `last_ms` window describes a historical gap.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CliplessRange {
     pub first_ms: Option<i64>,
     pub last_ms: Option<i64>,
     pub count: i64,
+    pub recent_count: i64,
 }
 
 /// Per-tier clip counts. Each clip is counted in exactly one tier; tiers
@@ -268,16 +275,23 @@ impl Database {
     }
 
     /// First / last `detected_at` (Unix ms) for detections that have no
-    /// saved clip, plus the count. Used by the diagnostics page to tell
-    /// the user whether the missing-audio gap is historical or ongoing.
-    pub async fn clipless_range(&self) -> Result<CliplessRange, crate::StoreError> {
+    /// saved clip, plus the total count and a "recent" subset count
+    /// (rows with detected_at >= `recent_cutoff_ms`). The recent count
+    /// is the most useful diagnostic signal: > 0 means new clipless
+    /// rows are still appearing.
+    pub async fn clipless_range(
+        &self,
+        recent_cutoff_ms: i64,
+    ) -> Result<CliplessRange, crate::StoreError> {
         let row = sqlx::query!(
             r#"SELECT
                 COUNT(*) AS "count!: i64",
                 MIN(detected_at) AS "first_ms?: i64",
-                MAX(detected_at) AS "last_ms?: i64"
+                MAX(detected_at) AS "last_ms?: i64",
+                SUM(CASE WHEN detected_at >= $1 THEN 1 ELSE 0 END) AS "recent_count!: i64"
               FROM detections
               WHERE snippet_path IS NULL"#,
+            recent_cutoff_ms,
         )
         .fetch_one(&self.pool)
         .await?;
@@ -286,6 +300,7 @@ impl Database {
             first_ms: row.first_ms,
             last_ms: row.last_ms,
             count: row.count,
+            recent_count: row.recent_count,
         })
     }
 }

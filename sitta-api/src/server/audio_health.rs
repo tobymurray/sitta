@@ -62,8 +62,13 @@ struct AudioHealthClipless {
     first_detected_at: String,
     /// RFC3339 timestamp of the most recent detection without a clip.
     last_detected_at: String,
-    /// Total detections without a clip.
+    /// Total detections without a clip (all-time).
     count: i64,
+    /// Subset of `count` with `detected_at` in the last 15 minutes.
+    /// `> 0` means the writer is currently failing to save *new* clips;
+    /// `== 0` means the writer is keeping up and the total above is
+    /// purely historical.
+    recent_count: i64,
 }
 
 #[derive(Serialize)]
@@ -139,10 +144,14 @@ pub(super) async fn audio_health_handler(
         .daily_audio_health(since_ms)
         .await
         .map_err(ApiError::internal)?;
+    // "Recent" cutoff for the clipless query — anything within this window
+    // is considered an *active* gap, anything older is historical. 15 min
+    // gives the writer plenty of time to catch up under normal load.
+    let recent_cutoff = Utc::now().timestamp_millis() - 15 * 60_000;
     let clipless_row = state
         .core
         .db
-        .clipless_range()
+        .clipless_range(recent_cutoff)
         .await
         .map_err(ApiError::internal)?;
 
@@ -151,6 +160,7 @@ pub(super) async fn audio_health_handler(
             first_detected_at: crate::server::millis_to_rfc3339(first).unwrap_or_default(),
             last_detected_at: crate::server::millis_to_rfc3339(last).unwrap_or_default(),
             count: clipless_row.count,
+            recent_count: clipless_row.recent_count,
         }),
         _ => None,
     };

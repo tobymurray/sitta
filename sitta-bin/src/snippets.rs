@@ -39,13 +39,29 @@ pub struct SnippetWriter {
 impl SnippetWriter {
     /// Submit a snippet job. Returns immediately. If the channel is full
     /// (SD card too slow), the job is dropped with a warning — never blocks.
+    /// If the channel is closed (writer task dead), the failure escalates
+    /// to error level so the operator notices.
     pub fn submit(&self, job: SnippetJob) {
-        if self.tx.try_send(job).is_err() {
-            self.metrics.clips_dropped.fetch_add(1, Ordering::Relaxed);
-            tracing::warn!(
-                total_dropped = self.metrics.clips_dropped.load(Ordering::Relaxed),
-                "Snippet writer channel full, dropping clip"
-            );
+        match self.tx.try_send(job) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                self.metrics.clips_dropped.fetch_add(1, Ordering::Relaxed);
+                tracing::warn!(
+                    total_dropped = self.metrics.clips_dropped.load(Ordering::Relaxed),
+                    "Snippet writer channel full, dropping clip",
+                );
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                // The writer task is dead. Every subsequent submit will
+                // hit this branch — we count it as a failure (not a drop)
+                // because the cause is different and the remedy is a
+                // process restart, not "make the disk faster".
+                self.metrics.clips_failed.fetch_add(1, Ordering::Relaxed);
+                tracing::error!(
+                    total_failed = self.metrics.clips_failed.load(Ordering::Relaxed),
+                    "Snippet writer task is dead — channel closed. Restart required to recover.",
+                );
+            }
         }
     }
 }

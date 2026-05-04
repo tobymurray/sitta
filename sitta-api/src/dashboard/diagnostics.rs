@@ -206,16 +206,21 @@ pub fn diagnostics_content() -> String {
         document.getElementById('ah-clipless-count').textContent = cl.count.toLocaleString();
         document.getElementById('ah-clipless-first').textContent = fmtDateTime(cl.first_detected_at);
         document.getElementById('ah-clipless-last').textContent = fmtDateTime(cl.last_detected_at);
-        const ageMs = Date.now() - new Date(cl.last_detected_at).getTime();
         const hint = document.getElementById('ah-clipless-hint');
-        if (ageMs < 6 * 3600 * 1000) {
-          hint.textContent = 'The most recent clipless detection is within the last 6 hours — missing-audio is happening NOW. Check the snippet writer logs for "Failed to save audio clip" or "channel full" entries.';
+        const recent = cl.recent_count || 0;
+        // recent_count is "new clipless rows in the last 15 min" — the
+        // only signal that distinguishes an active gap from a historical
+        // one. Absolute age of `last_detected_at` doesn't, because a
+        // gap that ended 30 min ago still has a recent timestamp.
+        if (recent > 0) {
+          hint.textContent = recent.toLocaleString() + ' new clipless detection' + (recent === 1 ? '' : 's') +
+            ' in the last 15 minutes — the snippet writer is missing clips RIGHT NOW. ' +
+            'Check Write failures + Backpressure drops above; if both are 0 the writer task may have died silently.';
           hint.className = 'text-xs text-red-600 dark:text-red-400 mt-3';
-        } else if (ageMs < 48 * 3600 * 1000) {
-          hint.textContent = 'Most recent clipless detection is within 48 hours — could be ongoing or a recent transient. Check Write failures + Backpressure drops above.';
-          hint.className = 'text-xs text-amber-600 dark:text-amber-400 mt-3';
         } else {
-          hint.textContent = 'Most recent clipless detection is more than 48 hours old — the gap appears historical, not active. Older detections may have been written during a previous transient (look at logs from that period).';
+          hint.textContent = 'No new clipless detections in the last 15 minutes — the writer is currently keeping up. ' +
+            'The count above is historical. Older clipless rows accumulate during periods when the writer was unhealthy ' +
+            '(crashed task, full disk, etc.) and stay until retention sweeps them.';
           hint.className = 'text-xs text-gray-400 dark:text-plumage-500 mt-3';
         }
         clCard.classList.remove('hidden');

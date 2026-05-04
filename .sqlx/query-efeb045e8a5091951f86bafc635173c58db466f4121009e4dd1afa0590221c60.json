@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                COUNT(*) AS \"count!: i64\",\n                MIN(detected_at) AS \"first_ms?: i64\",\n                MAX(detected_at) AS \"last_ms?: i64\",\n                SUM(CASE WHEN detected_at >= $1 THEN 1 ELSE 0 END) AS \"recent_count!: i64\"\n              FROM detections\n              WHERE snippet_path IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "count!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "first_ms?: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "last_ms?: i64",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "recent_count!: i64",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "efeb045e8a5091951f86bafc635173c58db466f4121009e4dd1afa0590221c60"
+}

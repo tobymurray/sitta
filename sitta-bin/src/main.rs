@@ -26,11 +26,48 @@ use crate::config::Config;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Default filter lists every Sitta crate explicitly. The previous
+    // "sitta=info" matched none of our targets — modules in this binary
+    // log under `sitta_bin::*` (the lib name), and the workspace crates
+    // are `sitta_api`, `sitta_store`, `sitta_audio`, `sitta_inference`,
+    // `sitta_taxonomy`, `sitta_spatial`. Without this list, errors from
+    // those crates were silently filtered out at the default level.
+    const DEFAULT_FILTER: &str = "info,\
+        sitta_bin=info,sitta_api=info,sitta_store=info,\
+        sitta_audio=info,sitta_inference=info,\
+        sitta_taxonomy=warn,sitta_spatial=warn,\
+        sqlx=warn,hyper=warn,h2=warn,rustls=warn,tower_http=warn";
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("sitta=info")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_FILTER)),
         )
         .init();
+
+    // Make panics in spawned tokio tasks loud. The default panic hook
+    // prints to stderr but doesn't go through tracing, so it can be
+    // missed when the operator is filtering by tracing target. We
+    // re-emit the panic as a tracing::error and then defer to the old
+    // hook so the message + backtrace still reach stderr.
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let payload: &str = info
+            .payload()
+            .downcast_ref::<&'static str>()
+            .copied()
+            .or_else(|| info.payload().downcast_ref::<String>().map(String::as_str))
+            .unwrap_or("(non-string panic payload)");
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()))
+            .unwrap_or_else(|| "<unknown>".to_string());
+        tracing::error!(
+            target: "sitta_bin::panic",
+            panic_payload = %payload,
+            panic_location = %location,
+            "Panic in async task — task is dead and will not restart",
+        );
+        prev_hook(info);
+    }));
 
     let config_path = std::env::args()
         .nth(1)
