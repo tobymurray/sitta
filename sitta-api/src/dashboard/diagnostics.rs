@@ -13,6 +13,19 @@ pub fn diagnostics_content() -> String {
     Snippet saving is <strong>disabled</strong> in config. No audio clips or spectrograms are being saved for new detections.
   </div>
 
+  <!-- Self-diagnose summary: green / amber / red banner that synthesises
+       every signal on this page into a single line. Click an entry to
+       jump to the relevant card. -->
+  <div id="ah-summary" class="hidden rounded-xl border p-4 text-sm">
+    <div class="flex items-start gap-3">
+      <div id="ah-summary-icon" class="text-2xl leading-none flex-shrink-0">--</div>
+      <div class="flex-1 min-w-0">
+        <p id="ah-summary-headline" class="font-semibold">--</p>
+        <ul id="ah-summary-issues" class="mt-1 text-xs space-y-0.5"></ul>
+      </div>
+    </div>
+  </div>
+
   <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
     <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
       <h3 class="text-sm font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider mb-3">All-time</h3>
@@ -37,18 +50,31 @@ pub fn diagnostics_content() -> String {
           <dd id="ah-failed" class="font-medium">--</dd>
         </div>
         <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Bytes written</dt><dd id="ah-bytes" class="font-medium">--</dd></div>
+        <div class="flex justify-between border-t border-gray-100 dark:border-plumage-800 pt-2 mt-2">
+          <dt class="text-gray-500 dark:text-plumage-400" title="When the writer last successfully saved a clip. A long gap here when detections are still flowing means the writer task is dead.">Last clip saved</dt>
+          <dd id="ah-last-saved" class="font-medium text-xs">--</dd>
+        </div>
       </dl>
       <p class="text-xs text-gray-400 dark:text-plumage-500 mt-3">Lifetime counters — persisted across restarts via the <code class="bg-gray-100 dark:bg-plumage-800 px-1 rounded">lifetime_metrics</code> table.</p>
     </div>
 
     <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
-      <h3 class="text-sm font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider mb-3">Retention</h3>
+      <h3 class="text-sm font-medium text-gray-500 dark:text-plumage-400 uppercase tracking-wider mb-3">Retention &amp; disk</h3>
       <dl class="space-y-2 text-sm">
         <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Retention days</dt><dd id="ah-retention" class="font-medium">--</dd></div>
-        <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Disk cap</dt><dd id="ah-disk" class="font-medium">--</dd></div>
+        <div>
+          <div class="flex justify-between mb-1"><dt class="text-gray-500 dark:text-plumage-400">Disk usage</dt><dd id="ah-disk-usage" class="font-medium font-mono text-xs">--</dd></div>
+          <div class="h-1.5 bg-gray-100 dark:bg-plumage-800 rounded-full overflow-hidden">
+            <div id="ah-disk-bar" class="h-full bg-emerald-500 transition-all" style="width:0%"></div>
+          </div>
+        </div>
         <div class="flex justify-between"><dt class="text-gray-500 dark:text-plumage-400">Clip dir</dt><dd id="ah-dir" class="font-medium font-mono text-xs truncate max-w-[10rem]" title="">--</dd></div>
+        <div class="flex justify-between border-t border-gray-100 dark:border-plumage-800 pt-2 mt-2">
+          <dt class="text-gray-500 dark:text-plumage-400" title="Last hourly retention sweep. The number is the total clips evicted in that run (age + species cap + size sweeps combined).">Last sweep</dt>
+          <dd id="ah-last-sweep" class="font-medium text-xs">--</dd>
+        </div>
       </dl>
-      <p class="text-xs text-gray-400 dark:text-plumage-500 mt-3">Clips reviewed as <em>correct</em> are kept past retention.</p>
+      <p class="text-xs text-gray-400 dark:text-plumage-500 mt-3">Disk size measured at last sweep, not live. Reviewed-<em>correct</em> clips are kept past retention.</p>
     </div>
   </div>
 
@@ -124,6 +150,85 @@ pub fn diagnostics_content() -> String {
     const dt = new Date(d + 'T00:00:00Z');
     return dt.toLocaleDateString('en-GB', { month: 'short', day: 'numeric', timeZone: _tz });
   }
+  // Compact "X ago" formatter: 4s, 12m, 3h, 2d. Used for last-event
+  // timestamps where the question is recency, not absolute time.
+  function fmtAge(ms) {
+    if (ms == null || ms < 0) return '--';
+    const s = Math.floor(ms / 1000);
+    if (s < 60)    return s + 's';
+    const m = Math.floor(s / 60);
+    if (m < 60)    return m + 'm';
+    const h = Math.floor(m / 60);
+    if (h < 48)    return h + 'h';
+    return Math.floor(h / 24) + 'd';
+  }
+
+  // Synthesise every signal on the page into a single self-diagnose
+  // banner. Returns { tone: 'ok'|'warn'|'error', headline, issues[] }.
+  // Purely based on the audio-health response — no extra fetches.
+  function summarise(data) {
+    const issues = [];
+    const m = data.metrics || {};
+    const cl = data.clipless || {};
+    const disk = data.disk || {};
+
+    if (!data.enabled) {
+      return { tone: 'warn', headline: 'Snippet saving disabled in config', issues: [] };
+    }
+    if ((cl.recent_count || 0) > 0) {
+      issues.push({ tone: 'error', text: cl.recent_count + ' clipless detection' + (cl.recent_count === 1 ? '' : 's') + ' in the last 15 min — writer is missing clips right now' });
+    }
+    if ((m.clips_failed || 0) > 0) {
+      issues.push({ tone: 'error', text: m.clips_failed.toLocaleString() + ' lifetime write failures (clips_failed) — see Snippet writer card and logs' });
+    }
+    if ((m.clips_dropped || 0) > 0) {
+      issues.push({ tone: 'warn', text: m.clips_dropped.toLocaleString() + ' lifetime backpressure drops — channel was full at submit time' });
+    }
+    if (disk.used_pct != null && disk.used_pct >= 100) {
+      issues.push({ tone: 'warn', text: 'Clip dir at ' + disk.used_pct + '% of cap — size sweep is actively evicting common clips' });
+    } else if (disk.used_pct != null && disk.used_pct >= 80) {
+      issues.push({ tone: 'warn', text: 'Clip dir at ' + disk.used_pct + '% of cap — size sweep will start soon' });
+    }
+    if (m.last_clip_saved_at) {
+      const ageMs = Date.now() - new Date(m.last_clip_saved_at).getTime();
+      if (ageMs > 30 * 60 * 1000) {
+        issues.push({ tone: 'warn', text: 'No clip saved in ' + fmtAge(ageMs) + ' — writer may be unhealthy or detection rate is zero' });
+      }
+    }
+    if (m.last_retention_at) {
+      const ageMs = Date.now() - new Date(m.last_retention_at).getTime();
+      if (ageMs > 90 * 60 * 1000) {
+        issues.push({ tone: 'warn', text: 'Retention worker last ran ' + fmtAge(ageMs) + ' ago — expected hourly' });
+      }
+    }
+
+    if (issues.length === 0) {
+      return { tone: 'ok', headline: 'All systems healthy', issues: [] };
+    }
+    const worst = issues.some(i => i.tone === 'error') ? 'error' : 'warn';
+    const headline = worst === 'error'
+      ? issues.length + ' active issue' + (issues.length === 1 ? '' : 's')
+      : issues.length + ' warning' + (issues.length === 1 ? '' : 's');
+    return { tone: worst, headline, issues };
+  }
+
+  function renderSummary(data) {
+    const s = summarise(data);
+    const card = document.getElementById('ah-summary');
+    const icon = document.getElementById('ah-summary-icon');
+    const headline = document.getElementById('ah-summary-headline');
+    const list = document.getElementById('ah-summary-issues');
+    const cls = {
+      ok: 'border-emerald-300 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200',
+      warn: 'border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200',
+      error: 'border-red-300 dark:border-red-800/60 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200',
+    };
+    card.className = 'rounded-xl border p-4 text-sm ' + cls[s.tone];
+    icon.textContent = s.tone === 'ok' ? '✓' : s.tone === 'warn' ? '⚠' : '✖';
+    headline.textContent = s.headline;
+    list.innerHTML = s.issues.map(i => '<li>' + i.text + '</li>').join('');
+    card.classList.remove('hidden');
+  }
 
   // Chart window in days. The button row toggles between fixed values;
   // the chart re-fetches with the selected value while the rest of the
@@ -198,6 +303,22 @@ pub fn diagnostics_content() -> String {
         failEl.classList.add('text-red-600','dark:text-red-400');
       }
       document.getElementById('ah-bytes').textContent = fmtBytes(m.bytes_written);
+      // Format "last X" timestamps as a relative duration (e.g. "3m ago")
+      // — that's the question the operator is asking, not the absolute time.
+      const lastSavedAgeMs = m.last_clip_saved_at
+        ? Date.now() - new Date(m.last_clip_saved_at).getTime()
+        : null;
+      const lastSavedEl = document.getElementById('ah-last-saved');
+      if (m.last_clip_saved_at) {
+        lastSavedEl.textContent = fmtAge(lastSavedAgeMs) + ' ago';
+        lastSavedEl.title = fmtDateTime(m.last_clip_saved_at);
+        if (lastSavedAgeMs > 30 * 60 * 1000) {
+          lastSavedEl.classList.add('text-amber-600','dark:text-amber-400');
+        }
+      } else {
+        lastSavedEl.textContent = 'never (this run)';
+        lastSavedEl.classList.add('text-gray-400');
+      }
 
       // ── Clipless range card ──
       const cl = data.clipless;
@@ -231,15 +352,56 @@ pub fn diagnostics_content() -> String {
       if (data.retention) {
         document.getElementById('ah-retention').textContent =
           data.retention.retention_days > 0 ? data.retention.retention_days + ' days' : 'unlimited';
-        document.getElementById('ah-disk').textContent =
-          data.retention.max_disk_mb > 0 ? data.retention.max_disk_mb + ' MB' : 'unlimited';
       } else {
         document.getElementById('ah-retention').textContent = 'n/a';
-        document.getElementById('ah-disk').textContent = 'n/a';
       }
       const dirEl = document.getElementById('ah-dir');
       dirEl.textContent = data.clip_dir || 'n/a';
       if (data.clip_dir) dirEl.title = data.clip_dir;
+
+      // ── Disk-usage gauge ──
+      // The bar shows used / cap, color-coded against typical retention
+      // headroom. > 100% means the size sweep is actively evicting.
+      const diskEl = document.getElementById('ah-disk-usage');
+      const diskBar = document.getElementById('ah-disk-bar');
+      const disk = data.disk;
+      if (disk && disk.cap_bytes > 0 && disk.used_bytes != null) {
+        const usedTxt = fmtBytes(disk.used_bytes);
+        const capTxt  = fmtBytes(disk.cap_bytes);
+        const pct = disk.used_pct != null ? disk.used_pct : 0;
+        diskEl.textContent = usedTxt + ' / ' + capTxt + ' (' + pct + '%)';
+        diskBar.style.width = Math.min(100, pct) + '%';
+        diskBar.classList.remove('bg-emerald-500','bg-amber-500','bg-red-500');
+        if (pct >= 100)      diskBar.classList.add('bg-red-500');
+        else if (pct >= 80)  diskBar.classList.add('bg-amber-500');
+        else                 diskBar.classList.add('bg-emerald-500');
+        diskEl.classList.remove('text-amber-600','dark:text-amber-400','text-red-600','dark:text-red-400');
+        if (pct >= 100)      diskEl.classList.add('text-red-600','dark:text-red-400');
+        else if (pct >= 80)  diskEl.classList.add('text-amber-600','dark:text-amber-400');
+      } else if (disk && disk.cap_bytes === 0) {
+        diskEl.textContent = 'unlimited cap';
+        diskBar.style.width = '0%';
+      } else {
+        diskEl.textContent = 'pending first sweep';
+        diskBar.style.width = '0%';
+        diskEl.classList.add('text-gray-400');
+      }
+
+      // ── Last retention sweep ──
+      const sweepEl = document.getElementById('ah-last-sweep');
+      if (m.last_retention_at) {
+        const ageMs = Date.now() - new Date(m.last_retention_at).getTime();
+        const evicted = m.last_retention_evicted || 0;
+        sweepEl.textContent = fmtAge(ageMs) + ' ago · ' + evicted.toLocaleString() + ' evicted';
+        sweepEl.title = fmtDateTime(m.last_retention_at);
+        if (ageMs > 90 * 60 * 1000) {
+          // Worker runs hourly; > 90 min late means it didn't run.
+          sweepEl.classList.add('text-amber-600','dark:text-amber-400');
+        }
+      } else {
+        sweepEl.textContent = 'pending (worker runs hourly)';
+        sweepEl.classList.add('text-gray-400');
+      }
 
       // ── Tier breakdown (what's protected) ──
       function spanDays(mul) {
@@ -317,6 +479,11 @@ pub fn diagnostics_content() -> String {
         tipEl.innerHTML = tip;
         tipEl.classList.remove('hidden');
       }
+
+      // ── Self-diagnose summary ──
+      // Done after every other section above has populated, but before the
+      // chart so the banner sits visually above all the cards.
+      renderSummary(data);
 
       // ── Chart ──
       document.getElementById('ah-chart-window-label').textContent =

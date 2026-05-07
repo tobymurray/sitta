@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -173,6 +173,19 @@ pub struct SnippetMetrics {
     /// which counts only mpsc-channel-full drops at submission time.
     pub clips_failed: AtomicU64,
     pub bytes_written: AtomicU64,
+    /// Unix-ms timestamp of the most recent successful clip save. 0 = never
+    /// observed since startup AND nothing in lifetime_metrics. Lets the UI
+    /// answer "is the writer still working?" without needing the user to
+    /// scroll for a clipless count.
+    pub last_clip_saved_ms: AtomicI64,
+    /// Unix-ms timestamp of the most recent retention worker run.
+    pub last_retention_ms: AtomicI64,
+    /// Number of clips evicted in the most recent retention run.
+    pub last_retention_evicted: AtomicU64,
+    /// Total clip-dir size in bytes as of the last retention run. Updated
+    /// by the retention worker, not on every save — measuring the dir on
+    /// every clip would be wasteful. Stale by ≤ 1 hour.
+    pub last_disk_size_bytes: AtomicU64,
 }
 
 /// Snippet retention configuration snapshot for diagnostics.

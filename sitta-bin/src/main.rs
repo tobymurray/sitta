@@ -198,6 +198,7 @@ async fn main() -> Result<()> {
             config.snippets.clone(),
             db.clone(),
             shutdown.clone(),
+            snippet_metrics.clone().expect("metrics just set above"),
         );
         tracing::info!(
             clip_dir = %config.snippets.clip_dir,

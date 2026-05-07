@@ -20,6 +20,9 @@ pub(super) struct AudioHealthResponse {
     /// the `lifetime_metrics` table — reading 0 here means "really 0",
     /// not "we just rebooted".
     metrics: AudioHealthMetrics,
+    /// Disk-usage gauge: clip-dir size at last retention run vs the cap.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    disk: Option<AudioHealthDisk>,
     /// Earliest / latest detected_at among detections with no saved clip,
     /// plus the count. None when nothing is missing. Lets the user tell
     /// at a glance whether the missing-audio gap is historical or ongoing.
@@ -54,6 +57,32 @@ struct AudioHealthMetrics {
     /// Surfaced separately because the failure modes differ from drops.
     clips_failed: u64,
     bytes_written: u64,
+    /// RFC3339 timestamp of the most recent successful clip save. None
+    /// when the writer has saved nothing since the last DB reset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_clip_saved_at: Option<String>,
+    /// RFC3339 of the most recent retention worker run. None before the
+    /// worker has completed its first sweep (≤ 1 h after startup).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_retention_at: Option<String>,
+    /// Number of clips evicted in the most recent retention run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_retention_evicted: Option<u64>,
+}
+
+/// Disk usage gauge — clip-dir size measured at the last retention run
+/// against the configured cap. Lets the UI flag "you're at the cap, the
+/// size sweep is actively evicting" without the operator running `du`.
+#[derive(Serialize)]
+struct AudioHealthDisk {
+    /// Bytes used in the clip directory at last retention sweep. None if
+    /// the worker hasn't run yet.
+    used_bytes: Option<u64>,
+    /// `max_disk_mb` × 1024² — the size sweep ceiling. 0 = unlimited.
+    cap_bytes: u64,
+    /// Computed used / cap as a percent, capped at 999. None if either
+    /// number is unavailable.
+    used_pct: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -169,13 +198,48 @@ pub(super) async fn audio_health_handler(
         .integrations
         .snippet_metrics
         .as_ref()
-        .map(|m| AudioHealthMetrics {
-            clips_saved: m.clips_saved.load(Ordering::Relaxed),
-            clips_dropped: m.clips_dropped.load(Ordering::Relaxed),
-            clips_failed: m.clips_failed.load(Ordering::Relaxed),
-            bytes_written: m.bytes_written.load(Ordering::Relaxed),
+        .map(|m| {
+            // Convert Unix-ms atomics to RFC3339, treating 0 as "never observed".
+            let to_ts = |ms: i64| if ms > 0 { crate::server::millis_to_rfc3339(ms) } else { None };
+            let evicted_raw = m.last_retention_evicted.load(Ordering::Relaxed);
+            let last_retention_ms = m.last_retention_ms.load(Ordering::Relaxed);
+            AudioHealthMetrics {
+                clips_saved: m.clips_saved.load(Ordering::Relaxed),
+                clips_dropped: m.clips_dropped.load(Ordering::Relaxed),
+                clips_failed: m.clips_failed.load(Ordering::Relaxed),
+                bytes_written: m.bytes_written.load(Ordering::Relaxed),
+                last_clip_saved_at: to_ts(m.last_clip_saved_ms.load(Ordering::Relaxed)),
+                last_retention_at: to_ts(last_retention_ms),
+                // Only meaningful once at least one sweep has run.
+                last_retention_evicted: (last_retention_ms > 0).then_some(evicted_raw),
+            }
         })
         .unwrap_or_default();
+
+    // Disk gauge: cap from the retention config snapshot, used bytes from
+    // the metric updated by the retention worker. Both might be missing
+    // (snippets disabled, or no sweep has run yet) — render whatever we
+    // have and let the UI handle the unknowns.
+    let disk = state.integrations.snippet_retention.map(|r| {
+        let cap_bytes = r.max_disk_mb.saturating_mul(1024 * 1024);
+        let used_bytes = state
+            .integrations
+            .snippet_metrics
+            .as_ref()
+            .map(|m| m.last_disk_size_bytes.load(Ordering::Relaxed))
+            .filter(|&b| b > 0);
+        let used_pct = match (used_bytes, cap_bytes) {
+            (Some(used), cap) if cap > 0 => {
+                Some((used.saturating_mul(100) / cap).min(999) as u32)
+            }
+            _ => None,
+        };
+        AudioHealthDisk {
+            used_bytes,
+            cap_bytes,
+            used_pct,
+        }
+    });
 
     let retention = state
         .integrations
@@ -244,6 +308,7 @@ pub(super) async fn audio_health_handler(
         enabled,
         clip_dir,
         metrics,
+        disk,
         clipless,
         retention,
         totals: AudioHealthTotalsView {

@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -90,6 +90,10 @@ pub async fn spawn_snippet_writer(
         clips_dropped: AtomicU64::new(initial.get("clips_dropped").copied().unwrap_or(0)),
         clips_failed: AtomicU64::new(initial.get("clips_failed").copied().unwrap_or(0)),
         bytes_written: AtomicU64::new(initial.get("bytes_written").copied().unwrap_or(0)),
+        last_clip_saved_ms: AtomicI64::new(initial.get("last_clip_saved_ms").copied().unwrap_or(0) as i64),
+        last_retention_ms: AtomicI64::new(initial.get("last_retention_ms").copied().unwrap_or(0) as i64),
+        last_retention_evicted: AtomicU64::new(initial.get("last_retention_evicted").copied().unwrap_or(0)),
+        last_disk_size_bytes: AtomicU64::new(initial.get("last_disk_size_bytes").copied().unwrap_or(0)),
     });
 
     tokio::spawn(writer_loop(config, db.clone(), rx, shutdown.clone(), metrics.clone()));
@@ -121,11 +125,19 @@ async fn metrics_flush_loop(
 }
 
 async fn flush_metrics(db: &Database, metrics: &SnippetMetrics) {
+    // Negative timestamps shouldn't happen but clamp to 0 for the u64
+    // store column. The deserialize side already does .max(0).
+    let last_clip_saved = metrics.last_clip_saved_ms.load(Ordering::Relaxed).max(0) as u64;
+    let last_retention = metrics.last_retention_ms.load(Ordering::Relaxed).max(0) as u64;
     let pairs = [
         ("clips_saved", metrics.clips_saved.load(Ordering::Relaxed)),
         ("clips_dropped", metrics.clips_dropped.load(Ordering::Relaxed)),
         ("clips_failed", metrics.clips_failed.load(Ordering::Relaxed)),
         ("bytes_written", metrics.bytes_written.load(Ordering::Relaxed)),
+        ("last_clip_saved_ms", last_clip_saved),
+        ("last_retention_ms", last_retention),
+        ("last_retention_evicted", metrics.last_retention_evicted.load(Ordering::Relaxed)),
+        ("last_disk_size_bytes", metrics.last_disk_size_bytes.load(Ordering::Relaxed)),
     ];
     for (key, value) in pairs {
         if let Err(e) = db.set_lifetime_metric(key, value).await {
@@ -215,6 +227,12 @@ async fn process_job(
 
     metrics.clips_saved.fetch_add(1, Ordering::Relaxed);
     metrics.bytes_written.fetch_add(file_size, Ordering::Relaxed);
+    // The "last successful clip save" timestamp is the cheapest live
+    // signal of "writer is healthy right now" — the diagnostics page uses
+    // it to flag a writer that's silent for too long.
+    metrics
+        .last_clip_saved_ms
+        .store(Utc::now().timestamp_millis(), Ordering::Relaxed);
 
     tracing::debug!(
         detection_id = %job.detection_id,
@@ -232,14 +250,16 @@ pub fn spawn_retention_worker(
     config: SnippetConfig,
     db: Database,
     shutdown: CancellationToken,
+    metrics: Arc<SnippetMetrics>,
 ) {
-    tokio::spawn(retention_loop(config, db, shutdown));
+    tokio::spawn(retention_loop(config, db, shutdown, metrics));
 }
 
 async fn retention_loop(
     config: SnippetConfig,
     db: Database,
     shutdown: CancellationToken,
+    metrics: Arc<SnippetMetrics>,
 ) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
     interval.tick().await; // first tick is immediate — skip it
@@ -248,8 +268,19 @@ async fn retention_loop(
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                if let Err(e) = run_retention(&config, &clip_dir, &db).await {
-                    tracing::error!(error = %e, "Retention cleanup failed");
+                match run_retention(&config, &clip_dir, &db).await {
+                    Ok(deleted) => {
+                        // Record this run in the metrics so the
+                        // diagnostics page can show "last sweep" details
+                        // without scraping logs.
+                        metrics.last_retention_ms.store(Utc::now().timestamp_millis(), Ordering::Relaxed);
+                        metrics.last_retention_evicted.store(deleted, Ordering::Relaxed);
+                        let size = dir_size(&clip_dir).await;
+                        metrics.last_disk_size_bytes.store(size, Ordering::Relaxed);
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "Retention cleanup failed");
+                    }
                 }
             }
             () = shutdown.cancelled() => break,
@@ -381,7 +412,7 @@ async fn run_retention(
     config: &SnippetConfig,
     clip_dir: &Path,
     db: &Database,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<u64> {
     let mut deleted = 0u64;
 
     // ── Build the candidate set with everything the policy needs.
@@ -471,7 +502,7 @@ async fn run_retention(
         cleanup_empty_dirs(clip_dir).await;
     }
 
-    Ok(())
+    Ok(deleted)
 }
 
 async fn delete_clip(clip_dir: &Path, rel_path: &str) {
