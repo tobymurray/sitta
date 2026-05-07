@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COUNT(*) AS \"count!: i64\",\n                      MAX(d.detected_at) AS \"last_at: i64\"\n               FROM detections d\n               JOIN labels l ON l.id = d.label_id\n               WHERE l.scientific_name = $1\n                 AND d.station_id = $2\n                 AND d.detected_at < $3\n                 AND d.confidence >= $4",
+  "describe": {
+    "columns": [
+      {
+        "name": "count!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "last_at: i64",
+        "ordinal": 1,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "bb3e473371f1b65627ed6615b0d2d1d03dce8735f0c6f724e0ab1fb9022a4aab"
+}

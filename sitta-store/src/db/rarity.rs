@@ -113,22 +113,30 @@ impl Database {
 
     /// Count prior detections + most recent timestamp for a species at this station.
     /// Returns (count, last_detected_at_ms) or (0, None) if never seen.
+    ///
+    /// Keyed by scientific name, not label_id, because labels are
+    /// per-(model, label_index) — BirdNET's "Turdus migratorius" and
+    /// Perch's are different label_ids. Filtering by label_id partitioned
+    /// rarity history by model, so the first detection per model per day
+    /// got `first_day = true` (and similar) even when the other model had
+    /// found that species all morning.
     pub async fn species_local_history(
         &self,
-        label_id: i64,
+        scientific_name: &str,
         station_id: &[u8],
         before_ms: i64,
         min_confidence: f64,
     ) -> Result<(i64, Option<i64>), crate::StoreError> {
         let row = sqlx::query!(
             r#"SELECT COUNT(*) AS "count!: i64",
-                      MAX(detected_at) AS "last_at: i64"
-               FROM detections
-               WHERE label_id = $1
-                 AND station_id = $2
-                 AND detected_at < $3
-                 AND confidence >= $4"#,
-            label_id,
+                      MAX(d.detected_at) AS "last_at: i64"
+               FROM detections d
+               JOIN labels l ON l.id = d.label_id
+               WHERE l.scientific_name = $1
+                 AND d.station_id = $2
+                 AND d.detected_at < $3
+                 AND d.confidence >= $4"#,
+            scientific_name,
             station_id,
             before_ms,
             min_confidence,
@@ -141,23 +149,25 @@ impl Database {
 
     /// Fraction of a species' detections that occurred in a given UTC hour (0-23).
     /// Returns 0.0 if the species has no prior detections.
+    /// Keyed by scientific name (see `species_local_history` for why).
     pub async fn species_hour_fraction(
         &self,
-        label_id: i64,
+        scientific_name: &str,
         hour_utc: i64,
         before_ms: i64,
         min_confidence: f64,
     ) -> Result<f64, crate::StoreError> {
         let row = sqlx::query!(
             r#"SELECT
-                 COALESCE(SUM(CASE WHEN CAST((detected_at / 3600000) % 24 AS INTEGER) = $2
+                 COALESCE(SUM(CASE WHEN CAST((d.detected_at / 3600000) % 24 AS INTEGER) = $2
                                    THEN 1 ELSE 0 END), 0) AS "hour_count!: i64",
                  COUNT(*) AS "total!: i64"
-               FROM detections
-               WHERE label_id = $1
-                 AND detected_at < $3
-                 AND confidence >= $4"#,
-            label_id,
+               FROM detections d
+               JOIN labels l ON l.id = d.label_id
+               WHERE l.scientific_name = $1
+                 AND d.detected_at < $3
+                 AND d.confidence >= $4"#,
+            scientific_name,
             hour_utc,
             before_ms,
             min_confidence,

@@ -298,7 +298,7 @@ pub async fn persist_detections(
     };
 
     // ── Rarity scoring ──────────────────────────────────────────
-    let rarity_info = compute_rarity(ctx, label_id, detected_at, &top.species.scientific_name).await;
+    let rarity_info = compute_rarity(ctx, detected_at, &top.species.scientific_name).await;
     if let Some(ref ri) = rarity_info {
         let new_rarity = NewRarity {
             detection_id: &detection_id,
@@ -414,7 +414,6 @@ pub async fn persist_detections(
 ///   - **Temporal rarity**: how unusual this hour-of-day is for the species.
 async fn compute_rarity(
     ctx: &PersistCtx,
-    label_id: i64,
     detected_at_ms: i64,
     scientific_name: &str,
 ) -> Option<RarityInfo> {
@@ -422,9 +421,11 @@ async fn compute_rarity(
     let min_conf = f64::from(ctx.settings.load().display_min_confidence);
 
     // ── Local history ─────────────────────────────────────────
+    // Keyed by scientific_name across all models — earlier same-species
+    // detections from a different model still count.
     let (local_count, last_at) = ctx
         .db
-        .species_local_history(label_id, station_bytes, detected_at_ms, min_conf)
+        .species_local_history(scientific_name, station_bytes, detected_at_ms, min_conf)
         .await
         .ok()?;
 
@@ -463,7 +464,7 @@ async fn compute_rarity(
     let hour_utc = (detected_at_ms / 3_600_000) % 24;
     let hour_fraction = ctx
         .db
-        .species_hour_fraction(label_id, hour_utc, detected_at_ms, min_conf)
+        .species_hour_fraction(scientific_name, hour_utc, detected_at_ms, min_conf)
         .await
         .unwrap_or(0.0);
 

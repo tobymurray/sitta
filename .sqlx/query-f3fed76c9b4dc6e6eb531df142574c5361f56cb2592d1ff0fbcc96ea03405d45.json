@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                 COALESCE(SUM(CASE WHEN CAST((d.detected_at / 3600000) % 24 AS INTEGER) = $2\n                                   THEN 1 ELSE 0 END), 0) AS \"hour_count!: i64\",\n                 COUNT(*) AS \"total!: i64\"\n               FROM detections d\n               JOIN labels l ON l.id = d.label_id\n               WHERE l.scientific_name = $1\n                 AND d.detected_at < $3\n                 AND d.confidence >= $4",
+  "describe": {
+    "columns": [
+      {
+        "name": "hour_count!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "total!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "f3fed76c9b4dc6e6eb531df142574c5361f56cb2592d1ff0fbcc96ea03405d45"
+}
