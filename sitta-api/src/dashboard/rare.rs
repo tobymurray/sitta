@@ -80,6 +80,17 @@ pub fn rare_content() -> String {
     });
   }
 
+  // Bucket a rarity blob to the highest-precedence flag set on it.
+  // Used as the dedupe key so each species shows once per kind-of-rare.
+  function rarityTierKey(r) {
+    if (!r) return 'none';
+    if (r.first_ever) return 'first_ever';
+    if (r.first_season) return 'first_season';
+    if (r.first_week) return 'first_week';
+    if (r.first_day) return 'first_day';
+    return 'high_score';
+  }
+
   function renderList(detections) {
     const el = document.getElementById('rare-list');
     const filtered = detections.filter(d => matchesFilter(d.rarity, activeFilter));
@@ -91,12 +102,31 @@ pub fn rare_content() -> String {
       return new Date(b.detected_at) - new Date(a.detected_at);
     });
 
-    if (filtered.length === 0) {
+    // Dedupe: one card per (species, tier). The first occurrence wins —
+    // because of the sort above that's the highest-confidence detection
+    // in the most-protective tier for that species. We track how many
+    // detections were folded into each surviving card so the UI can
+    // show a "+N more" badge.
+    const seen = new Map();   // key = species + ':' + tier
+    const deduped = [];
+    for (const d of filtered) {
+      const key = d.species.scientific_name + ':' + rarityTierKey(d.rarity);
+      const existing = seen.get(key);
+      if (existing) {
+        existing.fold_count = (existing.fold_count || 1) + 1;
+        continue;
+      }
+      d.fold_count = 1;
+      seen.set(key, d);
+      deduped.push(d);
+    }
+
+    if (deduped.length === 0) {
       el.innerHTML = '<div class="text-center py-12 text-gray-400 dark:text-plumage-500 text-sm">No rare detections in this window.</div>';
       return;
     }
 
-    el.innerHTML = filtered.map(d => {
+    el.innerHTML = deduped.map(d => {
       const sciEnc = encodeURIComponent(d.species.scientific_name);
       const time = window.sitta.fmtDateTime(d.detected_at, _tz);
       const hasAudio = d.has_audio || d.snippet_path;
@@ -125,11 +155,35 @@ pub fn rare_content() -> String {
           <div class="flex items-center gap-3">
             ${window.sitta.playButton(d)}
             <a href="/detections/${d.id}" class="text-xs text-stone-500 dark:text-plumage-400 hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors">View detection &rarr;</a>
+            ${d.fold_count > 1 ? '<a href="/species/' + sciEnc + '" class="text-xs text-gray-400 dark:text-plumage-500 hover:text-nuthatch-600 dark:hover:text-nuthatch-400 transition-colors" title="' + d.fold_count + ' similar rare moments — click to see all detections">+' + (d.fold_count - 1) + ' more like this</a>' : ''}
           </div>
           <span class="text-xs text-gray-400 dark:text-plumage-600 font-mono">${Math.round((d.rarity ? d.rarity.score : 0) * 100)}% rare</span>
         </div>
       </div>`;
     }).join('');
+  }
+
+  // Compute chip counts on the deduped post-filter view so the number
+  // next to each chip matches what will render. "All" sums uniques across
+  // every tier; per-tier chips count uniques within their tier.
+  function computeChipCounts(detections) {
+    const counts = { all: 0, first_ever: 0, first_season: 0, first_week: 0, first_day: 0, high_score: 0 };
+    const seenAll = new Set();
+    const seenPer = { first_ever: new Set(), first_season: new Set(), first_week: new Set(), first_day: new Set(), high_score: new Set() };
+    detections.forEach(d => {
+      if (!d.rarity) return;
+      const tier = rarityTierKey(d.rarity);
+      if (tier === 'none') return;
+      const allKey = d.species.scientific_name + ':' + tier;
+      if (!seenAll.has(allKey)) { seenAll.add(allKey); counts.all++; }
+      const sci = d.species.scientific_name;
+      if (d.rarity.first_ever && !seenPer.first_ever.has(sci))   { seenPer.first_ever.add(sci);   counts.first_ever++; }
+      if (d.rarity.first_season && !seenPer.first_season.has(sci)) { seenPer.first_season.add(sci); counts.first_season++; }
+      if (d.rarity.first_week && !seenPer.first_week.has(sci))   { seenPer.first_week.add(sci);   counts.first_week++; }
+      if (d.rarity.first_day && !seenPer.first_day.has(sci))     { seenPer.first_day.add(sci);    counts.first_day++; }
+      if (d.rarity.score >= 0.6 && !seenPer.high_score.has(sci)) { seenPer.high_score.add(sci);   counts.high_score++; }
+    });
+    return counts;
   }
 
   let allDetections = [];
@@ -139,17 +193,8 @@ pub fn rare_content() -> String {
     .then(resp => {
       allDetections = resp.items || resp;
 
-      // Compute counts per filter for the chip labels.
-      const counts = { all: 0, first_ever: 0, first_season: 0, first_week: 0, first_day: 0, high_score: 0 };
-      allDetections.forEach(d => {
-        if (!d.rarity) return;
-        if (d.rarity.first_ever || d.rarity.first_season || d.rarity.first_week || d.rarity.first_day || d.rarity.score >= 0.6) counts.all++;
-        if (d.rarity.first_ever) counts.first_ever++;
-        if (d.rarity.first_season) counts.first_season++;
-        if (d.rarity.first_week) counts.first_week++;
-        if (d.rarity.first_day) counts.first_day++;
-        if (d.rarity.score >= 0.6) counts.high_score++;
-      });
+      // Compute counts on the deduped view so chip numbers match render.
+      const counts = computeChipCounts(allDetections);
 
       renderFilters(counts);
       renderList(allDetections);
