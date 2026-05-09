@@ -77,18 +77,30 @@ top_k = 10
 ebird_path = "/home/toby/.local/share/birda/taxonomy/eBird-Clements_v2025-integrated-checklist-October-2025.csv"
 
 # Audio clip retention. Defaults are applied when this section is omitted.
-# Multipliers extend `retention_days` for rare detections so common species
-# (Phoebes, Grackles, Blackbirds, ...) age out before notable ones.
-# `per_species_cap` (when > 0) trims noisy species back to N clips before
-# global eviction starts; reviewed-correct and first_ever are exempt.
+#
+# Two protections combine:
+#  1. Multipliers extend `retention_days` for rare detections so notable
+#     clips outlive common species (phoebes, grackles, blackbirds, ...).
+#  2. The per-(species, UTC-day) quota caps how many clips of any one
+#     species are kept on a single day. The keep set per (species, day)
+#     is the union of "most recent N" (`per_species_per_day_recent`) and
+#     "top M by confidence" (`per_species_per_day_top_confidence`), so a
+#     bucket retains up to N+M unique clips. The quota applies to today
+#     too — a noisy phoebe day never wipes out the day's representative
+#     clips, but storage isn't filled with thousands of identical calls.
+#
+# Reviewed-correct and the rare tiers (first_ever, first_season,
+# first_week) are exempt from the quota.
+#
 # [snippets]
-# enabled                 = true
-# clip_dir                = "./clips"
-# retention_days          = 30
-# max_disk_mb             = 2048
-# first_ever_multiplier   = 999    # effectively forever
-# first_season_multiplier = 8      # ~8 months at retention_days = 30
-# first_week_multiplier   = 4
-# first_day_multiplier    = 2
-# high_score_multiplier   = 2      # rarity score >= 0.6
-# per_species_cap         = 0      # 0 = disabled
+# enabled                              = true
+# clip_dir                             = "./clips"
+# retention_days                       = 30
+# max_disk_mb                          = 2048
+# first_ever_multiplier                = 999    # effectively forever
+# first_season_multiplier              = 8      # ~8 months at retention_days = 30
+# first_week_multiplier                = 4
+# first_day_multiplier                 = 2
+# high_score_multiplier                = 2      # rarity score >= 0.6
+# per_species_per_day_recent           = 10     # 0 with the next knob also 0 disables the quota
+# per_species_per_day_top_confidence   = 10

@@ -1,0 +1,104 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT d.id, d.detected_at,\n                      d.confidence AS \"confidence!: f64\",\n                      d.snippet_path AS \"snippet_path!\",\n                      l.scientific_name AS \"scientific_name?\",\n                      r.score AS \"rarity_score?: f64\",\n                      r.first_ever AS \"first_ever?: bool\",\n                      r.first_season AS \"first_season?: bool\",\n                      r.first_week AS \"first_week?: bool\",\n                      r.first_day AS \"first_day?: bool\",\n                      r.days_since_last AS \"days_since_last?: i64\",\n                      r.local_count AS \"local_count?: i64\",\n                      r.range_score AS \"range_score?: f64\",\n                      r.temporal_score AS \"temporal_score?: f64\",\n                      (EXISTS (SELECT 1 FROM detection_reviews v\n                               WHERE v.detection_id = d.id\n                                 AND v.status = 'correct')) AS \"reviewed_correct!: bool\"\n               FROM detections d\n               JOIN labels l ON l.id = d.label_id\n               LEFT JOIN detection_rarity r ON r.detection_id = d.id\n               WHERE d.snippet_path IS NOT NULL\n               ORDER BY d.detected_at ASC\n               LIMIT $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "detected_at",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "confidence!: f64",
+        "ordinal": 2,
+        "type_info": "Float"
+      },
+      {
+        "name": "snippet_path!",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "scientific_name?",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "rarity_score?: f64",
+        "ordinal": 5,
+        "type_info": "Float"
+      },
+      {
+        "name": "first_ever?: bool",
+        "ordinal": 6,
+        "type_info": "Bool"
+      },
+      {
+        "name": "first_season?: bool",
+        "ordinal": 7,
+        "type_info": "Bool"
+      },
+      {
+        "name": "first_week?: bool",
+        "ordinal": 8,
+        "type_info": "Bool"
+      },
+      {
+        "name": "first_day?: bool",
+        "ordinal": 9,
+        "type_info": "Bool"
+      },
+      {
+        "name": "days_since_last?: i64",
+        "ordinal": 10,
+        "type_info": "Integer"
+      },
+      {
+        "name": "local_count?: i64",
+        "ordinal": 11,
+        "type_info": "Integer"
+      },
+      {
+        "name": "range_score?: f64",
+        "ordinal": 12,
+        "type_info": "Float"
+      },
+      {
+        "name": "temporal_score?: f64",
+        "ordinal": 13,
+        "type_info": "Float"
+      },
+      {
+        "name": "reviewed_correct!: bool",
+        "ordinal": 14,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "55941077c2883d4acaf130eb7d7acd745d46b1009ca786b905ec64b941846f2b"
+}

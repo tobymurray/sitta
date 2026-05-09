@@ -468,7 +468,7 @@ Expose detections over the network. Let users hear what the model heard.
 - [x] Embedded Tailwind CSS dashboard (live feed, species list, status, settings)
 - [x] Runtime settings via ArcSwap (confidence thresholds, station coords, force_allow)
 - [x] Audio snippet saving (16-bit PCM WAV, async writer, atomic temp-file writes)
-- [x] Configurable retention (age-based + size-based, reviewed-as-correct clips preserved)
+- [x] Configurable retention: age-based with rarity multipliers, per-(species, UTC-day) quota (top N recent ∪ top M confidence), and a disk-size ceiling. Reviewed-correct and rare-tier clips are exempt; the quota keeps a small representative set per species per day so common callers (RWBL, phoebe, grackle) don't crowd out the rare ones.
 - [x] Audio serving endpoint (`/api/v1/detections/{id}/audio`)
 - [x] Pure-Rust mel spectrogram generation (`rustfft` + `image`, on-demand with disk cache)
 - [x] Spectrogram endpoint (`/api/v1/detections/{id}/spectrogram`)

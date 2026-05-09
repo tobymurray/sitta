@@ -188,11 +188,24 @@ pub struct SnippetConfig {
     /// Multiplier applied to `retention_days` for detections with rarity score >= 0.6. Default 2.
     #[serde(default = "default_high_score_multiplier")]
     pub high_score_multiplier: u32,
-    /// Per-species clip cap; in size-pressure sweeps, species exceeding this
-    /// count are trimmed (oldest first) before any global eviction. Reviewed
-    /// `correct` and `first_ever` clips are exempt. 0 = disabled. Default 0.
-    #[serde(default = "default_per_species_cap")]
-    pub per_species_cap: u32,
+    /// Per-(species, calendar-day) quota: keep this many most-recent clips
+    /// per species per UTC day. The keep set is the union of "most recent
+    /// N" (this knob) and "top M by confidence" (see
+    /// [`Self::per_species_per_day_top_confidence`]), so a species×day
+    /// bucket retains up to N+M unique clips. The quota applies to every
+    /// day in the retention window — the most-recent clips of *today* are
+    /// always preserved, so a noisy phoebe day never wipes out the day's
+    /// representative recordings. Reviewed-correct, first_ever,
+    /// first_season, and first_week are exempt. Default 10. Set both
+    /// quota knobs to 0 to disable per-day trimming entirely.
+    #[serde(default = "default_per_species_per_day_recent")]
+    pub per_species_per_day_recent: u32,
+    /// Per-(species, calendar-day) quota: keep the top M clips by confidence
+    /// per species per UTC day. Pairs with
+    /// [`Self::per_species_per_day_recent`] (the keep set is the union).
+    /// Default 10.
+    #[serde(default = "default_per_species_per_day_top_confidence")]
+    pub per_species_per_day_top_confidence: u32,
 }
 
 impl Default for SnippetConfig {
@@ -207,7 +220,8 @@ impl Default for SnippetConfig {
             first_week_multiplier: default_first_week_multiplier(),
             first_day_multiplier: default_first_day_multiplier(),
             high_score_multiplier: default_high_score_multiplier(),
-            per_species_cap: default_per_species_cap(),
+            per_species_per_day_recent: default_per_species_per_day_recent(),
+            per_species_per_day_top_confidence: default_per_species_per_day_top_confidence(),
         }
     }
 }
@@ -298,8 +312,11 @@ fn default_first_day_multiplier() -> u32 {
 fn default_high_score_multiplier() -> u32 {
     2
 }
-fn default_per_species_cap() -> u32 {
-    0
+fn default_per_species_per_day_recent() -> u32 {
+    10
+}
+fn default_per_species_per_day_top_confidence() -> u32 {
+    10
 }
 fn default_birdnet_stride() -> f32 {
     1.0

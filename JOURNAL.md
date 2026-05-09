@@ -4,6 +4,110 @@ Decisions, insights, and lessons learned during development.
 
 ---
 
+## 2026-05-09: Per-(species, day) quota replaces per-species cap
+
+### Problem
+
+The 2026-05-02 redesign added rarity-aware retention with a global
+`per_species_cap` knob, but it shipped disabled-by-default (`= 0`) and was
+gated on `max_disk_mb > 0`. In practice the live station ended up with
+thousands of daily phoebe / red-winged blackbird / grackle clips: the age
+sweep wouldn't touch anything younger than 30 days, the cap never fired,
+and the size sweep only kicked in once the disk was already saturated —
+at which point the user was browsing today's detections and finding rows
+with no audio attached.
+
+The cap was also the wrong shape. "Keep at most N clips of this species
+across all time" can't tell the difference between "30 phoebes spread
+over a month" and "300 phoebes from a single noisy afternoon". The user
+articulated what they actually wanted: a *threshold per species per day*
+— start trimming after, say, the 10 most recent + the 10 highest
+confidence per (species, day) — so a loud day never crowds out the day
+before, and storage scales with species diversity rather than call rate.
+
+### Solution: union quota per (species, UTC-day)
+
+`SnippetConfig` drops `per_species_cap` and gains two knobs (defaults
+applied when omitted):
+
+```toml
+per_species_per_day_recent         = 10
+per_species_per_day_top_confidence = 10
+```
+
+The retention worker's pre-pass now buckets candidates by
+`(scientific_name, utc_day(detected_at))`. For each bucket, the keep set
+is the **union** of "top N by detected_at desc" and "top M by confidence
+desc" — so a bucket retains up to N+M unique clips, and the two
+criteria overlap when recency aligns with confidence (saving real
+space).
+
+The quota applies to *every* day in the retention window, including
+today. That sounds aggressive but it's what the user asked for after
+the first design draft: "I never need 1000 per day of any species,
+that's just way too many clips". Today's clips are still the *safest*
+because:
+
+1. The quota's "top N most recent" always selects the latest clips of
+   the day — the user always has audio when browsing recent detections
+   of any species.
+2. The size sweep's `(tier ASC, age ASC)` ordering means today is the
+   last thing to evict under disk pressure.
+
+`first_ever`, `first_season`, `first_week`, and reviewed-correct are
+exempt from the quota. `first_day` and high-score-but-not-rare ride
+along through the natural top-recent / top-confidence path — they
+don't need a separate exemption, because if they're meaningful they're
+already in the keep set.
+
+### Bucket key: UTC day via `div_euclid`
+
+Bucketing is by `detected_at.div_euclid(DAY_MS)` — a pure i64 op, no
+chrono dependency. Floor-divide so negative timestamps (used in unit
+tests, where `now = 0` and historical clips have negative
+`detected_at`) bucket cleanly. Local-time bucketing would be marginally
+nicer for the user's mental model (today vs. yesterday matches the
+dashboard), but the worker doesn't expose buckets to the UI and a
+station that crosses DST gets identical clip counts in either scheme;
+UTC keeps the implementation self-contained.
+
+The first round of unit tests surfaced the expected gotcha: a candidate
+placed at `-N * DAY_MS` lands at *UTC midnight* of day -N, so the
+second clip in a "same day" helper — created by subtracting one minute
+— falls onto day -(N+1). The fix in the helper (`same_day_bucket`)
+anchors at noon of the target day so all minute-offset clips stay
+within the same bucket. The retention code itself doesn't have this
+hazard; it consumes `detected_at` directly as recorded by the writer.
+
+### Diagnostics surface
+
+`SnippetRetention` (the API/diagnostics snapshot) drops `per_species_cap`
+and gains the two new knobs. The dashboard's "top species by clip count"
+panel previously highlighted species over `per_species_cap`; it now
+flags species with more clips than `(per_species_per_day_recent +
+per_species_per_day_top_confidence) * retention_days` — i.e., the
+worst-case ceiling under the new policy. The displayed cap label
+becomes "quota: N+M / species / day".
+
+### Why no grace window
+
+A first draft had a `grace_days = 2` carve-out: "skip the quota for
+the last 2 days, only the size sweep can evict them". The user
+rejected this on round-trip — keeping all 1,000 phoebes from today
+is exactly what they wanted to avoid. Without grace, the quota
+uniformly caps each day, and the size-sweep's age-ascending order
+naturally keeps today safest. One fewer knob, simpler invariants.
+
+### Tests
+
+12 new unit tests in `snippets::tests` cover the union semantics, the
+exempt set, per-bucket independence (PHOE day 5 vs. PHOE day 6 vs.
+RWBL day 5), the disabled-when-both-zero case, and the "today is
+protected" property. The existing age-sweep / tier / size-sweep tests
+were left in place — those primitives didn't change.
+
+---
+
 ## 2026-05-02: Rarity-aware clip retention
 
 ### Problem

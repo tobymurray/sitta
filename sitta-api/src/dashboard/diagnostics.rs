@@ -441,9 +441,20 @@ pub fn diagnostics_content() -> String {
 
       // ── Top species by clip count ──
       const topEl = document.getElementById('ah-top-species');
-      const cap = (data.retention && data.retention.per_species_cap) ? data.retention.per_species_cap : 0;
+      // Per-(species, day) quota: ceiling per species per UTC day is
+      // recent_n + top_conf_m (worst case if the two keep-sets don't
+      // overlap). Highlight species whose total clip count exceeds that
+      // ceiling × retention_days — i.e., they're occupying more buckets'
+      // worth than the policy permits.
+      const recentN = (data.retention && data.retention.per_species_per_day_recent) || 0;
+      const topConfM = (data.retention && data.retention.per_species_per_day_top_confidence) || 0;
+      const perDayCeiling = recentN + topConfM;
+      const retDays = (data.retention && data.retention.retention_days) || 0;
+      const speciesCeiling = perDayCeiling > 0 && retDays > 0 ? perDayCeiling * retDays : 0;
       document.getElementById('ah-cap').textContent =
-        cap > 0 ? 'cap: ' + cap + ' / species' : 'no per-species cap';
+        perDayCeiling > 0
+          ? 'quota: ' + perDayCeiling + ' / species / day'
+          : 'no per-day quota';
       const topSpecies = data.top_species || [];
       if (topSpecies.length === 0) {
         topEl.innerHTML = '<p class="text-xs text-gray-400 dark:text-plumage-500">No clips on disk yet.</p>';
@@ -451,7 +462,7 @@ pub fn diagnostics_content() -> String {
         const topMax = Math.max(1, ...topSpecies.map(s => s.clip_count));
         topEl.innerHTML = topSpecies.map(s => {
           const pct = (s.clip_count / topMax) * 100;
-          const overCap = cap > 0 && s.clip_count > cap;
+          const overCap = speciesCeiling > 0 && s.clip_count > speciesCeiling;
           const barCls = overCap ? 'bg-amber-500' : 'bg-nuthatch-500';
           return '<a href="/species/' + encodeURIComponent(s.scientific_name) + '" class="flex items-center gap-3 -mx-1 px-1 py-0.5 rounded hover:bg-gray-50 dark:hover:bg-plumage-800/40 transition-colors">' +
                  '  <span class="w-32 text-xs truncate text-stone-700 dark:text-plumage-200" title="' + s.scientific_name + '">' + s.common_name + '</span>' +

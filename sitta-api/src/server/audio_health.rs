@@ -42,7 +42,8 @@ pub(super) struct AudioHealthResponse {
     /// first). Lets the user see what retention is actually preserving.
     tiers: AudioHealthTiers,
     /// Top species by saved-clip count. Highlights who's dominating the
-    /// pool so the user can decide whether to enable `per_species_cap`.
+    /// pool so the user can confirm the per-(species, day) quota is doing
+    /// its job (or tighten the knobs if a species is still over-represented).
     top_species: Vec<AudioHealthSpeciesClips>,
 }
 
@@ -109,7 +110,8 @@ struct AudioHealthRetention {
     first_week_multiplier: u32,
     first_day_multiplier: u32,
     high_score_multiplier: u32,
-    per_species_cap: u32,
+    per_species_per_day_recent: u32,
+    per_species_per_day_top_confidence: u32,
 }
 
 #[derive(Serialize)]
@@ -252,7 +254,8 @@ pub(super) async fn audio_health_handler(
             first_week_multiplier: r.first_week_multiplier,
             first_day_multiplier: r.first_day_multiplier,
             high_score_multiplier: r.high_score_multiplier,
-            per_species_cap: r.per_species_cap,
+            per_species_per_day_recent: r.per_species_per_day_recent,
+            per_species_per_day_top_confidence: r.per_species_per_day_top_confidence,
         });
 
     let tiers_row = state

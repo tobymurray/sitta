@@ -329,17 +329,38 @@ fn effective_multiplier(rarity: Option<&RarityRow>, cfg: &SnippetConfig) -> u32 
 }
 
 /// In-memory snapshot of a clip we might evict, with the metadata the retention
-/// policy needs (rarity tier, review status, species). Built once per sweep.
+/// policy needs (rarity tier, review status, species, confidence). Built once
+/// per sweep. `confidence` powers the per-(species, day) quota's "top M by
+/// confidence" preservation rule.
 struct RetentionCandidate {
     id: Vec<u8>,
     snippet_path: String,
     detected_at: i64,
+    confidence: f64,
     scientific_name: String,
     rarity: Option<RarityRow>,
     reviewed_correct: bool,
 }
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+
+/// UTC calendar day for a Unix-ms timestamp. Floor-divide so negative
+/// timestamps (used in unit tests, where `now_ms = 0` and historical clips
+/// have negative `detected_at`) bucket correctly without straddling 0.
+fn utc_day(ms: i64) -> i64 {
+    ms.div_euclid(DAY_MS)
+}
+
+/// True if the clip is in a "rare" tier that's exempt from the per-day
+/// quota. `first_day` and `high_score` are *not* exempt — their natural
+/// protection is being among the top-recent or top-confidence clips for
+/// their (species, day) bucket. `first_ever` / `first_season` / `first_week`
+/// are genuinely uncommon and shouldn't be touched by quota trimming.
+fn quota_exempt_rarity(rarity: Option<&RarityRow>) -> bool {
+    rarity
+        .map(|r| r.first_ever || r.first_season || r.first_week)
+        .unwrap_or(false)
+}
 
 /// Pick candidates whose age exceeds their tier-adjusted cutoff. Reviewed-correct
 /// rows are exempt. Returns indices into `candidates`.
@@ -363,36 +384,75 @@ fn select_age_evictions(
     out
 }
 
-/// Pick the oldest excess clips for any species exceeding `cap`. Reviewed-correct
-/// and first_ever rows don't count toward the cap and are never returned. Caller
-/// must check that the cap is enabled before invoking.
-fn select_species_cap_evictions(
+/// Per-(species, UTC-day) quota sweep. For each bucket, the keep set is the
+/// union of "top `recent_n` by detected_at desc" and "top `top_conf_m` by
+/// confidence desc"; everything else is returned for eviction. Reviewed
+/// correct and rare-tier clips (`first_ever`/`first_season`/`first_week`)
+/// are exempt and never appear in the result.
+///
+/// The bucket key is `(scientific_name, utc_day)`, so today's phoebes are
+/// scored independently from yesterday's phoebes — a noisy day can never
+/// trim a representative clip from a different day.
+///
+/// `recent_n + top_conf_m == 0` short-circuits the sweep (caller should
+/// gate on this; we still return `Vec::new()` to be safe).
+fn select_quota_evictions(
     candidates: &[RetentionCandidate],
-    cap: usize,
+    recent_n: usize,
+    top_conf_m: usize,
 ) -> Vec<usize> {
-    let mut by_species: HashMap<&str, Vec<usize>> = HashMap::new();
+    if recent_n == 0 && top_conf_m == 0 {
+        return Vec::new();
+    }
+
+    let mut buckets: HashMap<(&str, i64), Vec<usize>> = HashMap::new();
     for (i, c) in candidates.iter().enumerate() {
         if c.reviewed_correct {
             continue;
         }
-        if c.rarity.as_ref().is_some_and(|r| r.first_ever) {
+        if quota_exempt_rarity(c.rarity.as_ref()) {
             continue;
         }
-        by_species
-            .entry(c.scientific_name.as_str())
+        buckets
+            .entry((c.scientific_name.as_str(), utc_day(c.detected_at)))
             .or_default()
             .push(i);
     }
-    let mut out = Vec::new();
-    for (_, mut indices) in by_species {
-        if indices.len() <= cap {
+
+    let mut evictions = Vec::new();
+    for (_, indices) in buckets {
+        // Skip buckets that are already at or under the conservative
+        // upper bound: a bucket of size <= max(recent_n, top_conf_m)
+        // can't possibly have anything to evict, since either sub-set
+        // alone would already cover the whole bucket.
+        if indices.len() <= recent_n.max(top_conf_m) {
             continue;
         }
-        indices.sort_by_key(|&i| candidates[i].detected_at);
-        let excess = indices.len() - cap;
-        out.extend(indices.into_iter().take(excess));
+
+        // "Most recent N": sort by detected_at desc, take first N.
+        let mut by_recency = indices.clone();
+        by_recency.sort_by(|&a, &b| candidates[b].detected_at.cmp(&candidates[a].detected_at));
+        let recent_keep: std::collections::HashSet<usize> =
+            by_recency.iter().take(recent_n).copied().collect();
+
+        // "Top M by confidence": sort by confidence desc, take first M.
+        // total_cmp handles NaN deterministically (NaN sinks to the end).
+        let mut by_confidence = indices.clone();
+        by_confidence.sort_by(|&a, &b| {
+            candidates[b]
+                .confidence
+                .total_cmp(&candidates[a].confidence)
+        });
+        let conf_keep: std::collections::HashSet<usize> =
+            by_confidence.iter().take(top_conf_m).copied().collect();
+
+        for i in indices {
+            if !recent_keep.contains(&i) && !conf_keep.contains(&i) {
+                evictions.push(i);
+            }
+        }
     }
-    out
+    evictions
 }
 
 /// Order candidates for size-sweep eviction: least-protected tier first, then
@@ -416,8 +476,9 @@ async fn run_retention(
     let mut deleted = 0u64;
 
     // ── Build the candidate set with everything the policy needs.
-    // retention_candidates folds rarity + reviewed_correct into a single SELECT,
-    // so the worker no longer does N+1 round-trips on the SD card.
+    // retention_candidates folds rarity + reviewed_correct + confidence into
+    // a single SELECT, so the worker no longer does N+1 round-trips on the
+    // SD card.
     let rows = db.retention_candidates(10_000).await?;
     let mut candidates: Vec<RetentionCandidate> = rows
         .into_iter()
@@ -425,6 +486,7 @@ async fn run_retention(
             id: r.id,
             snippet_path: r.snippet_path,
             detected_at: r.detected_at,
+            confidence: r.confidence,
             scientific_name: r.scientific_name,
             rarity: r.rarity,
             reviewed_correct: r.reviewed_correct,
@@ -450,12 +512,16 @@ async fn run_retention(
         }
     }
 
-    // ── Per-species cap pre-pass: when the cap is set and disk pressure is
-    // a concern, trim noisy species back to the cap before global eviction
-    // touches anything else.
-    if config.per_species_cap > 0 && config.max_disk_mb > 0 {
-        let cap = config.per_species_cap as usize;
-        let mut to_evict = select_species_cap_evictions(&candidates, cap);
+    // ── Per-(species, UTC-day) quota: trim noisy species back to a small
+    // set of representative clips per day. Today's phoebes survive on the
+    // strength of being among the day's top-N most recent or top-M highest
+    // confidence; everything else above the quota is eligible for eviction.
+    // Rare-tier and reviewed-correct clips are exempt (handled inside
+    // select_quota_evictions).
+    let recent_n = config.per_species_per_day_recent as usize;
+    let top_conf_m = config.per_species_per_day_top_confidence as usize;
+    if recent_n > 0 || top_conf_m > 0 {
+        let mut to_evict = select_quota_evictions(&candidates, recent_n, top_conf_m);
         for &i in &to_evict {
             let c = &candidates[i];
             delete_clip(clip_dir, &c.snippet_path).await;
@@ -578,15 +644,33 @@ mod tests {
             first_week_multiplier: 4,
             first_day_multiplier: 2,
             high_score_multiplier: 2,
-            per_species_cap: 0,
+            per_species_per_day_recent: 10,
+            per_species_per_day_top_confidence: 10,
         }
     }
 
     fn candidate(species: &str, age_days: i64, rarity: Option<RarityRow>, reviewed_correct: bool) -> RetentionCandidate {
+        candidate_with(species, age_days, rarity, reviewed_correct, 0.5)
+    }
+
+    /// Build a candidate with explicit confidence. `age_days` is days before
+    /// the test "now" (i64::MAX); using a large positive offset keeps the
+    /// candidate's UTC day stable regardless of the wall-clock at test time.
+    fn candidate_with(
+        species: &str,
+        age_days: i64,
+        rarity: Option<RarityRow>,
+        reviewed_correct: bool,
+        confidence: f64,
+    ) -> RetentionCandidate {
         RetentionCandidate {
             id: vec![],
             snippet_path: format!("{species}/{age_days}.wav"),
-            detected_at: -age_days * DAY_MS, // negative = "this many days before now=0"
+            // Negative = "this many days before now=0". Tests that care
+            // about the bucket key (utc_day) use age_days that map to
+            // distinct days; tests that don't care leave them at 0.
+            detected_at: -age_days * DAY_MS,
+            confidence,
             scientific_name: species.to_string(),
             rarity,
             reviewed_correct,
@@ -710,68 +794,194 @@ mod tests {
         assert_eq!(evicted, vec![0]);
     }
 
-    // ── Per-species cap ───────────────────────────────────────────
+    // ── Per-(species, day) quota ──────────────────────────────────
 
-    #[test]
-    fn species_cap_evicts_oldest_excess_per_species() {
-        let candidates = vec![
-            candidate("RWBL", 10, None, false), // 0
-            candidate("RWBL", 20, None, false), // 1
-            candidate("RWBL", 30, None, false), // 2 — oldest, evict
-            candidate("RWBL", 40, None, false), // 3 — older,  evict
-            candidate("BAOW", 50, None, false), // 4 — only one, keep
-        ];
-        let mut evicted = select_species_cap_evictions(&candidates, 2);
-        evicted.sort();
-        assert_eq!(evicted, vec![2, 3]);
+    /// Build N candidates for the same species on the same UTC day, each
+    /// with a distinct `detected_at` (1 minute apart, going backwards from
+    /// `base_age_days`) and the supplied `confidences[]`. Index 0 is the
+    /// most recent.
+    ///
+    /// Anchors at noon of the target UTC day so the minute-offset clips
+    /// don't spill across midnight into the previous day's bucket. (Without
+    /// the noon offset, anchoring at `-N*DAY_MS` puts the base at UTC
+    /// midnight, and `div_euclid` on negative timestamps puts the second
+    /// clip onto UTC day `N+1`.)
+    fn same_day_bucket(species: &str, base_age_days: i64, confidences: &[f64]) -> Vec<RetentionCandidate> {
+        let base = -base_age_days * DAY_MS + 12 * 60 * 60 * 1000;
+        confidences
+            .iter()
+            .enumerate()
+            .map(|(i, &conf)| RetentionCandidate {
+                id: vec![],
+                snippet_path: format!("{species}/{base_age_days}-{i}.wav"),
+                // 60_000 ms = 1 minute. With the noon anchor and ≤ 720
+                // minutes of offsets, all clips stay inside the same UTC day.
+                detected_at: base - (i as i64) * 60_000,
+                confidence: conf,
+                scientific_name: species.to_string(),
+                rarity: None,
+                reviewed_correct: false,
+            })
+            .collect()
     }
 
     #[test]
-    fn species_cap_exempts_first_ever() {
-        let candidates = vec![
-            candidate("RWBL", 10, None, false),                                          // 0
-            candidate("RWBL", 20, None, false),                                          // 1
-            candidate("RWBL", 30, Some(rr(true, false, false, false, 0.9)), false),      // 2 — first_ever, exempt
-            candidate("RWBL", 40, None, false),                                          // 3 — oldest non-exempt, evict
-        ];
-        // cap = 2: 3 non-exempt rows → 1 excess. The oldest non-exempt evicts.
-        let evicted = select_species_cap_evictions(&candidates, 2);
-        assert_eq!(evicted, vec![3]);
+    fn quota_keeps_top_recent_and_top_confidence_union() {
+        // 30 phoebe clips on the same day with monotonically decreasing
+        // confidence (index 0 has the highest confidence AND is the most
+        // recent). With recent_n=10, top_conf_m=10, the keep set is the
+        // first 10 indices (both criteria pick the same set), so the
+        // remaining 20 evict.
+        let confidences: Vec<f64> = (0..30).map(|i| 1.0 - (i as f64) * 0.01).collect();
+        let candidates = same_day_bucket("Sayornis phoebe", 5, &confidences);
+        let mut evicted = select_quota_evictions(&candidates, 10, 10);
+        evicted.sort_unstable();
+        let expected: Vec<usize> = (10..30).collect();
+        assert_eq!(evicted, expected);
     }
 
     #[test]
-    fn species_cap_exempts_reviewed_correct() {
-        let candidates = vec![
-            candidate("RWBL", 10, None, false),  // 0
-            candidate("RWBL", 20, None, false),  // 1
-            candidate("RWBL", 30, None, true),   // 2 — pinned, exempt
-            candidate("RWBL", 40, None, false),  // 3 — oldest non-exempt, evict
-        ];
-        let evicted = select_species_cap_evictions(&candidates, 2);
-        assert_eq!(evicted, vec![3]);
+    fn quota_union_dedupes_when_recent_and_confidence_disagree() {
+        // 30 phoebe clips on the same day. Confidence is HIGHEST for the
+        // OLDEST clips (index 29 has confidence 1.0; index 0 has 0.71).
+        // recent_n=10 → keep indices 0..10 (most recent). top_conf_m=10 →
+        // keep indices 20..30 (highest confidence). Union: 20 clips kept,
+        // the middle 10 (indices 10..20) evict.
+        let confidences: Vec<f64> = (0..30).map(|i| 0.7 + (i as f64) * 0.01).collect();
+        let candidates = same_day_bucket("Sayornis phoebe", 5, &confidences);
+        let mut evicted = select_quota_evictions(&candidates, 10, 10);
+        evicted.sort_unstable();
+        let expected: Vec<usize> = (10..20).collect();
+        assert_eq!(evicted, expected);
     }
 
     #[test]
-    fn species_cap_independent_per_species() {
-        let candidates = vec![
-            candidate("RWBL", 10, None, false), // 0
-            candidate("RWBL", 20, None, false), // 1
-            candidate("RWBL", 30, None, false), // 2 — RWBL excess, evict
-            candidate("BAOW", 5, None, false),  // 3
-            candidate("BAOW", 8, None, false),  // 4 — BAOW within cap
-        ];
-        let evicted = select_species_cap_evictions(&candidates, 2);
-        assert_eq!(evicted, vec![2]);
-    }
-
-    #[test]
-    fn species_cap_no_op_when_under_cap() {
-        let candidates = vec![
-            candidate("RWBL", 10, None, false),
-            candidate("BAOW", 20, None, false),
-        ];
-        let evicted = select_species_cap_evictions(&candidates, 5);
+    fn quota_keeps_all_when_bucket_is_small() {
+        // 5 clips on the same day, quota is 10+10. Bucket size <= max(N,M),
+        // so nothing evicts — the user is never disappointed when they
+        // browse a low-volume species.
+        let confidences = vec![0.9, 0.8, 0.7, 0.6, 0.5];
+        let candidates = same_day_bucket("Hylocichla mustelina", 5, &confidences);
+        let evicted = select_quota_evictions(&candidates, 10, 10);
         assert!(evicted.is_empty());
+    }
+
+    #[test]
+    fn quota_buckets_by_species_and_day_independently() {
+        // PHOE day 5: 12 clips, 2 should evict (keep top 10 recency, all
+        // are within top 10 confidence too since confidences are flat).
+        // PHOE day 6: 5 clips, all kept.
+        // RWBL day 5: 12 clips, 2 should evict.
+        let mut candidates = same_day_bucket("Sayornis phoebe", 5, &[0.5; 12]);
+        let phoe_day_5_len = candidates.len();
+        candidates.extend(same_day_bucket("Sayornis phoebe", 6, &[0.5; 5]));
+        candidates.extend(same_day_bucket("Agelaius phoeniceus", 5, &[0.5; 12]));
+        let evicted = select_quota_evictions(&candidates, 10, 10);
+
+        // Each over-quota bucket evicts its 2 lowest-rank clips.
+        // phoe day 5: indices 0..12, oldest two evict (10, 11).
+        // phoe day 6: indices 12..17, all kept.
+        // rwbl day 5: indices 17..29, oldest two evict (27, 28).
+        let mut got = evicted.clone();
+        got.sort_unstable();
+        assert_eq!(got, vec![10, 11, 27, 28]);
+        // And we used phoe_day_5_len just to anchor the offsets:
+        assert_eq!(phoe_day_5_len, 12);
+    }
+
+    #[test]
+    fn quota_exempts_reviewed_correct() {
+        // 30 same-day phoebes, but 5 are reviewed-correct. The exempt rows
+        // never appear in the eviction list AND don't count toward the
+        // bucket size. So among the 25 non-exempt rows, the keep set is
+        // the 10 most recent ∪ 10 most confident (here aligned: indices
+        // 0-9 of the non-exempt set), and the rest evict.
+        let mut candidates = same_day_bucket("Sayornis phoebe", 5, &[0.5; 30]);
+        // Pin every 6th row as reviewed-correct. Non-exempt indices: all
+        // except {0, 6, 12, 18, 24}.
+        for i in [0, 6, 12, 18, 24] {
+            candidates[i].reviewed_correct = true;
+        }
+        let evicted = select_quota_evictions(&candidates, 10, 10);
+        // Exempt indices must never appear in the result.
+        for pinned in [0, 6, 12, 18, 24] {
+            assert!(!evicted.contains(&pinned), "reviewed_correct {pinned} was evicted");
+        }
+        // 25 non-exempt rows in the bucket; keep_recent ∪ keep_conf both
+        // pick the same 10 (since confidences are flat — sort is stable
+        // by detected_at descending → the 10 newest non-exempt indices).
+        // 25 - 10 = 15 evictions.
+        assert_eq!(evicted.len(), 15);
+    }
+
+    #[test]
+    fn quota_exempts_first_ever_first_season_first_week() {
+        // 12 same-day phoebes; one each is first_ever, first_season,
+        // first_week. With recent_n=10, top_conf_m=10, only the 9 plain
+        // rows feed the bucket. Bucket size 9 ≤ 10, nothing evicts.
+        let mut candidates = same_day_bucket("Sayornis phoebe", 5, &[0.5; 12]);
+        candidates[0].rarity = Some(rr(true, false, false, false, 0.9));   // first_ever
+        candidates[1].rarity = Some(rr(false, true, false, false, 0.0));   // first_season
+        candidates[2].rarity = Some(rr(false, false, true, false, 0.0));   // first_week
+        let evicted = select_quota_evictions(&candidates, 10, 10);
+        assert!(evicted.is_empty());
+    }
+
+    #[test]
+    fn quota_does_not_exempt_first_day_or_high_score() {
+        // 12 same-day phoebes, indices 0-1 are first_day and high_score
+        // respectively. Both are NOT quota-exempt — they ride along by
+        // being among the most recent. Confidence is flat, so the keep
+        // set is the 10 most recent (indices 0..10). Indices 10, 11
+        // evict, including no quota-exempt rows.
+        let mut candidates = same_day_bucket("Sayornis phoebe", 5, &[0.5; 12]);
+        candidates[0].rarity = Some(rr(false, false, false, true, 0.0));   // first_day, NOT exempt
+        candidates[1].rarity = Some(rr(false, false, false, false, 0.85)); // high_score, NOT exempt
+        let mut evicted = select_quota_evictions(&candidates, 10, 10);
+        evicted.sort_unstable();
+        assert_eq!(evicted, vec![10, 11]);
+    }
+
+    #[test]
+    fn quota_disabled_when_both_knobs_zero() {
+        let candidates = same_day_bucket("Sayornis phoebe", 5, &[0.5; 50]);
+        assert!(select_quota_evictions(&candidates, 0, 0).is_empty());
+    }
+
+    #[test]
+    fn quota_with_only_recency_knob() {
+        // recent_n=5, top_conf_m=0 → keep only the 5 most recent.
+        let candidates = same_day_bucket("Sayornis phoebe", 5, &[0.5; 10]);
+        let mut evicted = select_quota_evictions(&candidates, 5, 0);
+        evicted.sort_unstable();
+        assert_eq!(evicted, vec![5, 6, 7, 8, 9]);
+    }
+
+    #[test]
+    fn quota_with_only_confidence_knob() {
+        // recent_n=0, top_conf_m=5 → keep only the 5 highest confidence.
+        // Confidences ascending with index, so the keep set is indices 5-9.
+        let confidences: Vec<f64> = (0..10).map(|i| 0.5 + (i as f64) * 0.01).collect();
+        let candidates = same_day_bucket("Sayornis phoebe", 5, &confidences);
+        let mut evicted = select_quota_evictions(&candidates, 0, 5);
+        evicted.sort_unstable();
+        assert_eq!(evicted, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn quota_today_is_protected_in_the_same_way_as_old_days() {
+        // The quota applies uniformly to every UTC day, including today.
+        // 50 phoebes today (age_days=0) → quota trims to ~20.
+        let confidences: Vec<f64> = (0..50).map(|i| 1.0 - (i as f64) * 0.01).collect();
+        let candidates = same_day_bucket("Sayornis phoebe", 0, &confidences);
+        let evicted = select_quota_evictions(&candidates, 10, 10);
+        // 50 - 10 (recency aligned with confidence here) = 40 evict.
+        assert_eq!(evicted.len(), 40);
+        // The newest 10 always survive — the user always has audio when
+        // browsing today's phoebes.
+        for i in 0..10 {
+            assert!(!evicted.contains(&i), "newest clip {i} was evicted");
+        }
     }
 
     // ── Size sweep order ──────────────────────────────────────────

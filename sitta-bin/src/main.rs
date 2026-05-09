@@ -357,7 +357,8 @@ async fn main() -> Result<()> {
                     first_week_multiplier: config.snippets.first_week_multiplier,
                     first_day_multiplier: config.snippets.first_day_multiplier,
                     high_score_multiplier: config.snippets.high_score_multiplier,
-                    per_species_cap: config.snippets.per_species_cap,
+                    per_species_per_day_recent: config.snippets.per_species_per_day_recent,
+                    per_species_per_day_top_confidence: config.snippets.per_species_per_day_top_confidence,
                 })
             } else {
                 None

@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT embedding, embedding_dim FROM embeddings WHERE detection_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "embedding",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "embedding_dim",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "5c5a428029cc29b040a9e6ec69284f6c34066a1bd34bb628ec1b729741d4723c"
+}

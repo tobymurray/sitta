@@ -100,6 +100,7 @@ impl Database {
     ) -> Result<Vec<crate::models::RetentionCandidateRow>, crate::StoreError> {
         let rows = sqlx::query!(
             r#"SELECT d.id, d.detected_at,
+                      d.confidence AS "confidence!: f64",
                       d.snippet_path AS "snippet_path!",
                       l.scientific_name AS "scientific_name?",
                       r.score AS "rarity_score?: f64",
@@ -143,6 +144,7 @@ impl Database {
                 crate::models::RetentionCandidateRow {
                     id: r.id,
                     detected_at: r.detected_at,
+                    confidence: r.confidence,
                     snippet_path: r.snippet_path,
                     scientific_name: r.scientific_name.unwrap_or_default(),
                     rarity,

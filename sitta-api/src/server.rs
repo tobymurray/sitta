@@ -198,7 +198,12 @@ pub struct SnippetRetention {
     pub first_week_multiplier: u32,
     pub first_day_multiplier: u32,
     pub high_score_multiplier: u32,
-    pub per_species_cap: u32,
+    /// Per-(species, UTC-day) "most recent N" quota. Pairs with
+    /// `per_species_per_day_top_confidence` (the keep set is the union
+    /// of the two). 0+0 = quota disabled.
+    pub per_species_per_day_recent: u32,
+    /// Per-(species, UTC-day) "top M by confidence" quota.
+    pub per_species_per_day_top_confidence: u32,
 }
 
 /// Build the axum router with all routes.

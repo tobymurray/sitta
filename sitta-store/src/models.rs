@@ -279,12 +279,14 @@ pub struct SourceEffortRow {
 }
 
 /// One clip the retention worker may evict, with everything the policy
-/// needs already joined: rarity flags + reviewed-correct status. Replaces
-/// the per-row `get_rarity` + `is_review_correct` lookups the worker did
-/// previously.
+/// needs already joined: rarity flags + reviewed-correct status + the
+/// detection's own confidence (used by the per-(species, day) quota to
+/// preserve the highest-confidence clips). Replaces the per-row lookups
+/// the worker did previously.
 pub struct RetentionCandidateRow {
     pub id: Vec<u8>,
     pub detected_at: i64,
+    pub confidence: f64,
     pub snippet_path: String,
     pub scientific_name: String,
     pub rarity: Option<RarityRow>,
