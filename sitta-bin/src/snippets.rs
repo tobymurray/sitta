@@ -291,39 +291,54 @@ async fn retention_loop(
 /// Eviction tier — lower tiers are evicted first when disk is tight. Higher
 /// tiers are more deliberately preserved. Reviewed-as-correct rows skip the
 /// retention worker entirely (handled in [`run_retention`]).
-fn tier(rarity: Option<&RarityRow>) -> u8 {
-    let Some(r) = rarity else { return 0 };
-    if r.first_ever {
-        return 3;
+///
+/// `low_density` lifts species with very few detection-days in the
+/// trailing window to tier 1 even without a rarity flag — the
+/// "uncommon visitor that never crossed any boundary" case.
+fn tier(rarity: Option<&RarityRow>, low_density: bool) -> u8 {
+    if let Some(r) = rarity {
+        if r.first_ever {
+            return 3;
+        }
+        if r.first_week || r.first_season {
+            return 2;
+        }
+        if r.first_day || r.score >= 0.6 {
+            return 1;
+        }
     }
-    if r.first_week || r.first_season {
-        return 2;
-    }
-    if r.first_day || r.score >= 0.6 {
-        return 1;
-    }
-    0
+    if low_density { 1 } else { 0 }
 }
 
 /// Apply the strictest matching rarity multiplier. Returns at least 1 so a
 /// row's effective retention is never shorter than the configured base.
-fn effective_multiplier(rarity: Option<&RarityRow>, cfg: &SnippetConfig) -> u32 {
-    let Some(r) = rarity else { return 1 };
+/// `low_density` adds a floor when no rarity flag fires (same shape as the
+/// rarity multipliers; the strictest one wins).
+fn effective_multiplier(
+    rarity: Option<&RarityRow>,
+    cfg: &SnippetConfig,
+    low_density: bool,
+) -> u32 {
     let mut m: u32 = 1;
-    if r.first_ever {
-        m = m.max(cfg.first_ever_multiplier);
+    if let Some(r) = rarity {
+        if r.first_ever {
+            m = m.max(cfg.first_ever_multiplier);
+        }
+        if r.first_season {
+            m = m.max(cfg.first_season_multiplier);
+        }
+        if r.first_week {
+            m = m.max(cfg.first_week_multiplier);
+        }
+        if r.first_day {
+            m = m.max(cfg.first_day_multiplier);
+        }
+        if r.score >= 0.6 {
+            m = m.max(cfg.high_score_multiplier);
+        }
     }
-    if r.first_season {
-        m = m.max(cfg.first_season_multiplier);
-    }
-    if r.first_week {
-        m = m.max(cfg.first_week_multiplier);
-    }
-    if r.first_day {
-        m = m.max(cfg.first_day_multiplier);
-    }
-    if r.score >= 0.6 {
-        m = m.max(cfg.high_score_multiplier);
+    if low_density {
+        m = m.max(cfg.low_density_multiplier);
     }
     m.max(1)
 }
@@ -340,6 +355,9 @@ struct RetentionCandidate {
     scientific_name: String,
     rarity: Option<RarityRow>,
     reviewed_correct: bool,
+    /// Set per-sweep by `run_retention` from a snapshot of the trailing-
+    /// 30-day detection-day counts. Default false until the sweep marks it.
+    low_density: bool,
 }
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
@@ -374,7 +392,7 @@ fn select_age_evictions(
         if c.reviewed_correct {
             continue;
         }
-        let mul = effective_multiplier(c.rarity.as_ref(), config);
+        let mul = effective_multiplier(c.rarity.as_ref(), config, c.low_density);
         let span_days = i64::from(config.retention_days).saturating_mul(i64::from(mul));
         let cutoff = now_ms.saturating_sub(span_days.saturating_mul(DAY_MS));
         if c.detected_at < cutoff {
@@ -463,7 +481,7 @@ fn size_sweep_order(candidates: &[RetentionCandidate]) -> Vec<usize> {
     let mut order: Vec<usize> = (0..candidates.len()).collect();
     order.sort_by_key(|&i| {
         let c = &candidates[i];
-        (tier(c.rarity.as_ref()), c.detected_at)
+        (tier(c.rarity.as_ref(), c.low_density), c.detected_at)
     });
     order
 }
@@ -490,10 +508,37 @@ async fn run_retention(
             scientific_name: r.scientific_name,
             rarity: r.rarity,
             reviewed_correct: r.reviewed_correct,
+            low_density: false,
         })
         .collect();
 
     let now_ms = Utc::now().timestamp_millis();
+
+    // ── Tag candidates whose species is "low density": detected on at most
+    // `low_density_max_days` distinct UTC days in the trailing 30 days.
+    // Species missing from the query result (no detections in the window)
+    // are treated as 0 days → still low-density. This rescues the long
+    // tail of vagrant / one-off visitors that never crossed first_day or
+    // high_score, but stay quiet enough that they shouldn't compete with
+    // a phoebe for tier-0 eviction.
+    //
+    // The 0.5 confidence floor on the density query is a noise filter,
+    // not a `display_min_confidence` mirror — we want even quietly-vocal
+    // species to count, but spurious sub-half-confidence pings shouldn't
+    // inflate a noisy false-positive into a "real species".
+    if config.low_density_max_days > 0 {
+        let window_ms = 30 * DAY_MS;
+        let density = db
+            .species_detection_day_counts(now_ms - window_ms, now_ms, 0.5)
+            .await?;
+        let threshold = i64::from(config.low_density_max_days);
+        for c in candidates.iter_mut() {
+            let det_days = density.get(&c.scientific_name).copied().unwrap_or(0);
+            if det_days <= threshold {
+                c.low_density = true;
+            }
+        }
+    }
 
     // ── Age sweep: each row gets its own tier-adjusted cutoff.
     if config.retention_days > 0 {
@@ -646,6 +691,8 @@ mod tests {
             high_score_multiplier: 2,
             per_species_per_day_recent: 10,
             per_species_per_day_top_confidence: 10,
+            low_density_max_days: 5,
+            low_density_multiplier: 2,
         }
     }
 
@@ -674,47 +721,65 @@ mod tests {
             scientific_name: species.to_string(),
             rarity,
             reviewed_correct,
+            low_density: false,
         }
     }
 
     #[test]
     fn tier_orders_by_protection() {
         // Common (no flags, low score) is the easiest to evict.
-        assert_eq!(tier(None), 0);
-        assert_eq!(tier(Some(&rr(false, false, false, false, 0.1))), 0);
+        assert_eq!(tier(None, false), 0);
+        assert_eq!(tier(Some(&rr(false, false, false, false, 0.1)), false), 0);
 
         // Boosted: first_day or score >= 0.6.
-        assert_eq!(tier(Some(&rr(false, false, false, true, 0.0))), 1);
-        assert_eq!(tier(Some(&rr(false, false, false, false, 0.7))), 1);
+        assert_eq!(tier(Some(&rr(false, false, false, true, 0.0)), false), 1);
+        assert_eq!(tier(Some(&rr(false, false, false, false, 0.7)), false), 1);
 
         // Long: first_week / first_season.
-        assert_eq!(tier(Some(&rr(false, false, true, false, 0.0))), 2);
-        assert_eq!(tier(Some(&rr(false, true, false, false, 0.0))), 2);
+        assert_eq!(tier(Some(&rr(false, false, true, false, 0.0)), false), 2);
+        assert_eq!(tier(Some(&rr(false, true, false, false, 0.0)), false), 2);
 
         // Forever: first_ever (highest).
-        assert_eq!(tier(Some(&rr(true, false, false, false, 0.0))), 3);
+        assert_eq!(tier(Some(&rr(true, false, false, false, 0.0)), false), 3);
 
         // Multi-flag rows take the strongest tier.
-        assert_eq!(tier(Some(&rr(true, true, true, true, 0.9))), 3);
+        assert_eq!(tier(Some(&rr(true, true, true, true, 0.9)), false), 3);
+    }
+
+    #[test]
+    fn tier_low_density_lifts_otherwise_common_clips() {
+        // No rarity flag, low_density=true: lifts to tier 1 (same protection
+        // as first_day). Catches vagrants that never crossed a boundary.
+        assert_eq!(tier(None, true), 1);
+        assert_eq!(tier(Some(&rr(false, false, false, false, 0.1)), true), 1);
+    }
+
+    #[test]
+    fn tier_low_density_does_not_demote_already_protected() {
+        // first_ever stays at tier 3 even if the species happens to be
+        // low-density too (e.g. a one-off lifer). low_density is a floor,
+        // never a ceiling.
+        assert_eq!(tier(Some(&rr(true, false, false, false, 0.0)), true), 3);
+        assert_eq!(tier(Some(&rr(false, false, true, false, 0.0)), true), 2);
     }
 
     #[test]
     fn effective_multiplier_picks_strictest_match() {
         let c = cfg();
         // No rarity row: baseline (1).
-        assert_eq!(effective_multiplier(None, &c), 1);
+        assert_eq!(effective_multiplier(None, &c, false), 1);
         // Common with low score: still 1.
-        assert_eq!(effective_multiplier(Some(&rr(false, false, false, false, 0.3)), &c), 1);
+        assert_eq!(effective_multiplier(Some(&rr(false, false, false, false, 0.3)), &c, false), 1);
         // Just first_day: 2.
-        assert_eq!(effective_multiplier(Some(&rr(false, false, false, true, 0.0)), &c), 2);
+        assert_eq!(effective_multiplier(Some(&rr(false, false, false, true, 0.0)), &c, false), 2);
         // first_day + high score: max(2, 2) = 2.
-        assert_eq!(effective_multiplier(Some(&rr(false, false, false, true, 0.7)), &c), 2);
+        assert_eq!(effective_multiplier(Some(&rr(false, false, false, true, 0.7)), &c, false), 2);
         // first_week beats first_day.
-        assert_eq!(effective_multiplier(Some(&rr(false, false, true, true, 0.0)), &c), 4);
+        assert_eq!(effective_multiplier(Some(&rr(false, false, true, true, 0.0)), &c, false), 4);
         // first_season beats first_week.
-        assert_eq!(effective_multiplier(Some(&rr(false, true, true, true, 0.0)), &c), 8);
+        assert_eq!(effective_multiplier(Some(&rr(false, true, true, true, 0.0)), &c, false), 8);
         // first_ever beats everything.
-        assert_eq!(effective_multiplier(Some(&rr(true, true, true, true, 0.95)), &c), 999);
+        assert_eq!(effective_multiplier(Some(&rr(true, true, true, true, 0.95)), &c, false), 999);
     }
 
     #[test]
@@ -724,7 +789,30 @@ mod tests {
         let mut c = cfg();
         c.first_day_multiplier = 0;
         c.high_score_multiplier = 0;
-        assert_eq!(effective_multiplier(Some(&rr(false, false, false, true, 0.7)), &c), 1);
+        assert_eq!(effective_multiplier(Some(&rr(false, false, false, true, 0.7)), &c, false), 1);
+    }
+
+    #[test]
+    fn effective_multiplier_low_density_floors_to_configured_value() {
+        // No rarity row, low_density=true → low_density_multiplier (default 2).
+        let c = cfg();
+        assert_eq!(effective_multiplier(None, &c, true), 2);
+        // Common rarity row + low_density → still 2.
+        assert_eq!(effective_multiplier(Some(&rr(false, false, false, false, 0.3)), &c, true), 2);
+        // first_week (4) overrides low_density (2) — strictest wins.
+        assert_eq!(effective_multiplier(Some(&rr(false, false, true, false, 0.0)), &c, true), 4);
+        // first_ever (999) beats low_density.
+        assert_eq!(effective_multiplier(Some(&rr(true, false, false, false, 0.0)), &c, true), 999);
+    }
+
+    #[test]
+    fn effective_multiplier_low_density_disabled_when_multiplier_is_one() {
+        // A user can effectively disable the boost by setting the multiplier
+        // to 1 (or by setting low_density_max_days=0, which the run_retention
+        // gate handles upstream). At 1, low_density is a no-op.
+        let mut c = cfg();
+        c.low_density_multiplier = 1;
+        assert_eq!(effective_multiplier(None, &c, true), 1);
     }
 
     // ── Age sweep ─────────────────────────────────────────────────
@@ -794,6 +882,22 @@ mod tests {
         assert_eq!(evicted, vec![0]);
     }
 
+    #[test]
+    fn age_sweep_low_density_extends_retention() {
+        // retention_days = 30, low_density_multiplier = 2.
+        // A common-tier clip at 31 days normally evicts; with low_density
+        // it stretches to 60 days, so 31 keeps and 61 evicts.
+        let c = cfg();
+        let mut common_31 = candidate("Vermivora chrysoptera", 31, None, false);
+        common_31.low_density = true;
+        let mut common_61 = candidate("Vermivora chrysoptera", 61, None, false);
+        common_61.low_density = true;
+        let candidates = vec![common_31, common_61];
+        let evicted = select_age_evictions(&candidates, &c, 0);
+        // Only the 61-day-old one breaks the 60-day stretched cutoff.
+        assert_eq!(evicted, vec![1]);
+    }
+
     // ── Per-(species, day) quota ──────────────────────────────────
 
     /// Build N candidates for the same species on the same UTC day, each
@@ -821,6 +925,7 @@ mod tests {
                 scientific_name: species.to_string(),
                 rarity: None,
                 reviewed_correct: false,
+                low_density: false,
             })
             .collect()
     }
@@ -1027,5 +1132,20 @@ mod tests {
         ];
         let order = size_sweep_order(&candidates);
         assert_eq!(order, vec![0, 1, 2]); // tier 0,0,3 with index 0 older than 1
+    }
+
+    #[test]
+    fn size_sweep_low_density_lifts_above_common() {
+        // A common-tier RWBL clip and a low-density vagrant clip. With the
+        // density boost, the vagrant sits in tier 1 while RWBL stays tier 0,
+        // so RWBL gets evicted first even though the vagrant is older.
+        let mut common = candidate("RWBL", 5, None, false);  // 0
+        common.low_density = false;
+        let mut vagrant = candidate("Vermivora chrysoptera", 60, None, false); // 1
+        vagrant.low_density = true;
+        let candidates = vec![common, vagrant];
+        let order = size_sweep_order(&candidates);
+        // Tier 0 (RWBL) first, then tier 1 (vagrant).
+        assert_eq!(order, vec![0, 1]);
     }
 }

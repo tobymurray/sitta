@@ -4,6 +4,391 @@ Decisions, insights, and lessons learned during development.
 
 ---
 
+## 2026-05-16: Stop Perch ambient-sound labels from posing as `first_ever`
+
+### Problem
+
+User flagged that American Woodcock (26,178 detections, peak confidence
+0.9999, three weeks of nightly display flights) had **zero** persisted
+clips. Investigation surfaced two stacked causes, but only one is
+addressed here.
+
+Categorising disk usage by species showed where the 2 GB budget was
+actually going:
+
+```
+Animal                   535 clips   245 MB   all first_ever
+sounds_and_home_sounds   412         189 MB   all first_ever
+Vehicle                  195          89 MB   all first_ever
+animals_and_pets         145          66 MB
+Music                    101          46 MB
+Tools                    104          48 MB
+Singing                   85          39 MB
+Hands                     21         9.6 MB   all first_ever
+Thunder                   20         9.2 MB   all first_ever
+...
+```
+
+By rarity tier:
+
+```
+first_ever              3,799 clips   1,548 MB   (60 % of disk!)
+first_week              1,546 clips     500 MB
+common                  1,461 clips     538 MB
+first_day/high_score       31 clips      10 MB
+```
+
+The clip budget was being eaten by Perch's AudioSet-style ambient-sound
+classes ("Animal", "Vehicle", "Bass_drum", ...), all pinned forever by
+the 999× `first_ever` multiplier. Genuine tier-1 rare-bird clips
+(Woodcock first_day, Cardinal first_day, Barred Owl high_score) couldn't
+survive the size sweep with that much protected garbage upstream.
+
+### Root cause
+
+`persist::compute_rarity` keys on `top.species.scientific_name` (a
+`String`) and joins history via `species_local_history` with an exact
+`l.scientific_name = $1` match. Perch ships ~200 non-species labels:
+
+- **120 `label_type='environment'` rows** with `scientific_name = NULL`
+  (Animal, Vehicle, Music, Hands, Thunder, …).
+- **~88 `label_type='species'` rows** with single-token scientific names
+  ("Bass", "Acoustic", "Brass", …) — leftovers from the seeder splitting
+  AudioSet labels like `Bass_drum` on `_` as if they were `Genus_species`.
+
+At runtime, `parse_species` for "Animal" returns `scientific_name = "Animal"`,
+which doesn't match the DB's `NULL`. Result: `local_count = 0` →
+`first_ever = true` → tier 3 → 999× retention. Every single Vehicle hit
+got pinned. 439 detections, 439 false first_evers.
+
+### Fix (1/3 of the broader plan)
+
+1. **Going-forward gate.** `compute_rarity` returns `None` when
+   `scientific_name` isn't a Linnaean binomial. Predicate added as
+   `looks_like_species_name` (capitalised genus, lowercase species
+   epithet with optional hyphen, exactly two words). This mirrors the
+   existing `seed::looks_like_binomial` but lives next to the rarity
+   gate so it can't be sidestepped by a different caller. Three unit
+   tests cover real binomials, Perch pseudo-labels, and malformed
+   capitalisation.
+
+2. **Historical cleanup migration** `20260516000000_drop_non_species_rarity.sql`.
+   `DELETE FROM detection_rarity` for any detection whose label has
+   `scientific_name IS NULL` OR `scientific_name NOT LIKE '% %'`. Dry
+   run on a copy of prod showed:
+
+   ```
+   first_ever:  3,799 → 1,898   (-1,901 clips, -872 MB de-protected)
+   common:      1,461 → 2,154   (+693 clips reclassified to evictable)
+   ```
+
+   The retention worker's next size sweep can finally reach ~965 MB of
+   Animal/Vehicle/Music/etc. clips.
+
+### What this doesn't fix
+
+This is fix #1 of a 3-part diagnosis. Fix #3 (redefining `first_season`
+so returning migrants regain protection each year, rather than only when
+consecutive detections straddle a season boundary) is still open.
+
+---
+
+## 2026-05-16 (#2): Backfill `detection_rarity` for pre-rarity-scoring data
+
+### Problem
+
+`detection_rarity` first wrote rows on 2026-04-19 22:36 — the migration
+introducing the table landed mid-stream. Detections from before that
+moment (~78k rows including every spring-2026 migrant's first call at
+the station) have no rarity row at all. The retention worker reads
+`rarity = None → tier 0`, so a species' "first ever" event silently
+loses its 999× retention multiplier.
+
+American Woodcock is the textbook case: 26,178 detections, peak
+confidence 0.9999, zero persisted clips. The first call landed at
+2026-04-18 03:06:10 (the earliest qualifying detection at
+`confidence >= 0.65`), 19.5 hours too early to be tagged
+`first_ever=true`. Every subsequent Woodcock then sees
+`local_count > 0` from `species_local_history` and is permanently
+demoted to tier 0.
+
+### Fix
+
+New migration `20260516010000_backfill_rarity_pre_scoring.sql` replays
+the local-rarity portion of `compute_rarity` over every detection that
+matches the runtime gate:
+
+  * `confidence >= 0.65` — `display_min_confidence`'s default (live
+    config doesn't override) and the same threshold
+    `species_local_history` filters on
+  * `label.scientific_name LIKE '% %'` — Linnaean binomial, matching
+    the going-forward `looks_like_species_name` gate from fix #1
+
+Window functions partition by `(station_id, scientific_name)` ordered
+by `detected_at`; the first row per partition gets the full
+first_ever+season+week+day stack. Subsequent rows compute their
+boundary flags from the previous-row timestamp via `LAG`. A neat
+side-effect: hemisphere drops out of the season comparison because both
+sides of the inequality use the same station's latitude, so the
+migration doesn't need to read `stations.latitude` at all.
+
+`range_score` is left NULL (no RangeFilter at SQL level) and
+`temporal_score` is 0; neither feeds the retention tier — only the
+boolean flags and the composite score do. The composite score uses
+`local × 0.40`, which is what `compute_rarity` produces when regional
+and temporal data are absent.
+
+### Verification
+
+Dry run on a copy of the live DB, applying fix #1 then fix #2:
+
+```
+detection_rarity row count:    1,282,893  →  1,300,761   (+17,868 rows)
+Woodcock first-ever row:       (none)     →  2026-04-18 03:06:10  (first_ever=1, first_season=1, first_week=1, first_day=1)
+```
+
+### What this doesn't recover
+
+The backfill is bookkeeping-only: zero clips on disk are from the
+pre-2026-04-19 22:36 window. The size sweep ran for the better part of
+a month while those rows were tier 0, and it pruned every single one of
+them; `cleanup_empty_dirs` then deleted the empty `2026-04-18/` and
+`2026-04-19/` directories. The disk-tier breakdown is essentially
+unchanged by the backfill itself:
+
+```
+                            after fix #1 only        after fix #1 + #2
+no_rarity_row               1,944 clips / 890 MB →   1,944 / 890 MB
+first_ever                  1,899 / 677 MB       →   1,899 / 677 MB
+first_week                  1,482 / 474 MB       →   1,482 / 474 MB
+first_day/high_score           10 /   3 MB       →      10 /   3 MB
+common                        496 / 179 MB       →     498 / 179 MB   (+2 marginal reclassifications)
+```
+
+The value of fix #2 is therefore not "recover Woodcock audio" — that
+ship sailed — but:
+
+  * **Anchoring future first-ever decisions** at the historically
+    correct detection. Without the backfill, if every post-April-19
+    detection of a species were ever deleted (a quirk of low-confidence
+    filtering during a dry spell, etc.), the runtime could re-tag a
+    later detection as `first_ever`. With the backfill, the
+    `species_local_history` query always sees the real first call.
+  * **Data correctness** for queries like "when did this species first
+    appear at the station this year" — previously the answer started
+    on 2026-04-19 for every spring-2026 migrant, even ones that had
+    been singing for two days already.
+
+Fix #3 (redefining `first_season` so returning migrants reclaim
+protection each year) is what actually solves the Woodcock pattern
+going forward; that's the next change.
+
+---
+
+## 2026-05-16 (#4): Low-density tier for uncommon visitors
+
+### Problem
+
+The retention tiers up to fix #3 cover the species that *cross
+boundaries* — first_ever / first_season / first_week / first_day, plus
+high_score. Plenty of genuinely uncommon species don't trigger any of
+those. A Wilson's Snipe detected once on 2026-05-09 and again on
+2026-05-12 has `first_day` only for those two days; the rest of its
+clips are tier 0. A Brent Goose with seven detections in a single 30-day
+window is, taxonomically, a once-in-the-station event — but the tier
+system can't tell it apart from a Red-winged Blackbird.
+
+Preview against the live DB: 173 species have ≤5 distinct
+detection-days in the trailing 30 days (1,573 disk-resident clips,
+most currently tier 0). They lose every size-sweep tiebreaker to noisy
+phoebes / grackles / RWBL despite being far less common.
+
+### Fix
+
+Two new `SnippetConfig` knobs:
+
+```toml
+[snippets]
+low_density_max_days   = 5    # 0 disables the boost
+low_density_multiplier = 2    # same shape as first_day_multiplier
+```
+
+A species is "low density" when its trailing-30-day distinct
+detection-day count is `≤ low_density_max_days`. Species with *no*
+detections in the window are counted as 0 days → still low-density, so
+old clips of a now-absent species retain modest protection rather than
+falling straight off the cliff.
+
+Implementation surface:
+
+  * `sitta-store::db::Database::species_detection_day_counts`: new query
+    that returns `HashMap<scientific_name, det_days>`. Filters by
+    `confidence >= 0.5` (noise floor, deliberately below
+    `display_min_confidence` so quiet-but-real species still count) and
+    `scientific_name LIKE '% %'` (fix #1's species gate).
+  * `RetentionCandidate` gains `low_density: bool`, set per-sweep in
+    `run_retention` from the density map.
+  * `tier(rarity, low_density)`: low_density lifts an otherwise
+    tier-0 clip to tier 1; never demotes a higher-tier clip.
+  * `effective_multiplier(rarity, cfg, low_density)`: low_density adds
+    a `low_density_multiplier` floor; the strictest matching multiplier
+    still wins.
+  * `size_sweep_order` and `select_age_evictions` pass the flag through.
+  * Diagnostics surface (`SnippetRetention` / `AudioHealthRetention`)
+    exposes the two new fields for the /diagnostics page.
+
+### Tests
+
+6 new tests in `sitta-bin::snippets::tests`:
+
+  * `tier_low_density_lifts_otherwise_common_clips`
+  * `tier_low_density_does_not_demote_already_protected`
+  * `effective_multiplier_low_density_floors_to_configured_value`
+  * `effective_multiplier_low_density_disabled_when_multiplier_is_one`
+  * `age_sweep_low_density_extends_retention` (Wilson's Snipe lives at 31
+    days, evicts at 61 — exactly `retention_days × low_density_multiplier`)
+  * `size_sweep_low_density_lifts_above_common` (RWBL goes first, vagrant
+    survives)
+
+Plus 6 existing `tier`/`effective_multiplier` tests refactored to pass
+`false` for the new flag (matches their original common-only intent).
+133 workspace tests pass.
+
+### Why a 0.5 confidence floor (not `display_min_confidence`)?
+
+The density count is "is this species *around*", which is intentionally
+broader than "should I show this in the UI". Even a Wood Thrush calling
+quietly at 0.55 confidence is evidence of presence. Going below 0.5
+would risk false-positive Mangrove-Yellow-Warbler-style hits inflating
+common-species counts. 0.5 isn't a config knob — it's a fixed, low-
+sensitivity threshold for the density signal specifically.
+
+---
+
+## 2026-05-16 (env-skip): User-controlled persistence for non-species labels
+
+### Problem
+
+After fix #1, Perch's environment-label clips (Animal, Vehicle, Music,
+Bark, voice, Bass_drum, …) no longer get the `first_ever` forever-pin
+treatment, but they still *exist*: every detection above the inference
+threshold gets a row + a WAV submitted to the writer. On a station with
+household activity nearby that's a lot of writes — peak hours of the
+day show 210 `Animal`/`Bark` clips at 20:00 EDT and 131 at 08:00, which
+is exactly the signature of pets and morning bustle, not feeder visitors.
+
+### Fix
+
+Two new runtime-settings toggles, both editable from /settings → Detection
+Persistence:
+
+  * `skip_environment_clips` (default **true**): the detection row still
+    lands in the DB so the dashboard can audit Perch's classifier, but
+    the WAV is dropped at the writer.
+  * `skip_environment_detections` (default **false**): stronger — don't
+    even insert the row. Off by default so the change to the persist
+    path is observable in the dashboard before users decide to enable
+    the harder filter.
+
+The discriminator reuses `looks_like_species_name` from fix #1: if the
+top label's scientific name isn't a Linnaean binomial it's
+"environmental". Same predicate as the rarity gate, so the two filters
+stay aligned by construction. Implementation lives at the top of
+`persist::persist_detections` — environment + clip-skip avoids the
+`writer.submit`, environment + detection-skip returns before the
+`insert_detection`.
+
+Wiring touches:
+
+  * `RuntimeSettings` + `SettingsUpdate` + `apply_update` + `persist_to_toml`
+    (toggles persisted into the `[api]` TOML section alongside
+    `show_range_unverified`)
+  * `ApiConfig` defaults in `sitta-bin::config`
+  * `RuntimeSettings` initialiser in `sitta-bin::main`
+  * Dashboard /settings page: new "Detection Persistence" card with two
+    checkboxes, JS reads them explicitly because unchecked boxes don't
+    appear in FormData
+
+Three new `apply_update` tests cover the toggles plus the
+"same-value-isn't-a-change" invariant. All 15 settings tests + 57
+sitta-bin tests pass.
+
+---
+
+## 2026-05-16 (#3): Year-aware `first_season` for returning migrants
+
+### Problem
+
+The `first_season` flag was computed by comparing the meteorological
+season of two consecutive detections:
+
+```rust
+let first_season = meteorological_season(detection_date, lat)
+    != meteorological_season(last_date, lat);
+```
+
+`meteorological_season` returns 0..3 (Spring/Summer/Autumn/Winter) with
+no year component. That means "Spring 2027" and "Spring 2026" both
+hash to `0`, so a Woodcock detected in Spring 2027 whose previous
+detection was Spring 2026 (11-month gap) sees `Spring == Spring` and
+loses `first_season`. The bird gets `first_day=true` and
+`first_week=true` (those flags already include the year via the
+calendar / ISO-week-year), so it lands in tier 1 (2× retention) — but
+the 8× protection it earned the previous April vanishes silently the
+moment it returns.
+
+That's the structural reason the live data shows essentially every
+spring-2026 migrant with `first_season=0` once past their initial
+arrival window. Any species detected past the Spring → Summer
+transition will *never* get `first_season=1` again, because every
+subsequent April-vs-previous-detection comparison stays inside the
+same season bucket forever (`compute_local_score` only assigns 0.8 on
+the boundary itself, never on return).
+
+### Fix
+
+New helper `season_instance(date, latitude) -> (i32, u8)` returns the
+`(season-year, season)` tuple a date belongs to. `compute_rarity` now
+compares instances, not bare seasons:
+
+```rust
+let first_season = season_instance(detection_date, ctx.station_latitude)
+    != season_instance(last_date,    ctx.station_latitude);
+```
+
+The year component is the year the season "owns": the Dec-Feb winter
+(Northern) / summer (Southern) attaches all three months to the
+December year, so a 2026-12-15 and a 2027-01-15 detection share one
+season-instance (a bird singing through New Year's doesn't accidentally
+re-trigger `first_season` on Jan 1). Every other season uses the
+calendar year directly.
+
+Four new unit tests cover the regression cases:
+
+  * returning spring migrant (2026-05-16 → 2027-04-15) now distinct
+  * Dec/Jan/Feb across the year boundary grouped
+  * adjacent seasons within the same year stay distinct
+  * Southern-hemisphere summer year-wrap (Dec 2026 / Jan 2027 grouped,
+    Jan 2028 distinct)
+
+### Why not also fix `first_week` and `first_day`?
+
+Those already compare year-bearing identifiers (`IsoWeek` carries an
+ISO-week-year; `NaiveDate` carries the calendar year), so the
+across-year case already works. The bug was specific to season.
+
+### Impact on existing data
+
+The fix only changes rarity computation for *new* detections going
+forward. Historical rows are untouched — they were correct against the
+runtime logic at the time they were written, and the cross-year
+scenarios the fix unlocks haven't happened yet (the station only
+started recording 2026-04-18, well within Spring 2026). The first
+test of this code will be every spring-2027 migrant returning to the
+station.
+
+---
+
 ## 2026-05-09: Per-(species, day) quota replaces per-species cap
 
 ### Problem

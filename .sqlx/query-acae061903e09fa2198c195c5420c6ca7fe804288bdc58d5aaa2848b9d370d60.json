@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT l.scientific_name AS \"scientific_name!\",\n                      COUNT(DISTINCT CAST(d.detected_at / 86400000 AS INTEGER)) AS \"det_days!: i64\"\n               FROM detections d\n               JOIN labels l ON l.id = d.label_id\n               WHERE d.detected_at >= $1\n                 AND d.detected_at <= $2\n                 AND d.confidence >= $3\n                 AND l.scientific_name IS NOT NULL\n                 AND l.scientific_name LIKE '% %'\n               GROUP BY l.scientific_name",
+  "describe": {
+    "columns": [
+      {
+        "name": "scientific_name!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "det_days!: i64",
+        "ordinal": 1,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      true,
+      null
+    ]
+  },
+  "hash": "acae061903e09fa2198c195c5420c6ca7fe804288bdc58d5aaa2848b9d370d60"
+}

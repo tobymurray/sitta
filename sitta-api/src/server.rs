@@ -204,6 +204,12 @@ pub struct SnippetRetention {
     pub per_species_per_day_recent: u32,
     /// Per-(species, UTC-day) "top M by confidence" quota.
     pub per_species_per_day_top_confidence: u32,
+    /// Trailing-30-day distinct-detection-day threshold under which a
+    /// species is treated as low-density (retention boost without a
+    /// rarity flag). 0 disables the boost.
+    pub low_density_max_days: u32,
+    /// Retention multiplier applied to low-density clips.
+    pub low_density_multiplier: u32,
 }
 
 /// Build the axum router with all routes.

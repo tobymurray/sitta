@@ -112,6 +112,8 @@ struct AudioHealthRetention {
     high_score_multiplier: u32,
     per_species_per_day_recent: u32,
     per_species_per_day_top_confidence: u32,
+    low_density_max_days: u32,
+    low_density_multiplier: u32,
 }
 
 #[derive(Serialize)]
@@ -256,6 +258,8 @@ pub(super) async fn audio_health_handler(
             high_score_multiplier: r.high_score_multiplier,
             per_species_per_day_recent: r.per_species_per_day_recent,
             per_species_per_day_top_confidence: r.per_species_per_day_top_confidence,
+            low_density_max_days: r.low_density_max_days,
+            low_density_multiplier: r.low_density_multiplier,
         });
 
     let tiers_row = state

@@ -1,5 +1,7 @@
 //! Audio snippet path management for the retention worker.
 
+use std::collections::HashMap;
+
 use super::Database;
 
 /// One day's worth of detection counts split by whether a clip was saved.
@@ -75,6 +77,41 @@ impl Database {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// For every species detected within `[since_ms, now_ms]` at confidence
+    /// `>= min_confidence`, return the count of distinct UTC days it was
+    /// detected on. The retention worker uses this to mark species below a
+    /// "detection-day density" threshold as low-density — they get a
+    /// retention boost even without a rarity flag.
+    ///
+    /// Only "real" species are returned (`scientific_name LIKE '% %'`), so
+    /// Perch's ambient pseudo-labels can't bias the density count.
+    pub async fn species_detection_day_counts(
+        &self,
+        since_ms: i64,
+        now_ms: i64,
+        min_confidence: f64,
+    ) -> Result<HashMap<String, i64>, crate::StoreError> {
+        let rows = sqlx::query!(
+            r#"SELECT l.scientific_name AS "scientific_name!",
+                      COUNT(DISTINCT CAST(d.detected_at / 86400000 AS INTEGER)) AS "det_days!: i64"
+               FROM detections d
+               JOIN labels l ON l.id = d.label_id
+               WHERE d.detected_at >= $1
+                 AND d.detected_at <= $2
+                 AND d.confidence >= $3
+                 AND l.scientific_name IS NOT NULL
+                 AND l.scientific_name LIKE '% %'
+               GROUP BY l.scientific_name"#,
+            since_ms,
+            now_ms,
+            min_confidence,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|r| (r.scientific_name, r.det_days)).collect())
     }
 
     /// Clear the snippet path for a detection (after retention cleanup).

@@ -124,6 +124,30 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
     </div>
   </div>
 
+  <!-- Detection Persistence -->
+  <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
+    <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-1">Detection Persistence</h3>
+    <p class="text-xs text-gray-400 dark:text-plumage-500 mb-4">Perch labels non-bird sounds — <code class="bg-gray-100 dark:bg-plumage-800 px-1 rounded">Animal</code>, <code class="bg-gray-100 dark:bg-plumage-800 px-1 rounded">Vehicle</code>, <code class="bg-gray-100 dark:bg-plumage-800 px-1 rounded">Bark</code>, <code class="bg-gray-100 dark:bg-plumage-800 px-1 rounded">voice</code>, <code class="bg-gray-100 dark:bg-plumage-800 px-1 rounded">Music</code>, …. These detections fire from pets, road traffic, household activity, etc., and can dominate clip storage on a noisy station.</p>
+    <div class="space-y-3">
+      <div class="flex items-center justify-between">
+        <div>
+          <label class="text-sm font-medium text-gray-700 dark:text-plumage-300">Skip clips for non-species labels</label>
+          <p class="text-xs text-gray-400 dark:text-plumage-500 mt-0.5">Don't save WAV files for environment detections. Detection rows still land in the DB so you can audit Perch's classifier behavior.</p>
+        </div>
+        <input name="skip_environment_clips" type="checkbox" {skip_environment_clips_checked}
+          class="h-4 w-4 rounded border-gray-300 text-nuthatch-600 focus:ring-nuthatch-500 ml-4 flex-shrink-0">
+      </div>
+      <div class="flex items-center justify-between">
+        <div>
+          <label class="text-sm font-medium text-gray-700 dark:text-plumage-300">Skip detections for non-species labels</label>
+          <p class="text-xs text-gray-400 dark:text-plumage-500 mt-0.5">Stronger: don't even record the detection. Saves DB writes during noisy hours and keeps the rare/alert feeds clean. Disable this if you want to debug Perch's environment classifier.</p>
+        </div>
+        <input name="skip_environment_detections" type="checkbox" {skip_environment_detections_checked}
+          class="h-4 w-4 rounded border-gray-300 text-nuthatch-600 focus:ring-nuthatch-500 ml-4 flex-shrink-0">
+      </div>
+    </div>
+  </div>
+
   <!-- Detection Confirmation -->
   <div class="bg-white dark:bg-plumage-900 rounded-xl border border-gray-200 dark:border-plumage-800 p-5">
     <h3 class="text-sm font-semibold text-gray-900 dark:text-plumage-100 uppercase tracking-wider mb-1">Detection Confirmation</h3>
@@ -262,6 +286,8 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
     }}
     // Checkboxes: unchecked inputs are absent from FormData; set explicitly.
     body.show_range_unverified = form.querySelector('[name=show_range_unverified]').checked;
+    body.skip_environment_clips = form.querySelector('[name=skip_environment_clips]').checked;
+    body.skip_environment_detections = form.querySelector('[name=skip_environment_detections]').checked;
 
     try {{
       const res = await fetch('/api/v1/settings', {{
@@ -506,6 +532,8 @@ pub fn settings_content(settings: &RuntimeSettings, initial: &InitialConfig) -> 
         display_min_confidence = display_min_confidence,
         species_image_url = settings.species_image_url.as_deref().unwrap_or(""),
         show_range_unverified_checked = if settings.show_range_unverified { "checked" } else { "" },
+        skip_environment_clips_checked = if settings.skip_environment_clips { "checked" } else { "" },
+        skip_environment_detections_checked = if settings.skip_environment_detections { "checked" } else { "" },
         presence_min = presence_min,
         presence_window = presence_window,
         presence_immediate = presence_immediate,

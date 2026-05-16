@@ -43,11 +43,25 @@ pub struct RuntimeSettings {
     /// None = disabled (all detections require N hits). Example: 0.90.
     #[serde(default)]
     pub presence_immediate_threshold: Option<f32>,
+    /// Skip saving WAV clips for non-species labels — Perch's ambient-sound
+    /// classes like "Animal", "Vehicle", "Bark", "voice", etc. The
+    /// detection row still lands in the DB (so you can see what Perch
+    /// tagged as a vacuum cleaner); only the audio is dropped. Default: true.
+    #[serde(default = "default_skip_environment_clips")]
+    pub skip_environment_clips: bool,
+    /// Stronger filter: don't even record the detection row for non-species
+    /// labels. Cuts noisy hours' DB write rate and keeps the rare/alert
+    /// feeds clean. Default: false (you can flip this on after confirming
+    /// `skip_environment_clips` is doing what you want).
+    #[serde(default = "default_skip_environment_detections")]
+    pub skip_environment_detections: bool,
 }
 
 fn default_show_range_unverified() -> bool { true }
 fn default_presence_min_detections() -> u32 { 2 }
 fn default_presence_window_minutes() -> u32 { 10 }
+fn default_skip_environment_clips() -> bool { true }
+fn default_skip_environment_detections() -> bool { false }
 
 /// Partial update for PUT /api/v1/settings.
 /// All fields are optional — only present fields are applied.
@@ -69,6 +83,8 @@ pub struct SettingsUpdate {
     pub presence_min_detections: Option<u32>,
     pub presence_window_minutes: Option<u32>,
     pub presence_immediate_threshold: Option<f32>,
+    pub skip_environment_clips: Option<bool>,
+    pub skip_environment_detections: Option<bool>,
 }
 
 /// Read-only config snapshot for values that require a restart to change.
@@ -254,6 +270,18 @@ pub fn apply_update(current: &RuntimeSettings, update: &SettingsUpdate) -> (Runt
         merged.presence_immediate_threshold = Some(v);
         changed.push("presence_immediate_threshold");
     }
+    if let Some(v) = update.skip_environment_clips
+        && v != merged.skip_environment_clips
+    {
+        merged.skip_environment_clips = v;
+        changed.push("skip_environment_clips");
+    }
+    if let Some(v) = update.skip_environment_detections
+        && v != merged.skip_environment_detections
+    {
+        merged.skip_environment_detections = v;
+        changed.push("skip_environment_detections");
+    }
 
     (merged, changed)
 }
@@ -285,6 +313,8 @@ pub fn persist_to_toml(path: &Path, settings: &RuntimeSettings) -> Result<(), St
     if let Some(api) = doc.get_mut("api").and_then(|v| v.as_table_mut()) {
         api["display_min_confidence"] = toml_edit::value(f64::from(settings.display_min_confidence));
         api["show_range_unverified"] = toml_edit::value(settings.show_range_unverified);
+        api["skip_environment_clips"] = toml_edit::value(settings.skip_environment_clips);
+        api["skip_environment_detections"] = toml_edit::value(settings.skip_environment_detections);
     }
 
     // Presence confirmation — stored under [presence]

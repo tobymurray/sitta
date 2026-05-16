@@ -19,6 +19,8 @@ fn base_settings() -> RuntimeSettings {
         presence_min_detections: 2,
         presence_window_minutes: 10,
         presence_immediate_threshold: None,
+        skip_environment_clips: true,
+        skip_environment_detections: false,
     }
 }
 
@@ -40,6 +42,8 @@ fn empty_update() -> SettingsUpdate {
         presence_min_detections: None,
         presence_window_minutes: None,
         presence_immediate_threshold: None,
+        skip_environment_clips: None,
+        skip_environment_detections: None,
     }
 }
 
@@ -147,6 +151,8 @@ top_k = 10
         presence_min_detections: 2,
         presence_window_minutes: 10,
         presence_immediate_threshold: None,
+        skip_environment_clips: true,
+        skip_environment_detections: false,
     };
 
     persist_to_toml(&path, &settings).unwrap();
@@ -197,6 +203,37 @@ fn apply_presence_immediate_threshold() {
     let (merged, changed) = apply_update(&current, &update);
     assert_eq!(changed, vec!["presence_immediate_threshold"]);
     assert_eq!(merged.presence_immediate_threshold, Some(0.92));
+}
+
+#[test]
+fn apply_skip_environment_clips_toggle() {
+    // Default in base_settings is true; flip to false.
+    let current = base_settings();
+    let mut update = empty_update();
+    update.skip_environment_clips = Some(false);
+    let (merged, changed) = apply_update(&current, &update);
+    assert_eq!(changed, vec!["skip_environment_clips"]);
+    assert!(!merged.skip_environment_clips);
+}
+
+#[test]
+fn apply_skip_environment_clips_same_value_is_noop() {
+    // Setting the toggle to its current value shouldn't appear in `changed`.
+    let current = base_settings();
+    let mut update = empty_update();
+    update.skip_environment_clips = Some(true); // already true
+    let (_, changed) = apply_update(&current, &update);
+    assert!(changed.is_empty());
+}
+
+#[test]
+fn apply_skip_environment_detections_toggle() {
+    let current = base_settings();
+    let mut update = empty_update();
+    update.skip_environment_detections = Some(true);
+    let (merged, changed) = apply_update(&current, &update);
+    assert_eq!(changed, vec!["skip_environment_detections"]);
+    assert!(merged.skip_environment_detections);
 }
 
 #[test]
@@ -281,6 +318,8 @@ name = "Test"
         presence_min_detections: 2,
         presence_window_minutes: 10,
         presence_immediate_threshold: None,
+        skip_environment_clips: true,
+        skip_environment_detections: false,
     };
 
     // Should succeed — birdnet section missing is silently skipped.

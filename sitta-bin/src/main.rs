@@ -141,6 +141,8 @@ async fn main() -> Result<()> {
         presence_min_detections: config.presence.min_detections,
         presence_window_minutes: config.presence.window_minutes,
         presence_immediate_threshold: config.presence.immediate_threshold,
+        skip_environment_clips: config.api.skip_environment_clips,
+        skip_environment_detections: config.api.skip_environment_detections,
     };
     let settings = Arc::new(ArcSwap::from_pointee(runtime_settings));
 
@@ -359,6 +361,8 @@ async fn main() -> Result<()> {
                     high_score_multiplier: config.snippets.high_score_multiplier,
                     per_species_per_day_recent: config.snippets.per_species_per_day_recent,
                     per_species_per_day_top_confidence: config.snippets.per_species_per_day_top_confidence,
+                    low_density_max_days: config.snippets.low_density_max_days,
+                    low_density_multiplier: config.snippets.low_density_multiplier,
                 })
             } else {
                 None

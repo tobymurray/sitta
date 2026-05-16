@@ -206,6 +206,19 @@ pub struct SnippetConfig {
     /// Default 10.
     #[serde(default = "default_per_species_per_day_top_confidence")]
     pub per_species_per_day_top_confidence: u32,
+    /// A species with detections on at most this many distinct UTC days
+    /// in the trailing 30-day window is treated as "low density" — its
+    /// clips get a retention boost even if no rarity flag fires. Catches
+    /// the long tail of vagrants and migrants that show up briefly
+    /// without ever crossing the first-of-week / high-score thresholds.
+    /// Default 5. Set to 0 to disable the boost entirely.
+    #[serde(default = "default_low_density_max_days")]
+    pub low_density_max_days: u32,
+    /// Retention multiplier for low-density clips. Effectively a
+    /// "tier 1 if nothing else fired" floor. Default 2 (same as
+    /// [`Self::first_day_multiplier`]).
+    #[serde(default = "default_low_density_multiplier")]
+    pub low_density_multiplier: u32,
 }
 
 impl Default for SnippetConfig {
@@ -222,6 +235,8 @@ impl Default for SnippetConfig {
             high_score_multiplier: default_high_score_multiplier(),
             per_species_per_day_recent: default_per_species_per_day_recent(),
             per_species_per_day_top_confidence: default_per_species_per_day_top_confidence(),
+            low_density_max_days: default_low_density_max_days(),
+            low_density_multiplier: default_low_density_multiplier(),
         }
     }
 }
@@ -244,6 +259,17 @@ pub struct ApiConfig {
     /// Default: true.
     #[serde(default = "default_show_range_unverified")]
     pub show_range_unverified: bool,
+    /// Skip saving WAV clips for non-species labels (Perch's ambient-sound
+    /// classes — Animal, Vehicle, Bark, voice, …). The detection row still
+    /// lands in the DB; only the audio is dropped. Default: true.
+    #[serde(default = "default_skip_environment_clips")]
+    pub skip_environment_clips: bool,
+    /// Stronger: don't even record the detection row for non-species labels.
+    /// Default: false. Enable after confirming `skip_environment_clips` does
+    /// what you want, since dropping the row makes the filter invisible to
+    /// the dashboard's diagnostics.
+    #[serde(default = "default_skip_environment_detections")]
+    pub skip_environment_detections: bool,
 }
 
 impl Default for ApiConfig {
@@ -253,11 +279,15 @@ impl Default for ApiConfig {
             base_url: None,
             display_min_confidence: default_display_min_confidence(),
             show_range_unverified: true,
+            skip_environment_clips: default_skip_environment_clips(),
+            skip_environment_detections: default_skip_environment_detections(),
         }
     }
 }
 
 fn default_show_range_unverified() -> bool { true }
+fn default_skip_environment_clips() -> bool { true }
+fn default_skip_environment_detections() -> bool { false }
 
 
 
@@ -317,6 +347,12 @@ fn default_per_species_per_day_recent() -> u32 {
 }
 fn default_per_species_per_day_top_confidence() -> u32 {
     10
+}
+fn default_low_density_max_days() -> u32 {
+    5
+}
+fn default_low_density_multiplier() -> u32 {
+    2
 }
 fn default_birdnet_stride() -> f32 {
     1.0

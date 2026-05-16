@@ -189,6 +189,17 @@ pub async fn persist_detections(
         return;
     };
 
+    // Environment-label filters. The label is "environmental" (Perch's
+    // Animal / Vehicle / Bark / voice / Bass_drum etc.) when its top
+    // species name isn't a Linnaean binomial — same predicate the rarity
+    // gate uses. Two independent knobs gate persistence:
+    //   * skip_environment_detections: drop the row entirely
+    //   * skip_environment_clips:      keep the row, skip the WAV
+    let is_environment_label = !looks_like_species_name(&top.species.scientific_name);
+    if is_environment_label && ctx.settings.load().skip_environment_detections {
+        return;
+    }
+
     let detection_id = Uuid::now_v7();
     let detected_at = chunk.captured_at.timestamp_millis();
     let source_id = ctx.source_ids.get(&chunk.source_name);
@@ -220,8 +231,12 @@ pub async fn persist_detections(
         return;
     }
 
-    // Submit audio clip for async saving.
-    if let Some(ref writer) = ctx.snippet_writer {
+    // Submit audio clip for async saving — unless this is an environment
+    // label and the user has asked us to skip those.
+    let skip_clip = is_environment_label && ctx.settings.load().skip_environment_clips;
+    if !skip_clip
+        && let Some(ref writer) = ctx.snippet_writer
+    {
         writer.submit(crate::snippets::SnippetJob {
             detection_id,
             detected_at: chunk.captured_at,
@@ -405,6 +420,31 @@ pub async fn persist_detections(
     }
 }
 
+/// True when `s` looks like a Linnaean binomial — "Genus species" with a
+/// capitalised first word and a lowercase (optionally hyphenated) second
+/// word. Used to gate rarity scoring so Perch's ambient-sound pseudo-labels
+/// ("Animal", "Vehicle", "Bass" from "Bass_drum") can't masquerade as new
+/// species. Real species at runtime always arrive as proper binomials —
+/// either taxonomy-resolved or pulled from the BirdNET "Genus species_Common"
+/// label format.
+fn looks_like_species_name(s: &str) -> bool {
+    let mut parts = s.split_whitespace();
+    let Some(genus) = parts.next() else { return false };
+    let Some(species) = parts.next() else { return false };
+    if parts.next().is_some() {
+        return false;
+    }
+    let mut g = genus.chars();
+    let Some(first) = g.next() else { return false };
+    if !first.is_ascii_uppercase() {
+        return false;
+    }
+    if !g.all(|c| c.is_ascii_lowercase()) {
+        return false;
+    }
+    !species.is_empty() && species.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+}
+
 /// Compute rarity score for a detection.
 ///
 /// Components:
@@ -412,11 +452,20 @@ pub async fn persist_detections(
 ///     days since last detection, prior detection count.
 ///   - **Regional rarity**: inverted BirdNET meta-model location score (low score = rare).
 ///   - **Temporal rarity**: how unusual this hour-of-day is for the species.
+///
+/// Returns `None` for non-species labels (Perch's ambient-sound classes,
+/// Bass-from-"Bass_drum", etc.). Without this guard, `species_local_history`
+/// silently returns 0 for those, so every detection is flagged
+/// `first_ever=true` → 999× retention → pinned forever on disk.
 async fn compute_rarity(
     ctx: &PersistCtx,
     detected_at_ms: i64,
     scientific_name: &str,
 ) -> Option<RarityInfo> {
+    if !looks_like_species_name(scientific_name) {
+        return None;
+    }
+
     let station_bytes = ctx.station_id.as_bytes().as_slice();
     let min_conf = f64::from(ctx.settings.load().display_min_confidence);
 
@@ -448,8 +497,15 @@ async fn compute_rarity(
         let first_day = detection_date != last_date;
         let first_week = detection_date.iso_week() != last_date.iso_week()
             || detection_date.year() != last_date.year();
-        let first_season = meteorological_season(detection_date, ctx.station_latitude)
-            != meteorological_season(last_date, ctx.station_latitude);
+        // Compare season-instance, not bare season. Without the year
+        // component, a returning migrant (last seen in Spring 2026,
+        // detected again in Spring 2027) would compare `Spring == Spring`
+        // and never re-trigger `first_season`, costing it the 8× retention
+        // multiplier it had the year before. The (year, season) tuple
+        // distinguishes "this Spring" from "last Spring" while still
+        // grouping all three Dec-Feb months into one winter instance.
+        let first_season = season_instance(detection_date, ctx.station_latitude)
+            != season_instance(last_date, ctx.station_latitude);
 
         (first_season, first_week, first_day, Some(days))
     };
@@ -541,6 +597,33 @@ fn meteorological_season(date: NaiveDate, latitude: Option<f64>) -> u8 {
     } else {
         northern
     }
+}
+
+/// Returns a (season-year, season) tuple uniquely identifying the *instance*
+/// of meteorological season a date belongs to.
+///
+/// `meteorological_season` alone collapses every Spring (or Summer, …)
+/// into the same 0..3 bucket regardless of year, so a returning migrant
+/// — last seen in Spring 2026, detected again in Spring 2027 — sees
+/// `Spring == Spring` and is denied `first_season`. By pairing the
+/// season with a year, "Spring 2026" and "Spring 2027" become distinct
+/// instances and the migrant earns the 8× retention multiplier again.
+///
+/// The year component is the year the season "owns": the Dec-Feb winter
+/// (Northern) / summer (Southern) attaches all three months to the
+/// December year, so a 2026-12-15 and 2027-01-15 detection share one
+/// season-instance. Every other season uses the calendar year.
+fn season_instance(date: NaiveDate, latitude: Option<f64>) -> (i32, u8) {
+    let season = meteorological_season(date, latitude);
+    // January / February belong to the previous calendar year's
+    // Dec-starting season. Pulling them back by one year groups the
+    // three months into a single (year, season) bucket.
+    let year = if date.month() <= 2 {
+        date.year() - 1
+    } else {
+        date.year()
+    };
+    (year, season)
 }
 
 #[cfg(test)]
@@ -750,6 +833,66 @@ mod tests {
         assert_eq!(meteorological_season(jul, None), 1);
     }
 
+    // ── season_instance: (year, season) tuple for cross-year disambiguation
+    //
+    // The bug this guards against: a Woodcock detected in Spring 2026 and
+    // again in Spring 2027 was previously denied `first_season` because
+    // `meteorological_season` returned the same bucket for both. With the
+    // year component, "Spring 2026" and "Spring 2027" are distinct.
+
+    #[test]
+    fn season_instance_distinguishes_returning_spring_migrant() {
+        let lat = Some(44.0); // Northern hemisphere
+        let prev_spring = NaiveDate::from_ymd_opt(2026, 5, 16).unwrap();
+        let next_spring = NaiveDate::from_ymd_opt(2027, 4, 15).unwrap();
+        assert_ne!(
+            season_instance(prev_spring, lat),
+            season_instance(next_spring, lat),
+            "Returning spring migrant should re-trigger first_season"
+        );
+    }
+
+    #[test]
+    fn season_instance_groups_winter_across_calendar_year() {
+        // Dec 2026 and Jan/Feb 2027 are the same meteorological winter.
+        // Detections across them should share a season-instance so a bird
+        // singing all winter doesn't ratchet first_season at New Year's.
+        let lat = Some(44.0); // Northern hemisphere
+        let dec = NaiveDate::from_ymd_opt(2026, 12, 15).unwrap();
+        let jan = NaiveDate::from_ymd_opt(2027, 1, 15).unwrap();
+        let feb = NaiveDate::from_ymd_opt(2027, 2, 15).unwrap();
+        assert_eq!(season_instance(dec, lat), season_instance(jan, lat));
+        assert_eq!(season_instance(jan, lat), season_instance(feb, lat));
+    }
+
+    #[test]
+    fn season_instance_keeps_adjacent_seasons_distinct() {
+        // Within one year, Spring → Summer → Autumn must be three distinct
+        // instances (no off-by-one mishaps).
+        let lat = Some(44.0);
+        let spring = NaiveDate::from_ymd_opt(2026, 4, 15).unwrap();
+        let summer = NaiveDate::from_ymd_opt(2026, 7, 15).unwrap();
+        let autumn = NaiveDate::from_ymd_opt(2026, 10, 15).unwrap();
+        assert_ne!(season_instance(spring, lat), season_instance(summer, lat));
+        assert_ne!(season_instance(summer, lat), season_instance(autumn, lat));
+        assert_ne!(season_instance(spring, lat), season_instance(autumn, lat));
+    }
+
+    #[test]
+    fn season_instance_handles_southern_summer_year_wrap() {
+        // Southern hemisphere: Dec-Feb is *summer* (the year-wrapping
+        // season). Same grouping rule applies — Dec 2026 and Jan 2027
+        // share a summer-instance.
+        let lat = Some(-34.0);
+        let dec = NaiveDate::from_ymd_opt(2026, 12, 15).unwrap();
+        let jan = NaiveDate::from_ymd_opt(2027, 1, 15).unwrap();
+        assert_eq!(season_instance(dec, lat), season_instance(jan, lat));
+        // And a returning southern-summer migrant the year after must
+        // earn a fresh first_season.
+        let jan_next = NaiveDate::from_ymd_opt(2028, 1, 15).unwrap();
+        assert_ne!(season_instance(jan, lat), season_instance(jan_next, lat));
+    }
+
     #[test]
     fn local_score_first_ever() {
         assert_eq!(compute_local_score(true, true, true, true, None), 1.0);
@@ -776,5 +919,47 @@ mod tests {
     fn local_score_same_day() {
         let score = compute_local_score(false, false, false, false, Some(0));
         assert_eq!(score, 0.0);
+    }
+
+    // ── Species-name gate ─────────────────────────────────────────
+
+    #[test]
+    fn species_name_accepts_real_binomials() {
+        assert!(looks_like_species_name("Tyto alba"));
+        assert!(looks_like_species_name("Sayornis phoebe"));
+        assert!(looks_like_species_name("Vulpes vulpes"));
+        assert!(looks_like_species_name("Geothlypis trichas"));
+        // Hyphenated species epithet is legal Linnaean form.
+        assert!(looks_like_species_name("Picoides arcticus-borealis"));
+    }
+
+    #[test]
+    fn species_name_rejects_perch_ambient_labels() {
+        // Bare common-name pseudo-species ("Animal", "Vehicle", "Music") arrive
+        // as the raw label since they have no taxonomy match. All single token.
+        assert!(!looks_like_species_name("Animal"));
+        assert!(!looks_like_species_name("Vehicle"));
+        assert!(!looks_like_species_name("Music"));
+        assert!(!looks_like_species_name("Engine"));
+        // Compound non-species ("Bass_drum") split on '_' produces just "Bass".
+        assert!(!looks_like_species_name("Bass"));
+        assert!(!looks_like_species_name("Acoustic"));
+        // Empty / whitespace-only.
+        assert!(!looks_like_species_name(""));
+        assert!(!looks_like_species_name("   "));
+        // Three-or-more-word labels (subspecies trinomials are uncommon in
+        // these label sets; reject to stay conservative).
+        assert!(!looks_like_species_name("Setophaga coronata audubonii"));
+    }
+
+    #[test]
+    fn species_name_rejects_malformed_capitalisation() {
+        // Lowercase genus — not a valid binomial.
+        assert!(!looks_like_species_name("tyto alba"));
+        // Uppercase species epithet.
+        assert!(!looks_like_species_name("Tyto Alba"));
+        // Numbers / punctuation in the words.
+        assert!(!looks_like_species_name("Tyto alba2"));
+        assert!(!looks_like_species_name("Tyto alb@"));
     }
 }
