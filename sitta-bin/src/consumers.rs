@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
@@ -13,6 +15,58 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::persist::{self, PersistCtx};
+
+/// Logs detections at `info` on first occurrence or after the cooldown has
+/// elapsed, and at `debug` in between. Keyed by (source, scientific_name) so
+/// each audio source is tracked independently.
+struct DetectionLogger {
+    cooldown: Duration,
+    last_logged: Mutex<HashMap<(String, String), Instant>>,
+}
+
+impl DetectionLogger {
+    fn new(cooldown: Duration) -> Self {
+        Self {
+            cooldown,
+            last_logged: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn log(&self, source_name: &str, chunk_id: &Uuid, model_name: &str, detections: &[Classification]) {
+        let mut map = self.last_logged.lock().expect("detection logger poisoned");
+        let now = Instant::now();
+        for d in detections {
+            let key = (source_name.to_string(), d.species.scientific_name.clone());
+            let is_fresh = map.get(&key)
+                .map(|t| now.duration_since(*t) >= self.cooldown)
+                .unwrap_or(true);
+            if is_fresh {
+                map.insert(key, now);
+                tracing::info!(
+                    source = %source_name,
+                    chunk_id = %chunk_id,
+                    model = %model_name,
+                    species = %d.species.common_name,
+                    scientific_name = %d.species.scientific_name,
+                    taxon_code = d.species.taxon_code.as_deref().unwrap_or(""),
+                    confidence = format_args!("{:.3}", d.confidence),
+                    "Detection"
+                );
+            } else {
+                tracing::debug!(
+                    source = %source_name,
+                    chunk_id = %chunk_id,
+                    model = %model_name,
+                    species = %d.species.common_name,
+                    scientific_name = %d.species.scientific_name,
+                    taxon_code = d.species.taxon_code.as_deref().unwrap_or(""),
+                    confidence = format_args!("{:.3}", d.confidence),
+                    "Detection (repeated)"
+                );
+            }
+        }
+    }
+}
 
 /// Spawn a background task that buffers 48 kHz chunks, resamples to 32 kHz,
 /// and runs Perch inference on 5-second windows with 3-second stride.
@@ -29,6 +83,7 @@ pub fn spawn_perch_consumer(
 
     let model_display = model.name().to_string();
     let model_id = persist.model_ids.get(model.name()).copied();
+    let logger = DetectionLogger::new(Duration::from_secs(300));
 
     tokio::spawn(async move {
         let mut resampler = Fft::<f32>::new(48_000, 32_000, 1024, 2, 1, FixedSync::Both)
@@ -104,7 +159,7 @@ pub fn spawn_perch_consumer(
                                                 "No Perch detections above threshold"
                                             );
                                         } else {
-                                            log_detections(&window_chunk.source_name, &window_chunk.id, &model_display, &detections);
+                                            logger.log(&window_chunk.source_name, &window_chunk.id, &model_display, &detections);
                                             if let Some(mid) = model_id {
                                                 persist::persist_detections(
                                                     &persist,
@@ -185,6 +240,7 @@ pub fn spawn_birdnet_consumer(
 ) {
     let window_samples = config.window_samples;
     let stride_samples = config.stride_samples;
+    let logger = Arc::new(DetectionLogger::new(Duration::from_secs(300)));
     tokio::spawn(async move {
         let mut buf: Vec<f32> = Vec::with_capacity(window_samples * 2);
 
@@ -216,6 +272,7 @@ pub fn spawn_birdnet_consumer(
                                     &classifiers,
                                     range_filter.clone(),
                                     &persist,
+                                    &logger,
                                 )
                                 .await;
 
@@ -246,6 +303,7 @@ async fn handle_window(
     classifiers: &[Arc<dyn Classifier>],
     range_filter: Option<Arc<RangeFilter>>,
     persist: &PersistCtx,
+    logger: &DetectionLogger,
 ) {
     if classifiers.is_empty() {
         tracing::info!(
@@ -296,7 +354,7 @@ async fn handle_window(
                         "No detections above threshold"
                     );
                 } else {
-                    log_detections(&source_name, &chunk_id, &model_name, &detections);
+                    logger.log(&source_name, &chunk_id, &model_name, &detections);
                     if let Some(&model_id) = persist.model_ids.get(&model_name) {
                         persist::persist_detections(persist, model_id, &model_name, chunk, &detections, None).await;
                     }
@@ -321,22 +379,3 @@ async fn handle_window(
     }
 }
 
-fn log_detections(
-    source_name: &str,
-    chunk_id: &uuid::Uuid,
-    model_name: &str,
-    detections: &[Classification],
-) {
-    for d in detections {
-        tracing::info!(
-            source = %source_name,
-            chunk_id = %chunk_id,
-            model = %model_name,
-            species = %d.species.common_name,
-            scientific_name = %d.species.scientific_name,
-            taxon_code = d.species.taxon_code.as_deref().unwrap_or(""),
-            confidence = format_args!("{:.3}", d.confidence),
-            "Detection"
-        );
-    }
-}

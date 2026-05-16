@@ -3,6 +3,7 @@ id = "station_01"
 name = "North Feeder"
 latitude = 44.5868
 longitude = -76.0283
+timezone = "America/Toronto"
 
 [audio]
 chunk_seconds = 3
@@ -12,6 +13,16 @@ type = "rtsp"
 name = "north_feeder"
 url = "rtsp://192.168.1.132:8554/north_feeder"
 transport = "tcp"
+sample_rate = 48000
+channels = 1
+
+[[audio.sources]]
+type = "rtsp"
+name = "south_feeder"
+url = "rtsp://192.168.1.132:8554/south_feeder"
+transport = "tcp"
+sample_rate = 48000
+channels = 1
 # sample_rate = 48000
 # channels = 1
 
@@ -43,7 +54,7 @@ top_k = 10
 # Requires [station] latitude and longitude above.
 # Drops species with occurrence probability below meta_threshold for today's date.
 meta_model_path = "/home/toby/.local/share/birda/models/birdnet-v24-meta.onnx"
-meta_threshold = 0.01
+meta_threshold = 0.0010000000474974513
 
 
 # force_allow: eBird species codes that always pass the geographic filter,
@@ -104,3 +115,12 @@ ebird_path = "/home/toby/.local/share/birda/taxonomy/eBird-Clements_v2025-integr
 # high_score_multiplier                = 2      # rarity score >= 0.6
 # per_species_per_day_recent           = 10     # 0 with the next knob also 0 disables the quota
 # per_species_per_day_top_confidence   = 10
+
+[mqtt]
+host = "homeassistant.lan"
+port = 1883
+username = "birdnet"
+password = "birdnetpassword"
+first_of_day_min_confidence = 0.75
+homeassistant_discovery = true
+homeassistant_prefix = "homeassistant"
