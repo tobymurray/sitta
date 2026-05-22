@@ -103,11 +103,11 @@ ebird_path = "/home/toby/.local/share/birda/taxonomy/eBird-Clements_v2025-integr
 # Reviewed-correct and the rare tiers (first_ever, first_season,
 # first_week) are exempt from the quota.
 #
-# [snippets]
+[snippets]
+max_disk_mb = 30720    # 30 GB — comfortably fits 30 days at current quota plus rarity archive
 # enabled                              = true
 # clip_dir                             = "./clips"
 # retention_days                       = 30
-# max_disk_mb                          = 2048
 # first_ever_multiplier                = 999    # effectively forever
 # first_season_multiplier              = 8      # ~8 months at retention_days = 30
 # first_week_multiplier                = 4
